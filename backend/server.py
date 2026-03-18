@@ -83,7 +83,7 @@ class ItemBase(BaseModel):
     item_id: str
     item_name: str
     tracking_type: str  # individual, quantity
-    status: Optional[str] = "active"  # active, damaged, repair (for individual items)
+    status: Optional[str] = "active"  # active, damaged, repair, lost
     current_kit: Optional[str] = None  # kit_id (for individual items)
     category: Optional[str] = None  # ssd, glove, camera, imu, etc.
     total_capacity_gb: Optional[int] = None  # For SSDs
@@ -187,20 +187,20 @@ class Handover(BaseModel):
 
 # Assignment Models
 class AssignmentCreate(BaseModel):
-    user_id: str
     bnb_id: str
     kit_ids: List[str]  # Kits assigned to this BnB
     shift_date: str  # YYYY-MM-DD
-    shift_team: str  # morning, night
+    morning_team: List[str]  # List of user IDs for morning shift
+    night_team: List[str]  # List of user IDs for night shift
 
 class Assignment(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
-    user_id: str
     bnb_id: str
     kit_ids: List[str]
     shift_date: str
-    shift_team: str
+    morning_team: List[str]
+    night_team: List[str]
     created_at: str
 
 # Token Models
@@ -424,6 +424,43 @@ async def get_ssds(current_user: dict = Depends(get_current_user)):
     """Get all SSDs for shift tracking"""
     ssds = await db.items.find({"category": "ssd"}, {"_id": 0}).to_list(1000)
     return ssds
+
+@api_router.put("/items/{item_id}/report-lost")
+async def report_item_lost(item_id: str, notes: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    """Report an item as lost"""
+    item = await db.items.find_one({"item_id": item_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    # Update item status to lost
+    await db.items.update_one(
+        {"item_id": item_id},
+        {"$set": {"status": "lost"}}
+    )
+    
+    # Create event
+    event_dict = {
+        "id": f"event_{datetime.now(timezone.utc).timestamp()}",
+        "event_type": "lost",
+        "user_id": current_user["id"],
+        "from_kit": item.get("current_kit"),
+        "item_id": item_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "notes": notes or "Item reported as lost"
+    }
+    await db.events.insert_one(event_dict)
+    
+    # Notify supervisors
+    supervisors = await db.users.find({"role": "supervisor"}, {"_id": 0}).to_list(100)
+    for supervisor in supervisors:
+        await create_notification(
+            supervisor["id"],
+            f"Lost item reported: {item_id} by {current_user['name']}",
+            "lost",
+            event_dict["id"]
+        )
+    
+    return {"status": "success", "message": "Item reported as lost"}
 
 @api_router.get("/items/inventory")
 async def get_inventory(current_user: dict = Depends(get_current_user)):
@@ -730,7 +767,7 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/admin/assignments", response_model=Assignment)
 async def create_assignment(assignment: AssignmentCreate, current_user: dict = Depends(get_current_user)):
-    """Admin: Assign BnB and kits to user for a shift"""
+    """Admin: Assign BnB and kits with morning/night teams"""
     if current_user["role"] not in ["admin", "supervisor"]:
         raise HTTPException(status_code=403, detail="Admin access required")
     
@@ -740,14 +777,37 @@ async def create_assignment(assignment: AssignmentCreate, current_user: dict = D
     
     await db.assignments.insert_one(assignment_dict)
     
-    # Update user's assigned_bnb and shift_team
-    await db.users.update_one(
-        {"id": assignment.user_id},
-        {"$set": {
-            "assigned_bnb": assignment.bnb_id,
-            "shift_team": assignment.shift_team
-        }}
-    )
+    # Update all morning team users
+    for user_id in assignment.morning_team:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "assigned_bnb": assignment.bnb_id,
+                "shift_team": "morning"
+            }}
+        )
+        await create_notification(
+            user_id,
+            f"You've been assigned to {assignment.bnb_id} for {assignment.shift_date} (Morning shift)",
+            "assignment",
+            assignment_dict["id"]
+        )
+    
+    # Update all night team users
+    for user_id in assignment.night_team:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "assigned_bnb": assignment.bnb_id,
+                "shift_team": "night"
+            }}
+        )
+        await create_notification(
+            user_id,
+            f"You've been assigned to {assignment.bnb_id} for {assignment.shift_date} (Night shift)",
+            "assignment",
+            assignment_dict["id"]
+        )
     
     # Update kits to be assigned to this BnB
     for kit_id in assignment.kit_ids:
@@ -755,14 +815,6 @@ async def create_assignment(assignment: AssignmentCreate, current_user: dict = D
             {"kit_id": kit_id},
             {"$set": {"assigned_bnb": assignment.bnb_id}}
         )
-    
-    # Notify the assigned user
-    await create_notification(
-        assignment.user_id,
-        f"You've been assigned to {assignment.bnb_id} for {assignment.shift_date} ({assignment.shift_team} shift)",
-        "assignment",
-        assignment_dict["id"]
-    )
     
     return Assignment(**assignment_dict)
 
@@ -949,7 +1001,8 @@ async def seed_data():
         {"id": "kit_5", "kit_id": "KIT-05", "type": "kit", "status": "idle", "assigned_bnb": "BNB-02", "created_at": datetime.now(timezone.utc).isoformat()},
         {"id": "kit_6", "kit_id": "BNB-01", "type": "bnb", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()},
         {"id": "kit_7", "kit_id": "BNB-02", "type": "bnb", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()},
-        {"id": "kit_8", "kit_id": "STATION-01", "type": "station", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()}
+        {"id": "kit_8", "kit_id": "STATION-01", "type": "station", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_9", "kit_id": "DATA-CENTER", "type": "data_center", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()}
     ]
     await db.kits.insert_many(kits)
     
@@ -1072,20 +1125,20 @@ async def seed_data():
     assignments = [
         {
             "id": "assign_1",
-            "user_id": "user_1",
             "bnb_id": "BNB-01",
             "kit_ids": ["KIT-01", "KIT-02", "KIT-03"],
             "shift_date": today,
-            "shift_team": "morning",
+            "morning_team": ["user_1"],
+            "night_team": [],
             "created_at": datetime.now(timezone.utc).isoformat()
         },
         {
             "id": "assign_2",
-            "user_id": "user_2",
             "bnb_id": "BNB-02",
             "kit_ids": ["KIT-04", "KIT-05"],
             "shift_date": today,
-            "shift_team": "night",
+            "morning_team": [],
+            "night_team": ["user_2"],
             "created_at": datetime.now(timezone.utc).isoformat()
         }
     ]

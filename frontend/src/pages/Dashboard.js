@@ -156,23 +156,25 @@ export default function Dashboard() {
         </div>
 
         {/* Action Panel */}
-        <div className="mb-8">
-          <h2 className="text-xl font-semibold font-tactical text-slate-900 mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {actionButtons.map((btn) => (
-              <Button
-                key={btn.type}
-                data-testid={`action-${btn.type}-button`}
-                onClick={() => openEventDialog(btn.type)}
-                className={`h-24 flex flex-col items-center justify-center gap-2 border ${btn.color} font-medium hover:shadow-md transition-all duration-200`}
-                variant="outline"
-              >
-                <btn.icon className="w-6 h-6" strokeWidth={1.5} />
-                <span className="text-xs font-tactical">{btn.label}</span>
-              </Button>
-            ))}
+        {user?.role !== 'admin' && (
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold font-tactical text-slate-900 mb-4">Quick Actions</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {actionButtons.map((btn) => (
+                <Button
+                  key={btn.type}
+                  data-testid={`action-${btn.type}-button`}
+                  onClick={() => openEventDialog(btn.type)}
+                  className={`h-24 flex flex-col items-center justify-center gap-2 border ${btn.color} font-medium hover:shadow-md transition-all duration-200`}
+                  variant="outline"
+                >
+                  <btn.icon className="w-6 h-6" strokeWidth={1.5} />
+                  <span className="text-xs font-tactical">{btn.label}</span>
+                </Button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Quick Links */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
