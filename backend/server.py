@@ -42,8 +42,10 @@ api_router = APIRouter(prefix="/api")
 # User Models
 class UserBase(BaseModel):
     name: str
-    role: str  # deployer, station, supervisor
+    role: str  # deployer, station, supervisor, inventory_manager, admin
     default_kit: Optional[str] = None  # kit_id
+    assigned_bnb: Optional[str] = None  # bnb kit_id
+    shift_team: Optional[str] = None  # morning, night
 
 class UserCreate(UserBase):
     password: str
@@ -65,7 +67,8 @@ class UserResponse(UserBase):
 class KitBase(BaseModel):
     kit_id: str
     type: str  # kit, bnb, station
-    status: str  # active, idle
+    status: str  # active, idle, paused
+    assigned_bnb: Optional[str] = None  # For kits, which BnB they're assigned to
 
 class KitCreate(KitBase):
     pass
@@ -96,7 +99,7 @@ class Item(ItemBase):
 
 # Event Models
 class EventBase(BaseModel):
-    event_type: str  # start_shift, end_shift, activity, transfer, damage, assignment
+    event_type: str  # start_shift, end_shift, pause_kit, resume_kit, activity, transfer, damage, assignment
     user_id: str
     from_kit: Optional[str] = None
     to_kit: Optional[str] = None
@@ -151,6 +154,54 @@ class Notification(BaseModel):
     read: bool = False
     timestamp: str
     related_id: Optional[str] = None
+
+# Handover Models
+class HandoverChecklistItem(BaseModel):
+    item_id: str
+    checked: bool
+    notes: Optional[str] = None
+
+class HandoverCreate(BaseModel):
+    from_user_id: str
+    to_user_id: str
+    bnb_id: str
+    shift_date: str  # YYYY-MM-DD
+    shift_number: int  # 1, 2, 3, 4
+    kit_checklist: List[dict]  # List of {kit_id, items: [{item_id, checked, notes}]}
+    bnb_checklist: List[HandoverChecklistItem]
+    notes: Optional[str] = None
+
+class Handover(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    from_user_id: str
+    to_user_id: str
+    bnb_id: str
+    shift_date: str
+    shift_number: int
+    kit_checklist: List[dict]
+    bnb_checklist: List[dict]
+    notes: Optional[str] = None
+    status: str  # pending, completed
+    timestamp: str
+
+# Assignment Models
+class AssignmentCreate(BaseModel):
+    user_id: str
+    bnb_id: str
+    kit_ids: List[str]  # Kits assigned to this BnB
+    shift_date: str  # YYYY-MM-DD
+    shift_team: str  # morning, night
+
+class Assignment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    user_id: str
+    bnb_id: str
+    kit_ids: List[str]
+    shift_date: str
+    shift_team: str
+    created_at: str
 
 # Token Models
 class Token(BaseModel):
@@ -543,6 +594,38 @@ async def create_event(event: EventCreate, current_user: dict = Depends(get_curr
                         event_dict["id"]
                     )
     
+    if event.event_type == "pause_kit":
+        # Update kit status to paused
+        if event.from_kit:
+            await db.kits.update_one(
+                {"kit_id": event.from_kit},
+                {"$set": {"status": "paused"}}
+            )
+            
+            user = await db.users.find_one({"id": event.user_id}, {"_id": 0})
+            await notify_kit_owners(
+                event.from_kit,
+                f"Kit paused by {user['name']} - Break",
+                "shift",
+                event_dict["id"]
+            )
+    
+    if event.event_type == "resume_kit":
+        # Update kit status back to active
+        if event.from_kit:
+            await db.kits.update_one(
+                {"kit_id": event.from_kit},
+                {"$set": {"status": "active"}}
+            )
+            
+            user = await db.users.find_one({"id": event.user_id}, {"_id": 0})
+            await notify_kit_owners(
+                event.from_kit,
+                f"Kit resumed by {user['name']}",
+                "shift",
+                event_dict["id"]
+            )
+    
     return Event(**event_dict)
 
 # ========================
@@ -642,6 +725,161 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
     return {"count": count}
 
 # ========================
+# ADMIN ROUTES
+# ========================
+
+@api_router.post("/admin/assignments", response_model=Assignment)
+async def create_assignment(assignment: AssignmentCreate, current_user: dict = Depends(get_current_user)):
+    """Admin: Assign BnB and kits to user for a shift"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    assignment_dict = assignment.model_dump()
+    assignment_dict["id"] = f"assign_{datetime.now(timezone.utc).timestamp()}"
+    assignment_dict["created_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.assignments.insert_one(assignment_dict)
+    
+    # Update user's assigned_bnb and shift_team
+    await db.users.update_one(
+        {"id": assignment.user_id},
+        {"$set": {
+            "assigned_bnb": assignment.bnb_id,
+            "shift_team": assignment.shift_team
+        }}
+    )
+    
+    # Update kits to be assigned to this BnB
+    for kit_id in assignment.kit_ids:
+        await db.kits.update_one(
+            {"kit_id": kit_id},
+            {"$set": {"assigned_bnb": assignment.bnb_id}}
+        )
+    
+    # Notify the assigned user
+    await create_notification(
+        assignment.user_id,
+        f"You've been assigned to {assignment.bnb_id} for {assignment.shift_date} ({assignment.shift_team} shift)",
+        "assignment",
+        assignment_dict["id"]
+    )
+    
+    return Assignment(**assignment_dict)
+
+@api_router.get("/admin/assignments")
+async def get_assignments(
+    shift_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all assignments, optionally filtered by date"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    query = {}
+    if shift_date:
+        query["shift_date"] = shift_date
+    
+    assignments = await db.assignments.find(query, {"_id": 0}).sort("shift_date", -1).to_list(1000)
+    return assignments
+
+@api_router.get("/my-bnb/dashboard")
+async def get_my_bnb_dashboard(current_user: dict = Depends(get_current_user)):
+    """Get dashboard view for associate's assigned BnB"""
+    if not current_user.get("assigned_bnb"):
+        raise HTTPException(status_code=404, detail="No BnB assigned to you")
+    
+    bnb_id = current_user["assigned_bnb"]
+    
+    # Get BnB details
+    bnb = await db.kits.find_one({"kit_id": bnb_id}, {"_id": 0})
+    
+    # Get all kits assigned to this BnB
+    kits = await db.kits.find({"assigned_bnb": bnb_id, "type": "kit"}, {"_id": 0}).to_list(1000)
+    
+    # Get today's assignment
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assignment = await db.assignments.find_one({
+        "bnb_id": bnb_id,
+        "shift_date": today
+    }, {"_id": 0})
+    
+    # Get recent events for this BnB and its kits
+    kit_ids = [kit["kit_id"] for kit in kits]
+    recent_events = await db.events.find({
+        "$or": [
+            {"from_kit": {"$in": [bnb_id] + kit_ids}},
+            {"to_kit": {"$in": [bnb_id] + kit_ids}}
+        ]
+    }, {"_id": 0}).sort("timestamp", -1).limit(20).to_list(20)
+    
+    return {
+        "bnb": bnb,
+        "kits": kits,
+        "assignment": assignment,
+        "recent_events": recent_events,
+        "shift_team": current_user.get("shift_team")
+    }
+
+# ========================
+# HANDOVER ROUTES
+# ========================
+
+@api_router.post("/handovers", response_model=Handover)
+async def create_handover(handover: HandoverCreate, current_user: dict = Depends(get_current_user)):
+    """Create shift handover checklist"""
+    handover_dict = handover.model_dump()
+    handover_dict["id"] = f"handover_{datetime.now(timezone.utc).timestamp()}"
+    handover_dict["status"] = "pending"
+    handover_dict["timestamp"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.handovers.insert_one(handover_dict)
+    
+    # Notify the receiving user
+    await create_notification(
+        handover.to_user_id,
+        f"Shift handover from {current_user['name']} for {handover.bnb_id}",
+        "handover",
+        handover_dict["id"]
+    )
+    
+    return Handover(**handover_dict)
+
+@api_router.get("/handovers")
+async def get_handovers(
+    bnb_id: Optional[str] = None,
+    shift_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get handovers filtered by BnB or date"""
+    query = {}
+    if bnb_id:
+        query["bnb_id"] = bnb_id
+    if shift_date:
+        query["shift_date"] = shift_date
+    
+    handovers = await db.handovers.find(query, {"_id": 0}).sort("timestamp", -1).to_list(1000)
+    return handovers
+
+@api_router.put("/handovers/{handover_id}/complete")
+async def complete_handover(handover_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark handover as completed"""
+    await db.handovers.update_one(
+        {"id": handover_id},
+        {"$set": {"status": "completed"}}
+    )
+    
+    handover = await db.handovers.find_one({"id": handover_id}, {"_id": 0})
+    if handover:
+        await create_notification(
+            handover["from_user_id"],
+            f"Handover completed by {current_user['name']}",
+            "handover",
+            handover_id
+        )
+    
+    return {"status": "success"}
+
+# ========================
 # SEED DATA ROUTE
 # ========================
 
@@ -664,6 +902,8 @@ async def seed_data():
             "name": "John Deployer",
             "role": "deployer",
             "default_kit": "KIT-01",
+            "assigned_bnb": "BNB-01",
+            "shift_team": "morning",
             "password_hash": get_password_hash("password123"),
             "created_at": datetime.now(timezone.utc).isoformat()
         },
@@ -671,7 +911,9 @@ async def seed_data():
             "id": "user_2",
             "name": "Sarah Station",
             "role": "station",
-            "default_kit": "BNB-01",
+            "default_kit": "KIT-04",
+            "assigned_bnb": "BNB-02",
+            "shift_team": "night",
             "password_hash": get_password_hash("password123"),
             "created_at": datetime.now(timezone.utc).isoformat()
         },
@@ -679,15 +921,19 @@ async def seed_data():
             "id": "user_3",
             "name": "Mike Supervisor",
             "role": "supervisor",
-            "default_kit": "STATION-01",
+            "default_kit": None,
+            "assigned_bnb": None,
+            "shift_team": None,
             "password_hash": get_password_hash("password123"),
             "created_at": datetime.now(timezone.utc).isoformat()
         },
         {
             "id": "user_4",
             "name": "Admin Manager",
-            "role": "inventory_manager",
+            "role": "admin",
             "default_kit": None,
+            "assigned_bnb": None,
+            "shift_team": None,
             "password_hash": get_password_hash("password123"),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
@@ -696,12 +942,14 @@ async def seed_data():
     
     # Create sample kits
     kits = [
-        {"id": "kit_1", "kit_id": "KIT-01", "type": "kit", "status": "active", "created_at": datetime.now(timezone.utc).isoformat()},
-        {"id": "kit_2", "kit_id": "KIT-02", "type": "kit", "status": "idle", "created_at": datetime.now(timezone.utc).isoformat()},
-        {"id": "kit_3", "kit_id": "KIT-03", "type": "kit", "status": "active", "created_at": datetime.now(timezone.utc).isoformat()},
-        {"id": "kit_4", "kit_id": "BNB-01", "type": "bnb", "status": "active", "created_at": datetime.now(timezone.utc).isoformat()},
-        {"id": "kit_5", "kit_id": "BNB-02", "type": "bnb", "status": "idle", "created_at": datetime.now(timezone.utc).isoformat()},
-        {"id": "kit_6", "kit_id": "STATION-01", "type": "station", "status": "active", "created_at": datetime.now(timezone.utc).isoformat()}
+        {"id": "kit_1", "kit_id": "KIT-01", "type": "kit", "status": "active", "assigned_bnb": "BNB-01", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_2", "kit_id": "KIT-02", "type": "kit", "status": "idle", "assigned_bnb": "BNB-01", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_3", "kit_id": "KIT-03", "type": "kit", "status": "active", "assigned_bnb": "BNB-01", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_4", "kit_id": "KIT-04", "type": "kit", "status": "active", "assigned_bnb": "BNB-02", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_5", "kit_id": "KIT-05", "type": "kit", "status": "idle", "assigned_bnb": "BNB-02", "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_6", "kit_id": "BNB-01", "type": "bnb", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_7", "kit_id": "BNB-02", "type": "bnb", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()},
+        {"id": "kit_8", "kit_id": "STATION-01", "type": "station", "status": "active", "assigned_bnb": None, "created_at": datetime.now(timezone.utc).isoformat()}
     ]
     await db.kits.insert_many(kits)
     
@@ -818,6 +1066,30 @@ async def seed_data():
         }
     ]
     await db.requests.insert_many(requests)
+    
+    # Create sample assignments
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    assignments = [
+        {
+            "id": "assign_1",
+            "user_id": "user_1",
+            "bnb_id": "BNB-01",
+            "kit_ids": ["KIT-01", "KIT-02", "KIT-03"],
+            "shift_date": today,
+            "shift_team": "morning",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "id": "assign_2",
+            "user_id": "user_2",
+            "bnb_id": "BNB-02",
+            "kit_ids": ["KIT-04", "KIT-05"],
+            "shift_date": today,
+            "shift_team": "night",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    ]
+    await db.assignments.insert_many(assignments)
     
     return {"status": "success", "message": "Sample data seeded successfully"}
 

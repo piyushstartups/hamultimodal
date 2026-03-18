@@ -10,6 +10,8 @@ import Events from "./pages/Events";
 import Requests from "./pages/Requests";
 import Damage from "./pages/Damage";
 import Notifications from "./pages/Notifications";
+import MyBnB from "./pages/MyBnB";
+import AdminPanel from "./pages/AdminPanel";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -81,6 +83,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Notifications />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-bnb"
+              element={
+                <ProtectedRoute>
+                  <MyBnB />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute>
+                  <AdminPanel />
                 </ProtectedRoute>
               }
             />

@@ -176,6 +176,24 @@ export default function Dashboard() {
 
         {/* Quick Links */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {(user?.role === 'deployer' || user?.assigned_bnb) && (
+            <a href="/my-bnb" className="block">
+              <div data-testid="nav-my-bnb" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                <h3 className="font-semibold font-tactical text-slate-900 mb-2">My BnB</h3>
+                <p className="text-sm text-slate-600">View your assigned BnB & kits</p>
+              </div>
+            </a>
+          )}
+          
+          {(user?.role === 'admin' || user?.role === 'supervisor') && (
+            <a href="/admin" className="block">
+              <div data-testid="nav-admin" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                <h3 className="font-semibold font-tactical text-slate-900 mb-2">Admin Panel</h3>
+                <p className="text-sm text-slate-600">Manage assignments & teams</p>
+              </div>
+            </a>
+          )}
+          
           <a href="/inventory" className="block">
             <div data-testid="nav-inventory" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
               <h3 className="font-semibold font-tactical text-slate-900 mb-2">Inventory View</h3>
