@@ -1,23 +1,29 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
-import { ArrowLeft, RefreshCw, Clock, CheckCircle, Timer, Play } from 'lucide-react';
+import { Input } from '../components/ui/input';
+import { ArrowLeft, RefreshCw, Clock, CheckCircle, Timer, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function LiveDashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => {
     fetchData();
-    // Auto-refresh every 15 seconds for live data
-    const interval = setInterval(fetchData, 15000);
+    const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedDate]);
 
   const fetchData = async () => {
     try {
-      const response = await api.get('/dashboard/live');
+      const params = isAdmin ? `?date=${selectedDate}` : '';
+      const response = await api.get(`/dashboard/live${params}`);
       setData(response.data);
       setLastUpdate(new Date());
     } catch (error) {
@@ -27,14 +33,24 @@ export default function LiveDashboard() {
     }
   };
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-
   const formatDuration = (hours) => {
     if (!hours) return '0h 0m';
     const h = Math.floor(hours);
     const m = Math.round((hours - h) * 60);
     return `${h}h ${m}m`;
   };
+
+  const changeDate = (days) => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(d.toISOString().split('T')[0]);
+    setLoading(true);
+  };
+
+  const isToday = selectedDate === new Date().toISOString().split('T')[0];
+  const displayDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
+    weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' 
+  });
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -49,7 +65,7 @@ export default function LiveDashboard() {
             </a>
             <div>
               <h1 className="text-lg font-bold text-slate-900">Live Dashboard</h1>
-              <p className="text-sm text-slate-600">{today}</p>
+              <p className="text-sm text-slate-600">{isToday ? 'Today' : displayDate}</p>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={fetchData} data-testid="refresh-btn">
@@ -60,16 +76,44 @@ export default function LiveDashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Date Selector - Admin only for historical view */}
+        {isAdmin && (
+          <div className="bg-white rounded-xl border p-4">
+            <div className="flex items-center justify-between">
+              <Button variant="ghost" size="icon" onClick={() => changeDate(-1)} data-testid="prev-date">
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => { setSelectedDate(e.target.value); setLoading(true); }}
+                  className="w-44"
+                  data-testid="date-picker"
+                />
+                {!isToday && (
+                  <Button variant="outline" size="sm" onClick={() => { setSelectedDate(new Date().toISOString().split('T')[0]); setLoading(true); }}>
+                    Today
+                  </Button>
+                )}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => changeDate(1)} disabled={isToday} data-testid="next-date">
+                <ChevronRight className="w-5 h-5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Auto-note */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700">
+          <Timer className="w-4 h-4 inline mr-2" />
+          All durations are <strong>automatically calculated</strong> from shift logs
+        </div>
+
         {loading ? (
           <div className="text-center py-12 text-slate-500">Loading...</div>
         ) : data ? (
           <>
-            {/* Auto-note */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700">
-              <Timer className="w-4 h-4 inline mr-2" />
-              All durations are <strong>automatically calculated</strong> from shift start/stop times
-            </div>
-
             {/* Overall Stats */}
             <div className="grid grid-cols-3 gap-4">
               <div className="bg-white rounded-xl border p-5" data-testid="total-hours-card">
@@ -115,12 +159,12 @@ export default function LiveDashboard() {
               </div>
             </div>
 
-            {/* Per BnB - Hours Logged */}
+            {/* Per BnB */}
             <div>
               <h2 className="text-lg font-semibold text-slate-900 mb-3">Hours per BnB</h2>
               {(!data.per_bnb || data.per_bnb.length === 0) ? (
                 <div className="bg-white rounded-xl border p-6 text-center text-slate-500">
-                  No deployments today
+                  No data for this date
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -165,37 +209,12 @@ export default function LiveDashboard() {
                       </div>
                       <div className="text-right">
                         <p className="font-bold text-green-600">{formatDuration(shift.total_duration_hours)}</p>
-                        <p className="text-xs text-slate-400">
-                          {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                        </p>
+                        {shift.end_time && (
+                          <p className="text-xs text-slate-400">
+                            {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Recent Events */}
-            {data.recent_events && data.recent_events.length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 mb-3">Recent Activity</h2>
-                <div className="bg-white rounded-xl border divide-y">
-                  {data.recent_events.map((event) => (
-                    <div key={event.id} className="px-4 py-3 flex items-center justify-between" data-testid={`event-${event.id}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          event.event_type === 'transfer' ? 'bg-blue-100 text-blue-800' :
-                          event.event_type === 'damage' ? 'bg-red-100 text-red-800' :
-                          'bg-slate-100 text-slate-800'
-                        }`}>
-                          {event.event_type}
-                        </span>
-                        <span className="text-sm text-slate-900">{event.user_name}</span>
-                        {event.kit && <span className="text-sm text-slate-500">• {event.kit}</span>}
-                      </div>
-                      <span className="text-xs text-slate-400">
-                        {new Date(event.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
                     </div>
                   ))}
                 </div>
@@ -205,7 +224,7 @@ export default function LiveDashboard() {
             {/* Last Update */}
             {lastUpdate && (
               <p className="text-xs text-slate-400 text-center">
-                Auto-refreshes every 15 seconds • Last: {lastUpdate.toLocaleTimeString()}
+                Auto-refreshes every 30 seconds • Last: {lastUpdate.toLocaleTimeString()}
               </p>
             )}
           </>

@@ -7,7 +7,8 @@ import {
   Package, 
   FileText,
   Settings,
-  LogOut
+  LogOut,
+  TrendingUp
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -15,8 +16,8 @@ export default function Dashboard() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'deployment_manager';
 
-  // Admin sees: Deployments (calendar), Live Dashboard, Inventory, Requests, Admin Panel
-  // Manager sees: Deployments (calendar), Actions, Live Dashboard, Inventory, Requests
+  // Admin sees: Deployments (calendar), Live Dashboard, Analytics, Inventory, Requests, Admin Panel
+  // Manager sees: Deployments (calendar), Actions, Live Dashboard, Analytics, Inventory, Requests
 
   const navItems = [];
 
@@ -30,6 +31,9 @@ export default function Dashboard() {
 
   // Live Dashboard - for everyone
   navItems.push({ href: '/live', icon: BarChart3, label: 'Live Dashboard', desc: "Today's hours", color: 'bg-purple-500' });
+
+  // Analytics - for everyone
+  navItems.push({ href: '/analytics', icon: TrendingUp, label: 'Analytics', desc: 'Historical data', color: 'bg-indigo-500' });
 
   // Inventory - for everyone
   navItems.push({ href: '/inventory', icon: Package, label: 'Inventory', desc: 'View items & status', color: 'bg-amber-500' });
@@ -48,10 +52,10 @@ export default function Dashboard() {
       <header className="bg-white border-b">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-slate-900">OPS MANAGEMENT</h1>
+            <h1 className="text-lg font-bold text-slate-900">HA MULTIMODAL MANAGEMENT</h1>
             <p className="text-sm text-slate-600">{user?.name} • {user?.role}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={logout}>
+          <Button variant="ghost" size="icon" onClick={logout} data-testid="logout-btn">
             <LogOut className="w-5 h-5" />
           </Button>
         </div>

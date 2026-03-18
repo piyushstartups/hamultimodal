@@ -10,6 +10,7 @@ import MyDeployments from "./pages/MyDeployments";
 import Deployments from "./pages/Deployments";
 import Actions from "./pages/Actions";
 import LiveDashboard from "./pages/LiveDashboard";
+import Analytics from "./pages/Analytics";
 import Inventory from "./pages/Inventory";
 import Requests from "./pages/Requests";
 import AdminPanel from "./pages/AdminPanel";
@@ -38,6 +39,7 @@ function App() {
           <Route path="/deployments" element={<ProtectedRoute><Deployments /></ProtectedRoute>} />
           <Route path="/actions" element={<ProtectedRoute><Actions /></ProtectedRoute>} />
           <Route path="/live" element={<ProtectedRoute><LiveDashboard /></ProtectedRoute>} />
+          <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
           <Route path="/requests" element={<ProtectedRoute><Requests /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />

@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 import jwt
@@ -827,29 +827,30 @@ async def update_request(request_id: str, status: str, user: dict = Depends(get_
     return {"status": "updated"}
 
 # ========================
-# LIVE DASHBOARD (TODAY ONLY) - AUTO-CALCULATED FROM SHIFTS
+# LIVE DASHBOARD - WITH DATE RANGE SUPPORT
 # ========================
 
 @app.get("/api/dashboard/live")
-async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+async def get_live_dashboard(
+    date: Optional[str] = None,
+    user: dict = Depends(get_current_user_dep())
+):
+    """Get dashboard data for a specific date (defaults to today)"""
+    target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
-    # Get today's COMPLETED shifts (auto-calculated durations)
+    # Get shifts for the target date
     completed_shifts = await db.shifts.find(
-        {"start_time": {"$regex": f"^{today}"}, "status": "completed"},
+        {"date": target_date, "status": "completed"},
         {"_id": 0}
     ).to_list(500)
     
-    # Get today's ACTIVE shifts
     active_shifts = await db.shifts.find(
-        {"start_time": {"$regex": f"^{today}"}, "status": {"$in": ["active", "paused"]}},
+        {"date": target_date, "status": {"$in": ["active", "paused"]}},
         {"_id": 0}
     ).to_list(50)
     
-    # Get today's deployments
-    deployments = await db.deployments.find({"date": today}, {"_id": 0}).to_list(50)
+    deployments = await db.deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
     
-    # Calculate total hours from COMPLETED shifts (system-calculated, not user input)
     total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in completed_shifts)
     
     # Map kits to BnBs
@@ -858,7 +859,7 @@ async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
         for kit in dep.get("assigned_kits", []):
             kit_to_bnb[kit] = dep["bnb"]
     
-    # Per BnB stats - hours from completed shifts
+    # Per BnB stats
     bnb_stats = {}
     for dep in deployments:
         bnb = dep["bnb"]
@@ -870,38 +871,112 @@ async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
                 "active_shifts": 0
             }
     
-    # Add hours from completed shifts
     for shift in completed_shifts:
-        kit = shift.get("kit")
-        bnb = kit_to_bnb.get(kit)
+        bnb = shift.get("bnb") or kit_to_bnb.get(shift.get("kit"))
         if bnb and bnb in bnb_stats:
             bnb_stats[bnb]["hours_logged"] += shift.get("total_duration_hours", 0) or 0
     
-    # Count active shifts per BnB
     for shift in active_shifts:
-        kit = shift.get("kit")
-        bnb = kit_to_bnb.get(kit)
+        bnb = shift.get("bnb") or kit_to_bnb.get(shift.get("kit"))
         if bnb and bnb in bnb_stats:
             bnb_stats[bnb]["active_shifts"] += 1
     
-    # Round hours
     for bnb in bnb_stats:
         bnb_stats[bnb]["hours_logged"] = round(bnb_stats[bnb]["hours_logged"], 2)
     
-    # Get recent events for activity feed
     events = await db.events.find(
-        {"timestamp": {"$regex": f"^{today}"}},
+        {"timestamp": {"$regex": f"^{target_date}"}},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(10)
     
     return {
-        "date": today,
+        "date": target_date,
         "total_hours": round(total_hours, 2),
         "total_shifts_completed": len(completed_shifts),
         "total_shifts_active": len(active_shifts),
         "per_bnb": list(bnb_stats.values()),
         "recent_shifts": completed_shifts[:5],
         "recent_events": events
+    }
+
+# ========================
+# ANALYTICS DASHBOARD - DATE RANGE SUPPORT
+# ========================
+
+@app.get("/api/analytics")
+async def get_analytics(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: dict = Depends(get_current_user_dep())
+):
+    """Get analytics for a date range (defaults to last 7 days)"""
+    today = datetime.now(timezone.utc)
+    
+    if not end_date:
+        end_date = today.strftime("%Y-%m-%d")
+    if not start_date:
+        start_date = (today - timedelta(days=6)).strftime("%Y-%m-%d")
+    
+    # Get all completed shifts in date range
+    shifts = await db.shifts.find(
+        {
+            "date": {"$gte": start_date, "$lte": end_date},
+            "status": "completed"
+        },
+        {"_id": 0}
+    ).to_list(2000)
+    
+    # Total hours
+    total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in shifts)
+    
+    # Hours per BnB
+    hours_per_bnb = {}
+    for shift in shifts:
+        bnb = shift.get("bnb", "Unknown")
+        if bnb not in hours_per_bnb:
+            hours_per_bnb[bnb] = 0
+        hours_per_bnb[bnb] += shift.get("total_duration_hours", 0) or 0
+    
+    # Hours per activity type
+    hours_per_activity = {}
+    for shift in shifts:
+        activity = shift.get("activity_type", "other")
+        if activity not in hours_per_activity:
+            hours_per_activity[activity] = 0
+        hours_per_activity[activity] += shift.get("total_duration_hours", 0) or 0
+    
+    # Daily trend
+    daily_hours = {}
+    for shift in shifts:
+        day = shift.get("date", "")
+        if day not in daily_hours:
+            daily_hours[day] = 0
+        daily_hours[day] += shift.get("total_duration_hours", 0) or 0
+    
+    # Sort and format
+    daily_trend = [
+        {"date": day, "hours": round(hours, 2)}
+        for day, hours in sorted(daily_hours.items())
+    ]
+    
+    bnb_breakdown = [
+        {"bnb": bnb, "hours": round(hours, 2)}
+        for bnb, hours in sorted(hours_per_bnb.items(), key=lambda x: -x[1])
+    ]
+    
+    activity_breakdown = [
+        {"activity": act, "hours": round(hours, 2)}
+        for act, hours in sorted(hours_per_activity.items(), key=lambda x: -x[1])
+    ]
+    
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "total_hours": round(total_hours, 2),
+        "total_shifts": len(shifts),
+        "hours_per_bnb": bnb_breakdown,
+        "hours_per_activity": activity_breakdown,
+        "daily_trend": daily_trend
     }
 
 # ========================

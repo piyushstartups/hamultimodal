@@ -297,11 +297,22 @@ export default function Deployments() {
 
   const handlePauseShift = async (kit) => {
     const shift = kitShifts[kit];
-    if (!shift) return;
+    if (!shift) {
+      toast.error('No active shift found for this kit');
+      return;
+    }
     try {
-      await api.post(`/shifts/${shift.id}/pause`);
+      const response = await api.post(`/shifts/${shift.id}/pause`);
+      // Immediately update local state
+      setKitShifts(prev => ({
+        ...prev,
+        [kit]: response.data
+      }));
       toast.success('Shift paused');
-      fetchKitShifts(expandedDeployment);
+      
+      if (expandedDeployment) {
+        await fetchKitShifts(expandedDeployment);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to pause');
     }
@@ -309,11 +320,22 @@ export default function Deployments() {
 
   const handleResumeShift = async (kit) => {
     const shift = kitShifts[kit];
-    if (!shift) return;
+    if (!shift) {
+      toast.error('No paused shift found for this kit');
+      return;
+    }
     try {
-      await api.post(`/shifts/${shift.id}/resume`);
+      const response = await api.post(`/shifts/${shift.id}/resume`);
+      // Immediately update local state
+      setKitShifts(prev => ({
+        ...prev,
+        [kit]: response.data
+      }));
       toast.success('Shift resumed');
-      fetchKitShifts(expandedDeployment);
+      
+      if (expandedDeployment) {
+        await fetchKitShifts(expandedDeployment);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to resume');
     }
@@ -321,14 +343,30 @@ export default function Deployments() {
 
   const handleStopShift = async (kit) => {
     const shift = kitShifts[kit];
-    if (!shift) return;
+    if (!shift) {
+      toast.error('No active shift found for this kit');
+      return;
+    }
     if (!confirm('Stop this shift? Duration will be calculated automatically.')) return;
     
     try {
       const response = await api.post(`/shifts/${shift.id}/stop`);
-      toast.success(`Shift completed! Duration: ${formatDuration(response.data.total_duration_hours)}`);
-      fetchKitShifts(expandedDeployment);
+      const updatedShift = response.data;
+      
+      // Immediately update local state with the completed shift
+      setKitShifts(prev => ({
+        ...prev,
+        [kit]: updatedShift
+      }));
+      
+      toast.success(`Shift completed! Duration: ${formatDuration(updatedShift.total_duration_hours)}`);
+      
+      // Also refetch to ensure consistency
+      if (expandedDeployment) {
+        await fetchKitShifts(expandedDeployment);
+      }
     } catch (error) {
+      console.error('Stop shift error:', error);
       toast.error(error.response?.data?.detail || 'Failed to stop shift');
     }
   };
