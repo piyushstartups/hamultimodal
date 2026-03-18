@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -11,477 +10,421 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import { toast } from 'sonner';
-import { Users, Package, Calendar, Plus, Settings } from 'lucide-react';
-import Layout from '../components/Layout';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
-import { AddBnBDialog, AddUserDialog, ChangePasswordDialog } from '../components/AdminDialogs';
+import { toast } from 'sonner';
+import { ArrowLeft, Plus, Trash2, Users, MapPin, Package, Box, Calendar } from 'lucide-react';
 
 export default function AdminPanel() {
-  const { user } = useAuth();
-  const [users, setUsers] = useState([]);
-  const [kits, setKits] = useState([]);
-  const [bnbs, setBnbs] = useState([]);
-  const [assignments, setAssignments] = useState([]);
+  const [activeTab, setActiveTab] = useState('deployments');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [addBnBOpen, setAddBnBOpen] = useState(false);
-  const [addUserOpen, setAddUserOpen] = useState(false);
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dialogType, setDialogType] = useState('');
   
-  const [assignmentForm, setAssignmentForm] = useState({
-    bnb_id: '',
-    kit_ids: [],
-    shift_date: new Date().toISOString().split('T')[0],
-    morning_team: [],
-    night_team: []
-  });
+  // Data
+  const [users, setUsers] = useState([]);
+  const [bnbs, setBnbs] = useState([]);
+  const [kits, setKits] = useState([]);
+  const [items, setItems] = useState([]);
+  const [deployments, setDeployments] = useState([]);
+  
+  // Form data
+  const [formData, setFormData] = useState({});
 
   useEffect(() => {
-    if (user?.role !== 'admin' && user?.role !== 'supervisor') {
-      toast.error('Admin access required');
-      window.location.href = '/dashboard';
-      return;
-    }
-    fetchData();
-  }, [user]);
+    fetchAll();
+  }, []);
 
-  useEffect(() => {
-    if (selectedDate) {
-      fetchAssignments();
-    }
-  }, [selectedDate]);
-
-  const fetchData = async () => {
+  const fetchAll = async () => {
     try {
-      const [usersRes, kitsRes] = await Promise.all([
+      const [usersRes, bnbsRes, kitsRes, itemsRes, depsRes] = await Promise.all([
         api.get('/users'),
+        api.get('/bnbs'),
         api.get('/kits'),
+        api.get('/items'),
+        api.get('/deployments')
       ]);
       setUsers(usersRes.data);
+      setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
-      setBnbs(kitsRes.data.filter(k => k.type === 'bnb'));
+      setItems(itemsRes.data);
+      setDeployments(depsRes.data);
     } catch (error) {
-      toast.error('Failed to load data');
+      console.error(error);
     }
   };
 
-  const fetchAssignments = async () => {
-    try {
-      const response = await api.get(`/admin/assignments?shift_date=${selectedDate}`);
-      setAssignments(response.data);
-    } catch (error) {
-      console.error('Failed to fetch assignments:', error);
-    }
+  const openDialog = (type) => {
+    setDialogType(type);
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      shift: 'morning',
+      assigned_kits: [],
+      assigned_users: [],
+      status: 'active',
+      tracking_type: 'individual',
+      role: 'deployment_manager'
+    });
+    setDialogOpen(true);
   };
 
-  const handleCreateAssignment = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!assignmentForm.bnb_id) {
-      toast.error('Please select a BnB');
-      return;
-    }
-    
-    if (assignmentForm.kit_ids.length === 0) {
-      toast.error('Please assign at least one kit');
-      return;
-    }
-    
-    if (assignmentForm.morning_team.length === 0 && assignmentForm.night_team.length === 0) {
-      toast.error('Please add at least one team member to either shift');
-      return;
-    }
-    
     try {
-      await api.post('/admin/assignments', assignmentForm);
-      toast.success('Assignment created successfully');
+      switch (dialogType) {
+        case 'user':
+          await api.post('/users', formData);
+          break;
+        case 'bnb':
+          await api.post('/bnbs', formData);
+          break;
+        case 'kit':
+          await api.post('/kits', formData);
+          break;
+        case 'item':
+          await api.post('/items', formData);
+          break;
+        case 'deployment':
+          await api.post('/deployments', formData);
+          break;
+      }
+      toast.success('Created successfully');
       setDialogOpen(false);
-      fetchAssignments();
-      fetchData();
-      setAssignmentForm({
-        bnb_id: '',
-        kit_ids: [],
-        shift_date: new Date().toISOString().split('T')[0],
-        morning_team: [],
-        night_team: []
-      });
+      fetchAll();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create assignment');
+      toast.error(error.response?.data?.detail || 'Failed to create');
     }
   };
 
-  const getAvailableKits = () => {
-    return kits.filter(k => k.type === 'kit' && (!k.assigned_bnb || k.assigned_bnb === assignmentForm.bnb_id));
-  };
-
-  const getAvailableUsers = () => {
-    return users.filter(u => u.role === 'deployer' || u.role === 'station');
-  };
-
-  const toggleKitSelection = (kitId) => {
-    setAssignmentForm(prev => ({
-      ...prev,
-      kit_ids: prev.kit_ids.includes(kitId)
-        ? prev.kit_ids.filter(id => id !== kitId)
-        : [...prev.kit_ids, kitId]
-    }));
-  };
-
-  const addToMorningTeam = (userId) => {
-    if (!assignmentForm.morning_team.includes(userId)) {
-      setAssignmentForm(prev => ({
-        ...prev,
-        morning_team: [...prev.morning_team, userId],
-        night_team: prev.night_team.filter(id => id !== userId) // Remove from night if exists
-      }));
+  const handleDelete = async (type, id) => {
+    if (!confirm('Delete this item?')) return;
+    try {
+      await api.delete(`/${type}/${id}`);
+      toast.success('Deleted');
+      fetchAll();
+    } catch (error) {
+      toast.error('Failed to delete');
     }
   };
 
-  const removeFromMorningTeam = (userId) => {
-    setAssignmentForm(prev => ({
-      ...prev,
-      morning_team: prev.morning_team.filter(id => id !== userId)
-    }));
-  };
+  const tabs = [
+    { id: 'deployments', label: 'Deployments', icon: Calendar },
+    { id: 'users', label: 'Users', icon: Users },
+    { id: 'bnbs', label: 'BnBs', icon: MapPin },
+    { id: 'kits', label: 'Kits', icon: Box },
+    { id: 'items', label: 'Items', icon: Package },
+  ];
 
-  const addToNightTeam = (userId) => {
-    if (!assignmentForm.night_team.includes(userId)) {
-      setAssignmentForm(prev => ({
-        ...prev,
-        night_team: [...prev.night_team, userId],
-        morning_team: prev.morning_team.filter(id => id !== userId) // Remove from morning if exists
-      }));
-    }
-  };
-
-  const removeFromNightTeam = (userId) => {
-    setAssignmentForm(prev => ({
-      ...prev,
-      night_team: prev.night_team.filter(id => id !== userId)
-    }));
-  };
-
-  const getUserName = (userId) => {
-    return users.find(u => u.id === userId)?.name || userId;
-  };
-
-  return (
-    <Layout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold font-tactical text-slate-900">Admin Panel</h1>
-        <p className="text-sm text-slate-600 mt-1">Human Archive - Daily BnB assignments and team allocation</p>
-      </div>
-
-      {/* Date Selector & Action Buttons */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Label>Viewing Date:</Label>
-          <Input
-            type="date"
-            data-testid="date-selector"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-48"
-          />
-        </div>
-        <div className="flex gap-3">
-          <Button
-            onClick={() => setAddBnBOpen(true)}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add BnB/Kit
-          </Button>
-          <Button
-            onClick={() => setAddUserOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            <Users className="w-4 h-4 mr-2" />
-            Add User
-          </Button>
-          <Button
-            data-testid="new-assignment-btn"
-            onClick={() => setDialogOpen(true)}
-            className="bg-slate-900 hover:bg-slate-800"
-          >
-            <Calendar className="w-4 h-4 mr-2" />
-            New Assignment
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <Users className="w-5 h-5 text-blue-600" />
-            <h3 className="font-semibold font-tactical text-slate-900">Field Users</h3>
-          </div>
-          <p className="text-3xl font-bold text-blue-600">{getAvailableUsers().length}</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <Package className="w-5 h-5 text-green-600" />
-            <h3 className="font-semibold font-tactical text-slate-900">Total BnBs</h3>
-          </div>
-          <p className="text-3xl font-bold text-green-600">{bnbs.length}</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <Calendar className="w-5 h-5 text-amber-600" />
-            <h3 className="font-semibold font-tactical text-slate-900">Today's Assignments</h3>
-          </div>
-          <p className="text-3xl font-bold text-amber-600">{assignments.length}</p>
-        </div>
-      </div>
-
-      {/* Assignments Table */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6">
-        <h2 className="text-lg font-semibold font-tactical text-slate-900 mb-4">
-          Assignments for {selectedDate}
-        </h2>
-        {assignments.length > 0 ? (
-          <div className="space-y-4">
-            {assignments.map((assignment) => (
-              <div
-                key={assignment.id}
-                data-testid={`assignment-${assignment.id}`}
-                className="border border-slate-200 rounded-lg p-5"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="font-semibold text-lg text-slate-900 font-tactical">{assignment.bnb_id}</h3>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Kits: <span className="font-data font-medium">{assignment.kit_ids.join(', ')}</span>
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="border border-amber-200 rounded-lg p-4 bg-amber-50">
-                    <h4 className="text-sm font-semibold font-tactical text-amber-900 mb-2">MORNING SHIFT</h4>
-                    {assignment.morning_team && assignment.morning_team.length > 0 ? (
-                      <ul className="space-y-1">
-                        {assignment.morning_team.map(userId => (
-                          <li key={userId} className="text-sm text-slate-700">• {getUserName(userId)}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-slate-500 italic">No team assigned</p>
-                    )}
-                  </div>
-                  
-                  <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
-                    <h4 className="text-sm font-semibold font-tactical text-blue-900 mb-2">NIGHT SHIFT</h4>
-                    {assignment.night_team && assignment.night_team.length > 0 ? (
-                      <ul className="space-y-1">
-                        {assignment.night_team.map(userId => (
-                          <li key={userId} className="text-sm text-slate-700">• {getUserName(userId)}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-slate-500 italic">No team assigned</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-center text-slate-500 py-8">No assignments for this date</p>
-        )}
-      </div>
-
-      {/* New Assignment Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="font-tactical text-xl">Create New Assignment</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreateAssignment} className="space-y-5 mt-4">
-            {/* Step 1: Select BnB */}
-            <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
-              <h3 className="font-semibold font-tactical text-slate-900 mb-3">Step 1: Select BnB</h3>
-              <Select
-                value={assignmentForm.bnb_id}
-                onValueChange={(val) => setAssignmentForm({ ...assignmentForm, bnb_id: val, kit_ids: [] })}
-                required
-              >
-                <SelectTrigger data-testid="bnb-select">
-                  <SelectValue placeholder="Select BnB location" />
-                </SelectTrigger>
+  const renderForm = () => {
+    switch (dialogType) {
+      case 'user':
+        return (
+          <>
+            <div>
+              <Label>Name *</Label>
+              <Input value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="mt-1" required />
+            </div>
+            <div>
+              <Label>Role *</Label>
+              <Select value={formData.role} onValueChange={(v) => setFormData({ ...formData, role: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {bnbs.map(bnb => (
-                    <SelectItem key={bnb.kit_id} value={bnb.kit_id}>{bnb.kit_id}</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="deployment_manager">Deployment Manager</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Password *</Label>
+              <Input type="password" value={formData.password || ''} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="mt-1" required />
+            </div>
+          </>
+        );
+      case 'bnb':
+        return (
+          <>
+            <div>
+              <Label>Name *</Label>
+              <Input value={formData.name || ''} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="mt-1" placeholder="BnB-01" required />
+            </div>
+            <div>
+              <Label>Status</Label>
+              <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        );
+      case 'kit':
+        return (
+          <>
+            <div>
+              <Label>Kit ID *</Label>
+              <Input value={formData.kit_id || ''} onChange={(e) => setFormData({ ...formData, kit_id: e.target.value })} className="mt-1" placeholder="KIT-01" required />
+            </div>
+            <div>
+              <Label>Status</Label>
+              <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        );
+      case 'item':
+        return (
+          <>
+            <div>
+              <Label>Item Name *</Label>
+              <Input value={formData.item_name || ''} onChange={(e) => setFormData({ ...formData, item_name: e.target.value })} className="mt-1" placeholder="Camera-01" required />
+            </div>
+            <div>
+              <Label>Tracking Type</Label>
+              <Select value={formData.tracking_type} onValueChange={(v) => setFormData({ ...formData, tracking_type: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="individual">Individual</SelectItem>
+                  <SelectItem value="quantity">Quantity</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Current Kit (optional)</Label>
+              <Select value={formData.current_kit || ''} onValueChange={(v) => setFormData({ ...formData, current_kit: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {kits.map(k => <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        );
+      case 'deployment':
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Date *</Label>
+                <Input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} className="mt-1" required />
+              </div>
+              <div>
+                <Label>Shift *</Label>
+                <Select value={formData.shift} onValueChange={(v) => setFormData({ ...formData, shift: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="morning">Morning</SelectItem>
+                    <SelectItem value="evening">Evening</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>BnB *</Label>
+              <Select value={formData.bnb || ''} onValueChange={(v) => setFormData({ ...formData, bnb: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select BnB" /></SelectTrigger>
+                <SelectContent>
+                  {bnbs.map(b => <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Deployment Manager *</Label>
+              <Select value={formData.deployment_manager || ''} onValueChange={(v) => setFormData({ ...formData, deployment_manager: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select manager" /></SelectTrigger>
+                <SelectContent>
+                  {users.filter(u => u.role === 'deployment_manager' || u.role === 'admin').map(u => (
+                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-
-            {/* Step 2: Assign Kits */}
-            {assignmentForm.bnb_id && (
-              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
-                <h3 className="font-semibold font-tactical text-slate-900 mb-3">Step 2: Assign Kits to BnB</h3>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {getAvailableKits().map(kit => (
-                    <label key={kit.kit_id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-2 rounded">
-                      <input
-                        type="checkbox"
-                        checked={assignmentForm.kit_ids.includes(kit.kit_id)}
-                        onChange={() => toggleKitSelection(kit.kit_id)}
-                        className="w-4 h-4"
-                      />
-                      <span className="text-sm font-data">{kit.kit_id}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">{assignmentForm.kit_ids.length} kit(s) selected</p>
-              </div>
-            )}
-
-            {/* Step 3: Morning Team */}
-            <div className="border border-amber-200 rounded-lg p-4 bg-amber-50">
-              <h3 className="font-semibold font-tactical text-amber-900 mb-3">Step 3: Morning Shift Team (Optional)</h3>
-              <div className="mb-3">
-                <Select onValueChange={addToMorningTeam}>
-                  <SelectTrigger data-testid="morning-team-select">
-                    <SelectValue placeholder="Add team member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {getAvailableUsers()
-                      .filter(u => !assignmentForm.morning_team.includes(u.id) && !assignmentForm.night_team.includes(u.id))
-                      .map(u => (
-                        <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                {assignmentForm.morning_team.map(userId => (
-                  <div key={userId} className="flex items-center justify-between bg-white p-2 rounded border border-amber-200">
-                    <span className="text-sm">{getUserName(userId)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeFromMorningTeam(userId)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-                {assignmentForm.morning_team.length === 0 && (
-                  <p className="text-sm text-slate-500 italic">No team members added</p>
-                )}
-              </div>
-            </div>
-
-            {/* Step 4: Night Team */}
-            <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
-              <h3 className="font-semibold font-tactical text-blue-900 mb-3">Step 4: Night Shift Team (Optional)</h3>
-              <div className="mb-3">
-                <Select onValueChange={addToNightTeam}>
-                  <SelectTrigger data-testid="night-team-select">
-                    <SelectValue placeholder="Add team member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {getAvailableUsers()
-                      .filter(u => !assignmentForm.morning_team.includes(u.id) && !assignmentForm.night_team.includes(u.id))
-                      .map(u => (
-                        <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                {assignmentForm.night_team.map(userId => (
-                  <div key={userId} className="flex items-center justify-between bg-white p-2 rounded border border-blue-200">
-                    <span className="text-sm">{getUserName(userId)}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeFromNightTeam(userId)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-                {assignmentForm.night_team.length === 0 && (
-                  <p className="text-sm text-slate-500 italic">No team members added</p>
-                )}
-              </div>
-            </div>
-
-            {/* Date */}
             <div>
-              <Label>Assignment Date</Label>
-              <Input
-                type="date"
-                data-testid="shift-date-input"
-                value={assignmentForm.shift_date}
-                onChange={(e) => setAssignmentForm({ ...assignmentForm, shift_date: e.target.value })}
-                className="mt-2"
-                required
-              />
+              <Label>Kits</Label>
+              <p className="text-xs text-slate-500 mb-2">Click to select</p>
+              <div className="flex flex-wrap gap-2">
+                {kits.map(k => (
+                  <button
+                    key={k.kit_id}
+                    type="button"
+                    onClick={() => {
+                      const arr = formData.assigned_kits || [];
+                      setFormData({
+                        ...formData,
+                        assigned_kits: arr.includes(k.kit_id) ? arr.filter(x => x !== k.kit_id) : [...arr, k.kit_id]
+                      });
+                    }}
+                    className={`px-3 py-1 text-sm rounded border ${
+                      (formData.assigned_kits || []).includes(k.kit_id)
+                        ? 'bg-blue-500 text-white border-blue-500'
+                        : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {k.kit_id}
+                  </button>
+                ))}
+              </div>
             </div>
+          </>
+        );
+      default:
+        return null;
+    }
+  };
 
+  const getUserName = (id) => users.find(u => u.id === id)?.name || id;
+
+  return (
+    <div className="min-h-screen bg-slate-100">
+      {/* Header */}
+      <header className="bg-white border-b">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-4">
+          <a href="/dashboard">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+          </a>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">Admin Panel</h1>
+            <p className="text-sm text-slate-600">Manage system</p>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-4">
+        {/* Tabs */}
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {tabs.map((tab) => (
+            <Button
+              key={tab.id}
+              variant={activeTab === tab.id ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <tab.icon className="w-4 h-4 mr-2" />
+              {tab.label}
+            </Button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="bg-white rounded-xl border">
+          {/* Header */}
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <h2 className="font-semibold capitalize">{activeTab}</h2>
+            <Button size="sm" onClick={() => openDialog(activeTab === 'deployments' ? 'deployment' : activeTab.slice(0, -1))}>
+              <Plus className="w-4 h-4 mr-1" />
+              Add
+            </Button>
+          </div>
+
+          {/* List */}
+          <div className="divide-y max-h-[60vh] overflow-y-auto">
+            {activeTab === 'users' && users.map((u) => (
+              <div key={u.id} className="px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{u.name}</p>
+                  <p className="text-xs text-slate-500">{u.role}</p>
+                </div>
+                {u.role !== 'admin' && (
+                  <Button variant="ghost" size="icon" onClick={() => handleDelete('users', u.id)}>
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </Button>
+                )}
+              </div>
+            ))}
+
+            {activeTab === 'bnbs' && bnbs.map((b) => (
+              <div key={b.name} className="px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{b.name}</p>
+                  <p className="text-xs text-slate-500">{b.status}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => handleDelete('bnbs', b.name)}>
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </Button>
+              </div>
+            ))}
+
+            {activeTab === 'kits' && kits.map((k) => (
+              <div key={k.kit_id} className="px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{k.kit_id}</p>
+                  <p className="text-xs text-slate-500">{k.status}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => handleDelete('kits', k.kit_id)}>
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </Button>
+              </div>
+            ))}
+
+            {activeTab === 'items' && items.map((i) => (
+              <div key={i.item_name} className="px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{i.item_name}</p>
+                  <p className="text-xs text-slate-500">{i.tracking_type} • {i.status} {i.current_kit && `• @ ${i.current_kit}`}</p>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => handleDelete('items', i.item_name)}>
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </Button>
+              </div>
+            ))}
+
+            {activeTab === 'deployments' && deployments.map((d) => (
+              <div key={d.id} className="px-4 py-3 flex items-center justify-between">
+                <div>
+                  <p className="font-medium">{d.bnb} • {d.shift}</p>
+                  <p className="text-xs text-slate-500">{d.date} • {getUserName(d.deployment_manager)}</p>
+                  <div className="flex gap-1 mt-1">
+                    {d.assigned_kits?.map(k => (
+                      <span key={k} className="text-xs bg-blue-100 text-blue-800 px-1 rounded">{k}</span>
+                    ))}
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => handleDelete('deployments', d.id)}>
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </Button>
+              </div>
+            ))}
+
+            {activeTab === 'users' && users.length === 0 && <p className="p-4 text-center text-slate-500">No users</p>}
+            {activeTab === 'bnbs' && bnbs.length === 0 && <p className="p-4 text-center text-slate-500">No BnBs</p>}
+            {activeTab === 'kits' && kits.length === 0 && <p className="p-4 text-center text-slate-500">No kits</p>}
+            {activeTab === 'items' && items.length === 0 && <p className="p-4 text-center text-slate-500">No items</p>}
+            {activeTab === 'deployments' && deployments.length === 0 && <p className="p-4 text-center text-slate-500">No deployments</p>}
+          </div>
+        </div>
+      </main>
+
+      {/* Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add {dialogType}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            {renderForm()}
             <div className="flex gap-3 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDialogOpen(false)}
-                className="flex-1"
-              >
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button
-                data-testid="submit-assignment-btn"
-                type="submit"
-                className="flex-1 bg-slate-900 hover:bg-slate-800"
-              >
-                Create Assignment
+              <Button type="submit" className="flex-1">
+                Create
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
-
-      {/* Add BnB/Kit Dialog */}
-      <AddBnBDialog
-        open={addBnBOpen}
-        onClose={() => setAddBnBOpen(false)}
-        onSuccess={() => {
-          setAddBnBOpen(false);
-          fetchData();
-        }}
-      />
-
-      {/* Add User Dialog */}
-      <AddUserDialog
-        open={addUserOpen}
-        onClose={() => setAddUserOpen(false)}
-        onSuccess={() => {
-          setAddUserOpen(false);
-          fetchData();
-        }}
-      />
-
-      {/* Change Password Dialog */}
-      <ChangePasswordDialog
-        open={changePasswordOpen}
-        onClose={() => {
-          setChangePasswordOpen(false);
-          setSelectedUser(null);
-        }}
-        userId={selectedUser?.id}
-        userName={selectedUser?.name}
-      />
-    </Layout>
+    </div>
   );
 }
