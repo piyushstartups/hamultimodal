@@ -116,10 +116,27 @@ All inventory data is derived from logged events. Users record actions (events),
 - [ ] Dashboard analytics charts
 
 ## Last Updated
-2026-03-18 - Completed Inventory Management section, database performance optimization, Enhanced Shift Logging with inventory health checks
+2026-03-18 - Completed Phase 2: Deployment Planning Dashboard with calendar view, assignment management, and all CRUD operations
 
-## Recent Changes (Phase 1)
-### Enhanced Shift Logging
+## Recent Changes
+
+### Phase 2: Deployment Planning Dashboard
+- **Calendar/Week View** - Navigate between dates with 7-day week display
+- **Summary Stats** - Active BnBs, Deployed Kits, Workers Assigned, Shifts Logged
+- **Assignment Cards** - Display BnB with assigned kits and morning/night teams
+- **New Assignment Dialog** - Create daily deployments with:
+  - BnB location selection
+  - Multi-select kits to deploy
+  - Morning shift team selection
+  - Night shift team selection
+- **Edit/Delete Assignments** - Modify or remove existing assignments
+- **Backend Endpoints**:
+  - `GET /admin/deployment-summary` - Comprehensive daily summary
+  - `GET /admin/assignments/range` - Get assignments for date range
+  - `PUT /admin/assignments/{id}` - Update assignment
+  - `DELETE /admin/assignments/{id}` - Delete assignment
+
+### Phase 1: Enhanced Shift Logging
 - **End Shift form** now captures:
   - Hours recorded
   - Data category (cooking, cleaning, organizing, mixed, other)
