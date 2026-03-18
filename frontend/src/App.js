@@ -12,6 +12,7 @@ import Damage from "./pages/Damage";
 import Notifications from "./pages/Notifications";
 import MyBnB from "./pages/MyBnB";
 import AdminPanel from "./pages/AdminPanel";
+import Handover from "./pages/Handover";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -99,6 +100,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AdminPanel />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/handover"
+              element={
+                <ProtectedRoute>
+                  <Handover />
                 </ProtectedRoute>
               }
             />
