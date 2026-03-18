@@ -112,6 +112,9 @@ class EventBase(BaseModel):
     ssd_id: Optional[str] = None  # For shift start/end - which SSD
     ssd_space_gb: Optional[int] = None  # For shift end - available space on SSD
     notes: Optional[str] = None
+    # Enhanced shift logging fields
+    hours_recorded: Optional[float] = None  # Hours of data captured
+    data_category: Optional[str] = None  # cooking, cleaning, organizing, mixed, other
 
 class EventCreate(EventBase):
     pass

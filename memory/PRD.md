@@ -116,4 +116,21 @@ All inventory data is derived from logged events. Users record actions (events),
 - [ ] Dashboard analytics charts
 
 ## Last Updated
-2026-03-18 - Completed Inventory Management section and database performance optimization
+2026-03-18 - Completed Inventory Management section, database performance optimization, Enhanced Shift Logging with inventory health checks
+
+## Recent Changes (Phase 1)
+### Enhanced Shift Logging
+- **End Shift form** now captures:
+  - Hours recorded
+  - Data category (cooking, cleaning, organizing, mixed, other)
+  - SSD used and space available (GB)
+  - Inventory health check: Left Glove, Right Glove, Head Camera (OK/Wear/Damaged)
+  - Issues faced during shift
+  
+### Deployer UX Improvements
+- **Kits auto-filtered** to only show kits assigned to deployer's BnB
+- **SSDs auto-filtered** to show only SSDs at deployer's BnB location
+- Shows "Your BnB: [BNB-ID]" label for clarity
+
+### Font Update
+- Changed to DM Sans (Google Sans alternative) across entire app
