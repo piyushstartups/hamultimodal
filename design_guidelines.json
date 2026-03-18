@@ -1,0 +1,152 @@
+{
+  "project_name": "OpsInventory",
+  "design_philosophy": {
+    "identity": "E1: The Anti-AI Designer",
+    "core_concept": "Tactical Utility",
+    "emotional_tone": "Reliable, Efficient, Lucid",
+    "visual_style": "Minimalist Industrial - Clean lines, high legibility, status-forward",
+    "principles": [
+      "Mobile-First Ergonomics: Touch targets > 44px always.",
+      "Data Density vs. Clarity: High contrast for data, low contrast for structure.",
+      "State-Driven: Every item must show its status (Active, Idle, Damaged) instantly.",
+      "No Spreadsheet Vibes: Use cards, timelines, and visual indicators."
+    ]
+  },
+  "typography": {
+    "providers": [
+      {
+        "provider": "google",
+        "url": "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      }
+    ],
+    "headings": {
+      "family": "\"Barlow Condensed\", sans-serif",
+      "weights": "600, 700",
+      "usage": "Page titles, Card headers, Status labels",
+      "style": "uppercase tracking-wide"
+    },
+    "body": {
+      "family": "\"IBM Plex Sans\", sans-serif",
+      "weights": "400, 500",
+      "usage": "General text, form labels, descriptions"
+    },
+    "data": {
+      "family": "\"JetBrains Mono\", monospace",
+      "weights": "400",
+      "usage": "Serial numbers, timestamps, quantities, IDs"
+    }
+  },
+  "colors": {
+    "theme_mode": "light",
+    "palette": {
+      "background": {
+        "default": "#F8FAFC",
+        "paper": "#FFFFFF",
+        "subtle": "#F1F5F9"
+      },
+      "text": {
+        "primary": "#0F172A",
+        "secondary": "#64748B",
+        "muted": "#94A3B8"
+      },
+      "brand": {
+        "primary": "#0F172A",
+        "accent": "#334155"
+      },
+      "status": {
+        "active": "#16A34A",
+        "idle": "#D97706",
+        "damaged": "#DC2626",
+        "maintenance": "#2563EB",
+        "info": "#3B82F6"
+      },
+      "border": "#E2E8F0"
+    },
+    "gradients": {
+      "subtle_fade": "linear-gradient(to bottom, #F8FAFC, #FFFFFF)"
+    }
+  },
+  "layout_strategy": {
+    "grid_system": "Bento Grid (Dense)",
+    "mobile_first": true,
+    "containers": {
+      "main_wrapper": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6",
+      "card_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4",
+      "dashboard_layout": "grid grid-cols-1 lg:grid-cols-12 gap-6"
+    },
+    "spacing": {
+      "page_padding": "p-4 md:p-8",
+      "card_padding": "p-5",
+      "gap_standard": "gap-4"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-slate-900 text-white hover:bg-slate-800 h-12 rounded-lg font-medium shadow-sm transition-all active:scale-95",
+      "secondary": "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 h-12 rounded-lg font-medium",
+      "destructive": "bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 h-12 rounded-lg font-medium",
+      "ghost": "hover:bg-slate-100 text-slate-600 h-12 rounded-lg font-medium"
+    },
+    "cards": {
+      "base": "bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden",
+      "hoverable": "hover:shadow-md transition-shadow duration-200 cursor-pointer",
+      "stat_card": "flex flex-col justify-between p-6 bg-white border border-slate-100 shadow-sm rounded-xl"
+    },
+    "inputs": {
+      "base": "flex h-12 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+      "label": "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 mb-2 block text-slate-700"
+    },
+    "status_pills": {
+      "base": "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+      "active": "bg-green-100 text-green-800 border border-green-200",
+      "idle": "bg-amber-100 text-amber-800 border border-amber-200",
+      "damaged": "bg-red-100 text-red-800 border border-red-200",
+      "maintenance": "bg-blue-100 text-blue-800 border border-blue-200"
+    }
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-out",
+    "hover_lift": "hover:-translate-y-1 hover:shadow-lg",
+    "page_transition": {
+      "initial": { "opacity": 0, "y": 10 },
+      "animate": { "opacity": 1, "y": 0 },
+      "exit": { "opacity": 0, "y": -10 }
+    }
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "stroke-width={1.5}",
+    "usage": "Use icons heavily in Action Panel buttons to reduce reading time."
+  },
+  "visual_enhancers": {
+    "glassmorphism": "backdrop-blur-md bg-white/80 border-b border-slate-200/60 sticky top-0 z-50",
+    "noise_texture": "opacity-[0.015] pointer-events-none fixed inset-0 z-[100] bg-[url('https://grainy-gradients.vercel.app/noise.svg')]",
+    "borders": "border border-slate-200"
+  },
+  "image_urls": {
+    "login_bg": "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80",
+    "empty_state_box": "https://images.unsplash.com/photo-1566576912902-1d529b35d8d3?auto=format&fit=crop&q=80"
+  },
+  "instructions_to_main_agent": [
+    "DO NOT use generic gradients. Use flat, clean surfaces with subtle borders.",
+    "Mobile-first is LAW. Test all layouts on 375px width logic mentally.",
+    "Use 'Barlow Condensed' for all uppercase headers. It saves horizontal space on mobile.",
+    "Events Log must look like a timeline, not just a spreadsheet table.",
+    "Action buttons should be large (h-14 or h-16) on the dashboard for easy touch access.",
+    "Forms: Use 'Drawer' components for complex selects on mobile instead of native dropdowns.",
+    "Use 'sonner' for all success/error notifications.",
+    "Implement the 'noise_texture' overlay on the body for a subtle tactile feel."
+  ],
+  "universal_guidelines": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for sticky headers",
+    "You MUST NOT apply universal transition. Eg: transition: all.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; }",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations",
+    "NEVER: use AI assistant Emoji characters like 🤖 etc for icons.",
+    "Components MUST use named exports",
+    "Pages MUST use default exports"
+  ]
+}
