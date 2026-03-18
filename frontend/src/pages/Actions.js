@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import {
   Select,
@@ -19,7 +18,17 @@ import {
 } from '../components/ui/dialog';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
-import { ArrowLeft, Play, Square, ArrowRightLeft, AlertTriangle, FileText } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  Play, 
+  Pause, 
+  Square, 
+  ArrowRightLeft, 
+  AlertTriangle, 
+  FileText,
+  Clock,
+  Timer
+} from 'lucide-react';
 
 const ACTIVITY_TYPES = [
   { value: 'cooking', label: 'Cooking' },
@@ -35,8 +44,11 @@ export default function Actions() {
   const [actionType, setActionType] = useState('');
   const [kits, setKits] = useState([]);
   const [items, setItems] = useState([]);
-  const [ssds, setSsds] = useState([]);
   const [loading, setLoading] = useState(false);
+  
+  // Active shift state
+  const [activeShift, setActiveShift] = useState(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
   
   const [formData, setFormData] = useState({
     kit: '',
@@ -45,13 +57,55 @@ export default function Actions() {
     quantity: 1,
     ssd_used: '',
     activity_type: '',
-    hours_logged: '',
     notes: ''
   });
 
   useEffect(() => {
     fetchOptions();
+    fetchActiveShift();
   }, []);
+
+  // Timer for active shift
+  useEffect(() => {
+    let interval;
+    if (activeShift && activeShift.status === 'active') {
+      interval = setInterval(() => {
+        const startTime = new Date(activeShift.start_time);
+        const now = new Date();
+        const pausedSeconds = activeShift.total_paused_seconds || 0;
+        
+        // Calculate current pause if any ongoing
+        let currentPauseSeconds = 0;
+        const pauses = activeShift.pauses || [];
+        const lastPause = pauses[pauses.length - 1];
+        if (lastPause && !lastPause.resume_time) {
+          currentPauseSeconds = (now - new Date(lastPause.pause_time)) / 1000;
+        }
+        
+        const elapsed = Math.floor((now - startTime) / 1000) - pausedSeconds - currentPauseSeconds;
+        setElapsedTime(Math.max(0, elapsed));
+      }, 1000);
+    } else if (activeShift && activeShift.status === 'paused') {
+      // Show frozen time when paused
+      const startTime = new Date(activeShift.start_time);
+      const pauses = activeShift.pauses || [];
+      let totalPaused = 0;
+      for (const p of pauses) {
+        if (p.resume_time) {
+          totalPaused += (new Date(p.resume_time) - new Date(p.pause_time)) / 1000;
+        }
+      }
+      const lastPause = pauses[pauses.length - 1];
+      if (lastPause && !lastPause.resume_time) {
+        const pauseStart = new Date(lastPause.pause_time);
+        const elapsed = Math.floor((pauseStart - startTime) / 1000) - totalPaused + (new Date(lastPause.pause_time) - new Date(lastPause.pause_time)) / 1000;
+        // Calculate time up to pause
+        const activeTime = Math.floor((pauseStart - startTime) / 1000) - totalPaused;
+        setElapsedTime(Math.max(0, activeTime));
+      }
+    }
+    return () => clearInterval(interval);
+  }, [activeShift]);
 
   const fetchOptions = async () => {
     try {
@@ -61,37 +115,112 @@ export default function Actions() {
       ]);
       setKits(kitsRes.data);
       setItems(itemsRes.data);
-      // Filter SSDs (items that are SSDs)
-      setSsds(itemsRes.data.filter(i => 
-        i.item_name.toLowerCase().includes('ssd') || 
-        i.tracking_type === 'individual'
-      ));
     } catch (error) {
       console.error(error);
     }
   };
 
-  const openAction = (type) => {
-    setActionType(type);
-    setFormData({ kit: '', item: '', to_kit: '', quantity: 1, ssd_used: '', activity_type: '', hours_logged: '', notes: '' });
+  const fetchActiveShift = async () => {
+    try {
+      const response = await api.get('/shifts/active');
+      setActiveShift(response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const openStartShift = () => {
+    setActionType('start_shift');
+    setFormData({ kit: '', ssd_used: '', activity_type: '', item: '', to_kit: '', quantity: 1, notes: '' });
     setDialogOpen(true);
   };
 
-  const handleSubmit = async (e) => {
+  const openAction = (type) => {
+    setActionType(type);
+    setFormData({ kit: '', item: '', to_kit: '', quantity: 1, ssd_used: '', activity_type: '', notes: '' });
+    setDialogOpen(true);
+  };
+
+  const handleStartShift = async (e) => {
     e.preventDefault();
     
-    // Validation for End Shift
-    if (actionType === 'shift_end') {
-      if (!formData.ssd_used) {
-        toast.error('SSD used is required');
-        return;
-      }
-      if (!formData.activity_type) {
-        toast.error('Activity type is required');
-        return;
-      }
+    if (!formData.kit || !formData.ssd_used || !formData.activity_type) {
+      toast.error('Kit, SSD, and Activity Type are required');
+      return;
     }
     
+    setLoading(true);
+    try {
+      const response = await api.post('/shifts/start', {
+        kit: formData.kit,
+        ssd_used: formData.ssd_used,
+        activity_type: formData.activity_type
+      });
+      setActiveShift(response.data);
+      setElapsedTime(0);
+      toast.success('Shift started!');
+      setDialogOpen(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to start shift');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePauseShift = async () => {
+    if (!activeShift) return;
+    setLoading(true);
+    try {
+      const response = await api.post(`/shifts/${activeShift.id}/pause`);
+      setActiveShift(response.data);
+      toast.success('Shift paused');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to pause');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResumeShift = async () => {
+    if (!activeShift) return;
+    setLoading(true);
+    try {
+      const response = await api.post(`/shifts/${activeShift.id}/resume`);
+      setActiveShift(response.data);
+      toast.success('Shift resumed');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to resume');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStopShift = async () => {
+    if (!activeShift) return;
+    if (!confirm('Stop this shift? Duration will be automatically calculated.')) return;
+    
+    setLoading(true);
+    try {
+      const response = await api.post(`/shifts/${activeShift.id}/stop`);
+      toast.success(`Shift completed! Duration: ${response.data.total_duration_hours} hours`);
+      setActiveShift(null);
+      setElapsedTime(0);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to stop shift');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOtherAction = async (e) => {
+    e.preventDefault();
     setLoading(true);
 
     try {
@@ -109,9 +238,6 @@ export default function Actions() {
           item: formData.item || null,
           to_kit: formData.to_kit || null,
           quantity: formData.quantity,
-          ssd_used: formData.ssd_used || null,
-          activity_type: formData.activity_type || null,
-          hours_logged: formData.hours_logged ? parseFloat(formData.hours_logged) : null,
           notes: formData.notes || null
         });
         toast.success('Event logged');
@@ -124,18 +250,9 @@ export default function Actions() {
     }
   };
 
-  const actions = [
-    { type: 'shift_start', label: 'Start Shift', icon: Play, color: 'bg-green-500 hover:bg-green-600' },
-    { type: 'shift_end', label: 'End Shift', icon: Square, color: 'bg-red-500 hover:bg-red-600' },
-    { type: 'transfer', label: 'Transfer Item', icon: ArrowRightLeft, color: 'bg-blue-500 hover:bg-blue-600' },
-    { type: 'damage', label: 'Report Damage', icon: AlertTriangle, color: 'bg-amber-500 hover:bg-amber-600' },
-    { type: 'request', label: 'Request Item', icon: FileText, color: 'bg-purple-500 hover:bg-purple-600' },
-  ];
-
   const getDialogTitle = () => {
     switch (actionType) {
-      case 'shift_start': return 'Start Shift';
-      case 'shift_end': return 'End Shift';
+      case 'start_shift': return 'Start Collection';
       case 'transfer': return 'Transfer Item';
       case 'damage': return 'Report Damage';
       case 'request': return 'Request Item';
@@ -143,73 +260,42 @@ export default function Actions() {
     }
   };
 
-  const renderForm = () => {
+  const renderStartShiftForm = () => (
+    <>
+      <div>
+        <Label>Kit *</Label>
+        <Select value={formData.kit} onValueChange={(v) => setFormData({ ...formData, kit: v })}>
+          <SelectTrigger className="mt-1" data-testid="kit-select"><SelectValue placeholder="Select kit" /></SelectTrigger>
+          <SelectContent>
+            {kits.map(k => <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      
+      <div>
+        <Label>SSD *</Label>
+        <Select value={formData.ssd_used} onValueChange={(v) => setFormData({ ...formData, ssd_used: v })}>
+          <SelectTrigger className="mt-1" data-testid="ssd-select"><SelectValue placeholder="Select SSD" /></SelectTrigger>
+          <SelectContent>
+            {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      
+      <div>
+        <Label>Activity Type *</Label>
+        <Select value={formData.activity_type} onValueChange={(v) => setFormData({ ...formData, activity_type: v })}>
+          <SelectTrigger className="mt-1" data-testid="activity-select"><SelectValue placeholder="Select activity" /></SelectTrigger>
+          <SelectContent>
+            {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    </>
+  );
+
+  const renderOtherForm = () => {
     switch (actionType) {
-      case 'shift_start':
-        return (
-          <>
-            <div>
-              <Label>Kit *</Label>
-              <Select value={formData.kit} onValueChange={(v) => setFormData({ ...formData, kit: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select kit" /></SelectTrigger>
-                <SelectContent>
-                  {kits.map(k => <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </>
-        );
-
-      case 'shift_end':
-        return (
-          <>
-            <div>
-              <Label>Kit *</Label>
-              <Select value={formData.kit} onValueChange={(v) => setFormData({ ...formData, kit: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select kit" /></SelectTrigger>
-                <SelectContent>
-                  {kits.map(k => <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <Label>SSD Used *</Label>
-              <Select value={formData.ssd_used} onValueChange={(v) => setFormData({ ...formData, ssd_used: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select SSD" /></SelectTrigger>
-                <SelectContent>
-                  {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-500 mt-1">Which SSD was used in this kit?</p>
-            </div>
-            
-            <div>
-              <Label>Activity Type *</Label>
-              <Select value={formData.activity_type} onValueChange={(v) => setFormData({ ...formData, activity_type: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select activity" /></SelectTrigger>
-                <SelectContent>
-                  {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-slate-500 mt-1">What activity did the kit perform?</p>
-            </div>
-            
-            <div>
-              <Label>Hours Logged</Label>
-              <Input
-                type="number"
-                step="0.5"
-                min="0"
-                value={formData.hours_logged}
-                onChange={(e) => setFormData({ ...formData, hours_logged: e.target.value })}
-                placeholder="e.g., 4.5"
-                className="mt-1"
-              />
-            </div>
-          </>
-        );
-
       case 'transfer':
         return (
           <>
@@ -290,12 +376,12 @@ export default function Actions() {
             </div>
             <div>
               <Label>Quantity</Label>
-              <Input
+              <input
                 type="number"
                 min="1"
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
-                className="mt-1"
+                className="mt-1 w-full border rounded-md px-3 py-2"
               />
             </div>
             <div>
@@ -321,31 +407,140 @@ export default function Actions() {
       <header className="bg-white border-b">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-4">
           <a href="/dashboard">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" data-testid="back-btn">
               <ArrowLeft className="w-5 h-5" />
             </Button>
           </a>
           <div>
             <h1 className="text-lg font-bold text-slate-900">Actions</h1>
-            <p className="text-sm text-slate-600">Log shifts & events</p>
+            <p className="text-sm text-slate-600">Shift tracking & events</p>
           </div>
         </div>
       </header>
 
-      {/* Action Buttons */}
-      <main className="max-w-4xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 gap-3">
-          {actions.map((action) => (
-            <Button
-              key={action.type}
-              onClick={() => openAction(action.type)}
-              data-testid={`action-${action.type}`}
-              className={`${action.color} text-white h-16 text-lg justify-start px-6`}
-            >
-              <action.icon className="w-6 h-6 mr-4" />
-              {action.label}
-            </Button>
-          ))}
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Active Shift Panel */}
+        {activeShift ? (
+          <div className="bg-white rounded-xl border overflow-hidden" data-testid="active-shift-panel">
+            <div className={`px-4 py-3 flex items-center justify-between ${
+              activeShift.status === 'active' ? 'bg-green-500' : 'bg-amber-500'
+            } text-white`}>
+              <div className="flex items-center gap-3">
+                <Timer className="w-5 h-5" />
+                <span className="font-semibold">
+                  {activeShift.status === 'active' ? 'Shift Active' : 'Shift Paused'}
+                </span>
+              </div>
+              <div className="text-2xl font-mono font-bold" data-testid="elapsed-time">
+                {formatTime(elapsedTime)}
+              </div>
+            </div>
+            <div className="p-4">
+              <div className="grid grid-cols-3 gap-4 text-sm mb-4">
+                <div>
+                  <p className="text-slate-500">Kit</p>
+                  <p className="font-medium">{activeShift.kit}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500">SSD</p>
+                  <p className="font-medium">{activeShift.ssd_used}</p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Activity</p>
+                  <p className="font-medium capitalize">{activeShift.activity_type}</p>
+                </div>
+              </div>
+              
+              {/* Shift Control Buttons */}
+              <div className="flex gap-3">
+                {activeShift.status === 'active' ? (
+                  <>
+                    <Button 
+                      onClick={handlePauseShift} 
+                      disabled={loading}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600"
+                      data-testid="pause-btn"
+                    >
+                      <Pause className="w-5 h-5 mr-2" />
+                      Pause
+                    </Button>
+                    <Button 
+                      onClick={handleStopShift} 
+                      disabled={loading}
+                      className="flex-1 bg-red-500 hover:bg-red-600"
+                      data-testid="stop-btn"
+                    >
+                      <Square className="w-5 h-5 mr-2" />
+                      Stop
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button 
+                      onClick={handleResumeShift} 
+                      disabled={loading}
+                      className="flex-1 bg-green-500 hover:bg-green-600"
+                      data-testid="resume-btn"
+                    >
+                      <Play className="w-5 h-5 mr-2" />
+                      Resume
+                    </Button>
+                    <Button 
+                      onClick={handleStopShift} 
+                      disabled={loading}
+                      className="flex-1 bg-red-500 hover:bg-red-600"
+                      data-testid="stop-btn"
+                    >
+                      <Square className="w-5 h-5 mr-2" />
+                      Stop
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Start Shift Button - Only show when no active shift */
+          <Button
+            onClick={openStartShift}
+            className="w-full bg-green-500 hover:bg-green-600 text-white h-20 text-xl"
+            data-testid="start-collection-btn"
+          >
+            <Play className="w-8 h-8 mr-4" />
+            Start Collection
+          </Button>
+        )}
+
+        {/* Other Actions */}
+        <div className="space-y-3">
+          <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wide">Other Actions</h2>
+          
+          <Button
+            onClick={() => openAction('transfer')}
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white h-14 text-lg justify-start px-6"
+            data-testid="action-transfer"
+          >
+            <ArrowRightLeft className="w-6 h-6 mr-4" />
+            Transfer Item
+          </Button>
+          
+          <Button
+            onClick={() => openAction('damage')}
+            className="w-full bg-amber-500 hover:bg-amber-600 text-white h-14 text-lg justify-start px-6"
+            data-testid="action-damage"
+          >
+            <AlertTriangle className="w-6 h-6 mr-4" />
+            Report Damage
+          </Button>
+          
+          <Button
+            onClick={() => openAction('request')}
+            className="w-full bg-purple-500 hover:bg-purple-600 text-white h-14 text-lg justify-start px-6"
+            data-testid="action-request"
+          >
+            <FileText className="w-6 h-6 mr-4" />
+            Request Item
+          </Button>
         </div>
       </main>
 
@@ -355,14 +550,14 @@ export default function Actions() {
           <DialogHeader>
             <DialogTitle>{getDialogTitle()}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-            {renderForm()}
+          <form onSubmit={actionType === 'start_shift' ? handleStartShift : handleOtherAction} className="space-y-4 mt-4">
+            {actionType === 'start_shift' ? renderStartShiftForm() : renderOtherForm()}
             <div className="flex gap-3 pt-4">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1" disabled={loading}>
-                {loading ? 'Saving...' : 'Submit'}
+              <Button type="submit" className="flex-1" disabled={loading} data-testid="submit-btn">
+                {loading ? 'Saving...' : actionType === 'start_shift' ? 'Start' : 'Submit'}
               </Button>
             </div>
           </form>

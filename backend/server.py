@@ -75,15 +75,18 @@ class ItemUpdate(BaseModel):
     status: str = "active"  # active / damaged / lost / repair
     current_kit: Optional[str] = None
 
+# Shift models for automatic time tracking
+class ShiftStart(BaseModel):
+    kit: str
+    ssd_used: str
+    activity_type: str  # cooking, cleaning, organizing, outdoor, other
+
 class EventCreate(BaseModel):
-    event_type: str  # shift_start, shift_end, transfer, damage, activity
+    event_type: str  # transfer, damage, activity (NOT shift_start/shift_end - use shift endpoints)
     kit: str
     item: Optional[str] = None
     to_kit: Optional[str] = None
     quantity: int = 1
-    ssd_used: Optional[str] = None  # Which SSD was used (required for shift_end)
-    activity_type: Optional[str] = None  # cooking, cleaning, organizing, outdoor, other
-    hours_logged: Optional[float] = None
     notes: Optional[str] = None
 
 class RequestCreate(BaseModel):
@@ -446,9 +449,6 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
         "item": data.item,
         "to_kit": data.to_kit,
         "quantity": data.quantity,
-        "ssd_used": data.ssd_used,
-        "activity_type": data.activity_type,
-        "hours_logged": data.hours_logged,
         "notes": data.notes,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -471,6 +471,166 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
     await db.events.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+# ========================
+# SHIFTS (AUTO TIME TRACKING)
+# ========================
+
+@app.get("/api/shifts/active")
+async def get_active_shift(user: dict = Depends(get_current_user_dep())):
+    """Get user's currently active shift (if any)"""
+    shift = await db.shifts.find_one(
+        {"user": user["id"], "status": {"$in": ["active", "paused"]}},
+        {"_id": 0}
+    )
+    return shift
+
+@app.get("/api/shifts")
+async def get_shifts(
+    date: Optional[str] = None,
+    user: dict = Depends(get_current_user_dep())
+):
+    """Get shifts - admins see all, managers see their own"""
+    query = {}
+    if date:
+        query["start_time"] = {"$regex": f"^{date}"}
+    
+    if user["role"] == "deployment_manager":
+        query["user"] = user["id"]
+    
+    shifts = await db.shifts.find(query, {"_id": 0}).sort("start_time", -1).to_list(100)
+    return shifts
+
+@app.get("/api/shifts/today")
+async def get_today_shifts(user: dict = Depends(get_current_user_dep())):
+    """Get today's completed shifts"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    query = {"start_time": {"$regex": f"^{today}"}, "status": "completed"}
+    
+    if user["role"] == "deployment_manager":
+        query["user"] = user["id"]
+    
+    return await db.shifts.find(query, {"_id": 0}).to_list(100)
+
+@app.post("/api/shifts/start")
+async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_dep())):
+    """Start a new shift - captures start_time automatically"""
+    # Check if user already has an active shift
+    existing = await db.shifts.find_one(
+        {"user": user["id"], "status": {"$in": ["active", "paused"]}}
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="You already have an active shift. Stop it first.")
+    
+    now = datetime.now(timezone.utc)
+    shift = {
+        "id": f"shift-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "user": user["id"],
+        "user_name": user["name"],
+        "kit": data.kit,
+        "ssd_used": data.ssd_used,
+        "activity_type": data.activity_type,
+        "status": "active",  # active, paused, completed
+        "start_time": now.isoformat(),
+        "pauses": [],  # [{pause_time, resume_time}]
+        "end_time": None,
+        "total_paused_seconds": 0,
+        "total_duration_seconds": None,
+        "total_duration_hours": None
+    }
+    
+    await db.shifts.insert_one(shift)
+    shift.pop("_id", None)
+    return shift
+
+@app.post("/api/shifts/{shift_id}/pause")
+async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
+    """Pause an active shift - captures pause_time automatically"""
+    shift = await db.shifts.find_one({"id": shift_id, "user": user["id"]})
+    if not shift:
+        raise HTTPException(status_code=404, detail="Shift not found")
+    if shift["status"] != "active":
+        raise HTTPException(status_code=400, detail="Shift is not active")
+    
+    now = datetime.now(timezone.utc)
+    await db.shifts.update_one(
+        {"id": shift_id},
+        {
+            "$set": {"status": "paused"},
+            "$push": {"pauses": {"pause_time": now.isoformat(), "resume_time": None}}
+        }
+    )
+    
+    updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+    return updated
+
+@app.post("/api/shifts/{shift_id}/resume")
+async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
+    """Resume a paused shift - captures resume_time automatically"""
+    shift = await db.shifts.find_one({"id": shift_id, "user": user["id"]})
+    if not shift:
+        raise HTTPException(status_code=404, detail="Shift not found")
+    if shift["status"] != "paused":
+        raise HTTPException(status_code=400, detail="Shift is not paused")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Update the last pause entry with resume_time
+    pauses = shift.get("pauses", [])
+    if pauses and pauses[-1].get("resume_time") is None:
+        pauses[-1]["resume_time"] = now.isoformat()
+    
+    await db.shifts.update_one(
+        {"id": shift_id},
+        {"$set": {"status": "active", "pauses": pauses}}
+    )
+    
+    updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+    return updated
+
+@app.post("/api/shifts/{shift_id}/stop")
+async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
+    """Stop a shift - captures end_time and calculates total duration automatically"""
+    shift = await db.shifts.find_one({"id": shift_id, "user": user["id"]})
+    if not shift:
+        raise HTTPException(status_code=404, detail="Shift not found")
+    if shift["status"] == "completed":
+        raise HTTPException(status_code=400, detail="Shift is already completed")
+    
+    now = datetime.now(timezone.utc)
+    start_time = datetime.fromisoformat(shift["start_time"].replace("Z", "+00:00"))
+    
+    # Calculate total paused time
+    total_paused_seconds = 0
+    pauses = shift.get("pauses", [])
+    
+    for pause in pauses:
+        pause_time = datetime.fromisoformat(pause["pause_time"].replace("Z", "+00:00"))
+        if pause.get("resume_time"):
+            resume_time = datetime.fromisoformat(pause["resume_time"].replace("Z", "+00:00"))
+        else:
+            # If still paused when stopping, use now as resume time
+            resume_time = now
+        total_paused_seconds += (resume_time - pause_time).total_seconds()
+    
+    # Calculate total active duration
+    total_elapsed_seconds = (now - start_time).total_seconds()
+    total_duration_seconds = total_elapsed_seconds - total_paused_seconds
+    total_duration_hours = round(total_duration_seconds / 3600, 2)
+    
+    await db.shifts.update_one(
+        {"id": shift_id},
+        {"$set": {
+            "status": "completed",
+            "end_time": now.isoformat(),
+            "total_paused_seconds": round(total_paused_seconds),
+            "total_duration_seconds": round(total_duration_seconds),
+            "total_duration_hours": total_duration_hours
+        }}
+    )
+    
+    updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+    return updated
 
 # ========================
 # REQUESTS
@@ -514,29 +674,38 @@ async def update_request(request_id: str, status: str, user: dict = Depends(get_
     return {"status": "updated"}
 
 # ========================
-# LIVE DASHBOARD (TODAY ONLY) - SIMPLIFIED
+# LIVE DASHBOARD (TODAY ONLY) - AUTO-CALCULATED FROM SHIFTS
 # ========================
 
 @app.get("/api/dashboard/live")
 async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
-    # Get today's events
-    events = await db.events.find(
-        {"timestamp": {"$regex": f"^{today}"}},
+    # Get today's COMPLETED shifts (auto-calculated durations)
+    completed_shifts = await db.shifts.find(
+        {"start_time": {"$regex": f"^{today}"}, "status": "completed"},
         {"_id": 0}
-    ).to_list(1000)
+    ).to_list(500)
+    
+    # Get today's ACTIVE shifts
+    active_shifts = await db.shifts.find(
+        {"start_time": {"$regex": f"^{today}"}, "status": {"$in": ["active", "paused"]}},
+        {"_id": 0}
+    ).to_list(50)
     
     # Get today's deployments
     deployments = await db.deployments.find({"date": today}, {"_id": 0}).to_list(50)
     
-    # Get shift_end events with hours
-    shift_ends = [e for e in events if e["event_type"] == "shift_end"]
+    # Calculate total hours from COMPLETED shifts (system-calculated, not user input)
+    total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in completed_shifts)
     
-    # Calculate total hours logged
-    total_hours = sum(e.get("hours_logged", 0) or 0 for e in shift_ends)
+    # Map kits to BnBs
+    kit_to_bnb = {}
+    for dep in deployments:
+        for kit in dep.get("assigned_kits", []):
+            kit_to_bnb[kit] = dep["bnb"]
     
-    # Per BnB stats - ONLY hours logged
+    # Per BnB stats - hours from completed shifts
     bnb_stats = {}
     for dep in deployments:
         bnb = dep["bnb"]
@@ -544,31 +713,42 @@ async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
             bnb_stats[bnb] = {
                 "bnb": bnb,
                 "shift": dep["shift"],
-                "hours_logged": 0
+                "hours_logged": 0,
+                "active_shifts": 0
             }
     
-    # Map events to BnBs via kits
-    kit_to_bnb = {}
-    for dep in deployments:
-        for kit in dep.get("assigned_kits", []):
-            kit_to_bnb[kit] = dep["bnb"]
-    
-    for event in shift_ends:
-        kit = event.get("kit")
+    # Add hours from completed shifts
+    for shift in completed_shifts:
+        kit = shift.get("kit")
         bnb = kit_to_bnb.get(kit)
         if bnb and bnb in bnb_stats:
-            bnb_stats[bnb]["hours_logged"] += event.get("hours_logged", 0) or 0
+            bnb_stats[bnb]["hours_logged"] += shift.get("total_duration_hours", 0) or 0
+    
+    # Count active shifts per BnB
+    for shift in active_shifts:
+        kit = shift.get("kit")
+        bnb = kit_to_bnb.get(kit)
+        if bnb and bnb in bnb_stats:
+            bnb_stats[bnb]["active_shifts"] += 1
     
     # Round hours
     for bnb in bnb_stats:
-        bnb_stats[bnb]["hours_logged"] = round(bnb_stats[bnb]["hours_logged"], 1)
+        bnb_stats[bnb]["hours_logged"] = round(bnb_stats[bnb]["hours_logged"], 2)
+    
+    # Get recent events for activity feed
+    events = await db.events.find(
+        {"timestamp": {"$regex": f"^{today}"}},
+        {"_id": 0}
+    ).sort("timestamp", -1).to_list(10)
     
     return {
         "date": today,
-        "total_hours": round(total_hours, 1),
-        "total_shifts": len(shift_ends),
+        "total_hours": round(total_hours, 2),
+        "total_shifts_completed": len(completed_shifts),
+        "total_shifts_active": len(active_shifts),
         "per_bnb": list(bnb_stats.values()),
-        "recent_events": events[:10]
+        "recent_shifts": completed_shifts[:5],
+        "recent_events": events
     }
 
 # ========================
