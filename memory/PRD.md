@@ -1,14 +1,14 @@
 # Ops Management System - Product Requirements Document
 
 ## Overview
-Clean, minimal, web-based internal operations system for managing daily deployments, shifts, and inventory.
+Clean, minimal, web-based internal operations system for managing daily deployments, shifts, and inventory with **automatic time tracking**.
 
 **Core Principles:**
 1. Every action takes under 10 seconds
 2. Users don't think — only perform simple actions
 3. All tracking comes from Events (single source of truth)
 4. Show users only what is relevant to them
-5. Clear separation of responsibilities between pages
+5. **All time tracking is automatic - NO manual input**
 
 ## User Roles
 
@@ -17,143 +17,127 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 | admin | Full control: Inventory (CRUD), Deployments (planning), Admin Panel (users/bnbs/kits). Does NOT see Actions page. |
 | deployment_manager | Can: View deployments assigned to them, perform actions (shift logging), view inventory. Cannot: Edit inventory, access Admin Panel |
 
-## Page Responsibilities (Strict Separation)
+## Automatic Time Tracking System
 
-### Inventory Page
-- **Purpose:** PRIMARY place for all inventory management
-- **Admin Can:** Add/Edit/Delete items, update status (active/damaged/lost/repair)
-- **Manager Can:** View items only (no edit/delete buttons visible)
+### How It Works
+- **NO manual time input** - Users never enter hours, duration, or times
+- **System auto-captures** timestamps on button clicks:
+  - `Start Collection` → records `start_time`
+  - `Pause` → records `pause_time`
+  - `Resume` → records `resume_time`
+  - `Stop` → records `end_time` + calculates duration
 
-### Deployments Page  
-- **Purpose:** PLANNING ONLY - date-based assignment
-- **Admin Can:** Create/Edit/Delete deployments, assign BnBs/Kits/Managers
-- **Manager Can:** View their assigned deployments only
-- **NOT included:** No inventory controls, no BnB management
+### Duration Calculation
+```
+Total Duration = (end_time - start_time) - (sum of all paused periods)
+```
 
-### Admin Panel
-- **Purpose:** System CONFIGURATION only
-- **Contains:** Users, BnBs, Kits management tabs
-- **NOT included:** Items (managed in Inventory), Deployments (managed in Deployments page)
+### Shift Data Model
+```json
+{
+  "id": "shift-xxx",
+  "user": "user_id",
+  "kit": "KIT-01",
+  "ssd_used": "SSD-01",
+  "activity_type": "cleaning",
+  "status": "active|paused|completed",
+  "start_time": "auto-captured",
+  "pauses": [{"pause_time": "auto", "resume_time": "auto"}],
+  "end_time": "auto-captured",
+  "total_duration_seconds": "auto-calculated",
+  "total_duration_hours": "auto-calculated"
+}
+```
+
+## Page Responsibilities
 
 ### Actions Page (Manager Only)
-- **Purpose:** Log shifts and events
-- **Contains:** Start Shift, End Shift, Transfer Item, Report Damage, Request Item
+- **Start Collection** - Opens dialog for Kit, SSD, Activity Type (required at START)
+- **Active Shift Panel** - Shows live timer, Pause/Resume/Stop buttons
+- **Other Actions** - Transfer Item, Report Damage, Request Item
+
+### Live Dashboard
+- Shows **ONLY auto-calculated** values:
+  - Total Hours Logged (from completed shifts)
+  - Shifts Completed / Active Now
+  - Hours per BnB (auto-calculated from shifts)
+- Note: "All durations are automatically calculated from shift start/stop times"
+
+### Inventory Page
+- **Admin**: Add/Edit/Delete items
+- **Manager**: View only
+
+### Deployments Page
+- Planning only - date/BnB/Kits/Managers assignment
+- Supports **multiple deployment managers** per deployment
+
+### Admin Panel
+- Users, BnBs, Kits management only
 
 ## Data Model
 
-### Users
-- name
-- role (admin / deployment_manager)
+### Shifts (NEW - Auto Time Tracking)
+- id
+- user, user_name
+- kit
+- ssd_used
+- activity_type
+- status (active/paused/completed)
+- start_time (auto)
+- pauses (array of {pause_time, resume_time})
+- end_time (auto)
+- total_paused_seconds (calculated)
+- total_duration_seconds (calculated)
+- total_duration_hours (calculated)
 
-### BnBs
-- name
-- status (active / inactive)
-
-### Kits
-- kit_id
-- status (active / maintenance)
+### Deployments
+- date, bnb, shift
+- assigned_kits (array)
+- **deployment_managers (array)** - Multiple managers per deployment
 
 ### Items
 - item_name (UNIQUE)
-- tracking_type (individual / quantity)
-- status (active / damaged / lost / repair)
-- current_kit (optional)
-
-### Deployments
-- date (YYYY-MM-DD)
-- bnb
-- shift (morning / evening)
-- assigned_kits (array)
-- **deployment_managers (array)** - Multiple managers per deployment
-- assigned_users (array)
-
-### Events
-- event_type (shift_start, shift_end, transfer, damage, activity)
-- user
-- kit
-- item (optional)
-- to_kit (for transfers)
-- ssd_used (required for shift_end)
-- activity_type (required for shift_end)
-- hours_logged (optional)
-- notes
-- timestamp
-
-### Requests
-- requested_by
-- item
-- quantity
-- status (pending / fulfilled / rejected)
+- tracking_type, status, current_kit
 
 ## API Endpoints
 
-### Auth
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-
-### Users, BnBs, Kits
-- `GET/POST/DELETE /api/users`
-- `GET/POST/DELETE /api/bnbs`
-- `GET/POST/DELETE /api/kits`
-
-### Items (Full CRUD)
-- `GET /api/items`
-- `POST /api/items` (Admin only)
-- `PUT /api/items/{item_name}` (Admin only) - Update item
-- `DELETE /api/items/{item_name}` (Admin only)
-
-### Deployments (Multiple Managers)
-- `GET /api/deployments` (Managers filtered to their assignments)
-- `POST /api/deployments` (Admin only, requires deployment_managers array)
-- `PUT /api/deployments/{id}` (Admin only)
-- `DELETE /api/deployments/{id}` (Admin only)
-
-### Events & Requests
-- `GET/POST /api/events`
-- `GET/POST/PUT /api/requests`
+### Shift Tracking (Auto Time)
+- `GET /api/shifts/active` - Get user's active shift
+- `POST /api/shifts/start` - Start shift (auto start_time)
+- `POST /api/shifts/{id}/pause` - Pause (auto pause_time)
+- `POST /api/shifts/{id}/resume` - Resume (auto resume_time)
+- `POST /api/shifts/{id}/stop` - Stop + calculate duration
+- `GET /api/shifts/today` - Today's completed shifts
 
 ### Dashboard
-- `GET /api/dashboard/live` - Simplified: total_hours, total_shifts, per_bnb hours
+- `GET /api/dashboard/live` - Auto-calculated totals from shifts
 
 ## Test Credentials
 - **Admin**: `Admin` / `admin123`
 - **Manager**: `TestManager1` / `test123`
 
 ## Completed Features (2026-03-18)
-- [x] Admin full CRUD on Inventory page (Add/Edit/Delete items)
-- [x] Admin Panel limited to Users, BnBs, Kits only
-- [x] Deployments page strictly for planning (no BnB management)
+- [x] Automatic shift time tracking (Start/Pause/Resume/Stop)
+- [x] Auto-calculated durations (no manual input)
+- [x] Live timer display during active shift
+- [x] Dashboard shows only auto-calculated hours
 - [x] Multiple deployment managers per deployment
-- [x] Role-based view filtering (managers see only their deployments)
-- [x] Strict permissions (managers can view inventory but not edit)
-- [x] Mandatory shift logging fields (SSD_used, activity_type)
-- [x] Simplified Live Dashboard
+- [x] Admin full CRUD on Inventory
+- [x] Role-based permissions
 
 ## Architecture
 ```
 /app
 ├── backend/
-│   ├── .env
-│   ├── requirements.txt
-│   └── server.py
+│   └── server.py   # Includes /api/shifts/* endpoints
 └── frontend/
-    ├── .env
-    ├── package.json
-    └── src/
-        ├── components/ui/
-        ├── contexts/AuthContext.js
-        ├── lib/api.js
-        └── pages/
-            ├── Actions.js         # Manager only - shift logging
-            ├── AdminPanel.js      # Admin only - Users/BnBs/Kits
-            ├── Dashboard.js       # Role-based navigation
-            ├── Deployments.js     # Planning with multiple managers
-            ├── Inventory.js       # Full CRUD for Admin
-            ├── LiveDashboard.js   # Simplified stats
-            ├── Login.js
-            ├── MyDeployments.js
-            └── Requests.js
+    └── src/pages/
+        ├── Actions.js       # Shift control panel
+        ├── LiveDashboard.js # Auto-calculated stats
+        ├── Inventory.js     # Admin CRUD
+        ├── Deployments.js   # Multi-manager planning
+        └── AdminPanel.js    # Users/BnBs/Kits
 ```
 
 ## Last Updated
-2026-03-18 - Clear separation of responsibilities, multiple deployment managers, Admin inventory CRUD
+2026-03-18 - Automatic shift time tracking, no manual time input
