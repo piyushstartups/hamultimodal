@@ -125,12 +125,18 @@ def get_current_user_dep():
 
 @app.on_event("startup")
 async def startup():
-    # Create indexes
+    # Create indexes - use background=True to avoid blocking
+    # For items, we need to drop the old non-unique index first
+    try:
+        await db.items.drop_index("item_name_1")
+    except Exception:
+        pass  # Index might not exist
+    
     await db.users.create_index("id", unique=True)
     await db.users.create_index("name", unique=True)
     await db.bnbs.create_index("name", unique=True)
     await db.kits.create_index("kit_id", unique=True)
-    await db.items.create_index("item_name")
+    await db.items.create_index("item_name", unique=True)
     await db.deployments.create_index([("date", 1), ("bnb", 1), ("shift", 1)])
     await db.events.create_index([("timestamp", -1)])
     await db.events.create_index([("event_type", 1), ("timestamp", -1)])
@@ -262,6 +268,11 @@ async def get_items(user: dict = Depends(get_current_user_dep())):
 async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Check for duplicate item name
+    existing = await db.items.find_one({"item_name": data.item_name})
+    if existing:
+        raise HTTPException(status_code=400, detail="Item already exists")
     
     doc = {
         "item_name": data.item_name,
