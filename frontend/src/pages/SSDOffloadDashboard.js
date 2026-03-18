@@ -43,7 +43,7 @@ export default function SSDOffloadDashboard() {
     <Layout>
       <div className="mb-6">
         <h1 className="text-2xl font-bold font-tactical text-slate-900">SSD Offload Dashboard</h1>
-        <p className="text-sm text-slate-600 mt-1">Track SSDs at data center for offloading</p>
+        <p className="text-sm text-slate-600 mt-1">Human Archive - Track SSDs at data center for offloading</p>
       </div>
 
       {/* Summary Stats */}

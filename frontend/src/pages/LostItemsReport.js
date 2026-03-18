@@ -31,7 +31,7 @@ export default function LostItemsReport() {
     <Layout>
       <div className="mb-6">
         <h1 className="text-2xl font-bold font-tactical text-slate-900">Lost Items Report</h1>
-        <p className="text-sm text-slate-600 mt-1">Track all reported lost inventory with full audit trail</p>
+        <p className="text-sm text-slate-600 mt-1">Human Archive - Track all reported lost inventory with full audit trail</p>
       </div>
 
       {/* Summary Card */}

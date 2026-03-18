@@ -34,8 +34,8 @@ export default function Login() {
       
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold font-tactical mb-2 text-slate-900">OpsInventory</h1>
-          <p className="text-slate-600">Event-Based Operations Management</p>
+          <h1 className="text-4xl font-bold font-tactical mb-2 text-slate-900">Human Archive</h1>
+          <p className="text-slate-600">Ops Management System</p>
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8">

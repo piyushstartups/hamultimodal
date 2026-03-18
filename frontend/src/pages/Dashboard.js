@@ -125,7 +125,7 @@ export default function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold font-tactical text-slate-900">OpsInventory</h1>
+              <h1 className="text-2xl font-bold font-tactical text-slate-900">Human Archive</h1>
               <p className="text-sm text-slate-600 mt-0.5">Welcome back, {user?.name}</p>
             </div>
             

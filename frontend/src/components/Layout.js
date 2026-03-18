@@ -41,7 +41,7 @@ export const Layout = ({ children }) => {
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <div>
-                <h1 className="text-2xl font-bold font-tactical text-slate-900">OpsInventory</h1>
+                <h1 className="text-2xl font-bold font-tactical text-slate-900">Human Archive</h1>
                 <p className="text-sm text-slate-600 mt-0.5">{user?.name}</p>
               </div>
             </div>

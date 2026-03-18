@@ -184,7 +184,7 @@ export default function Handover() {
     <Layout>
       <div className="mb-6">
         <h1 className="text-2xl font-bold font-tactical text-slate-900">Shift Handover</h1>
-        <p className="text-sm text-slate-600 mt-1">{dashboard.bnb.kit_id} - Inventory Verification Checklist</p>
+        <p className="text-sm text-slate-600 mt-1">{dashboard.bnb.kit_id} - Human Archive Inventory Verification</p>
       </div>
 
       {/* Progress */}

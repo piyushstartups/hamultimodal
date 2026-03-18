@@ -171,7 +171,7 @@ export default function AdminPanel() {
     <Layout>
       <div className="mb-6">
         <h1 className="text-2xl font-bold font-tactical text-slate-900">Admin Panel</h1>
-        <p className="text-sm text-slate-600 mt-1">Manage daily BnB assignments and team allocation</p>
+        <p className="text-sm text-slate-600 mt-1">Human Archive - Daily BnB assignments and team allocation</p>
       </div>
 
       {/* Date Selector & New Assignment Button */}
