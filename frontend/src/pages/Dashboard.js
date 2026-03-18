@@ -6,12 +6,20 @@ import { toast } from 'sonner';
 import {
   PlayCircle,
   StopCircle,
-  Activity,
   ArrowRightLeft,
   AlertTriangle,
   Package,
   Bell,
   LogOut,
+  MapPin,
+  Users,
+  BarChart3,
+  Calendar,
+  Settings,
+  Clock,
+  Clipboard,
+  History,
+  AlertCircle,
 } from 'lucide-react';
 import EventDialog from '../components/EventDialog';
 import StatsCard from '../components/StatsCard';
@@ -77,217 +85,239 @@ export default function Dashboard() {
     fetchUnreadCount();
   };
 
-  const actionButtons = [
-    {
-      label: 'Start Shift',
-      icon: PlayCircle,
-      type: 'start_shift',
-      color: 'bg-green-50 hover:bg-green-100 text-green-700 border-green-200',
-    },
-    {
-      label: 'End Shift',
-      icon: StopCircle,
-      type: 'end_shift',
-      color: 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200',
-    },
-    {
-      label: 'Add Activity',
-      icon: Activity,
-      type: 'activity',
-      color: 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200',
-    },
-    {
-      label: 'Transfer Item',
-      icon: ArrowRightLeft,
-      type: 'transfer',
-      color: 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200',
-    },
-    {
-      label: 'Report Damage',
-      icon: AlertTriangle,
-      type: 'damage',
-      color: 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200',
-    },
-    {
-      label: 'Create Request',
-      icon: Package,
-      type: 'request',
-      color: 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200',
-    },
+  // Role-based configurations
+  const isFieldWorker = ['deployer', 'station'].includes(user?.role);
+  const isAdmin = user?.role === 'admin';
+  const isSupervisor = user?.role === 'supervisor';
+  const isInventoryManager = user?.role === 'inventory_manager';
+
+  // Simplified action buttons for field workers
+  const fieldWorkerActions = [
+    { label: 'Start Shift', icon: PlayCircle, type: 'start_shift', color: 'bg-green-600 hover:bg-green-700 text-white' },
+    { label: 'End Shift', icon: StopCircle, type: 'end_shift', color: 'bg-red-600 hover:bg-red-700 text-white' },
+    { label: 'Report Issue', icon: AlertTriangle, type: 'damage', color: 'bg-amber-600 hover:bg-amber-700 text-white' },
   ];
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="noise-overlay" />
-      
+    <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <div className="backdrop-blur-md bg-white/80 border-b border-slate-200/60 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold font-tactical text-slate-900">Human Archive</h1>
-              <p className="text-sm text-slate-600 mt-0.5">Welcome back, {user?.name}</p>
+              <h1 className="text-xl font-bold text-slate-900 tracking-wide">HUMAN ARCHIVE</h1>
+              <p className="text-sm text-slate-600">{user?.name} • {user?.role}</p>
             </div>
-            
             <div className="flex items-center gap-3">
-              <a href="/notifications">
-                <Button data-testid="notifications-button" variant="ghost" size="icon" className="relative">
+              <a href="/notifications" className="relative">
+                <Button variant="ghost" size="icon">
                   <Bell className="w-5 h-5" />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-semibold">
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
                       {unreadCount}
                     </span>
                   )}
                 </Button>
               </a>
-              <Button data-testid="logout-button" onClick={logout} variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" onClick={logout}>
                 <LogOut className="w-5 h-5" />
               </Button>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatsCard label="Active Kits" value={stats.kits} color="green" />
-          <StatsCard label="Total Items" value={stats.items} color="blue" />
-          <StatsCard label="Active Shifts" value={stats.activeShifts} color="amber" />
-          <StatsCard label="Pending Requests" value={stats.pendingRequests} color="red" />
-        </div>
-
-        {/* Action Panel */}
-        {user?.role !== 'admin' && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold font-tactical text-slate-900 mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {actionButtons.map((btn) => (
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Field Worker View - Simplified */}
+        {isFieldWorker && (
+          <>
+            {/* Quick Actions - Large buttons for field workers */}
+            <div className="grid grid-cols-3 gap-4">
+              {fieldWorkerActions.map(action => (
                 <Button
-                  key={btn.type}
-                  data-testid={`action-${btn.type}-button`}
-                  onClick={() => openEventDialog(btn.type)}
-                  className={`h-24 flex flex-col items-center justify-center gap-2 border ${btn.color} font-medium hover:shadow-md transition-all duration-200`}
-                  variant="outline"
+                  key={action.type}
+                  data-testid={`action-${action.type}-button`}
+                  onClick={() => openEventDialog(action.type)}
+                  className={`${action.color} h-24 flex flex-col items-center justify-center gap-2 rounded-xl`}
                 >
-                  <btn.icon className="w-6 h-6" strokeWidth={1.5} />
-                  <span className="text-xs font-tactical">{btn.label}</span>
+                  <action.icon className="w-8 h-8" />
+                  <span className="font-semibold">{action.label}</span>
                 </Button>
               ))}
             </div>
-            
-            <div className="mt-4">
-              <Button
-                data-testid="bulk-transfer-button"
-                onClick={() => setBulkTransferOpen(true)}
-                className="bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200"
-                variant="outline"
-              >
-                <ArrowRightLeft className="w-4 h-4 mr-2" />
-                Bulk Transfer Items
-              </Button>
+
+            {/* My BnB Card - Primary for field workers */}
+            <a href="/my-bnb" className="block">
+              <div className="bg-white rounded-xl border-2 border-indigo-200 p-6 hover:shadow-lg transition-all">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-indigo-100 flex items-center justify-center">
+                    <MapPin className="w-7 h-7 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">My BnB Dashboard</h2>
+                    <p className="text-slate-600">View your assigned kits and today's status</p>
+                  </div>
+                </div>
+              </div>
+            </a>
+
+            {/* Secondary actions */}
+            <div className="grid grid-cols-2 gap-3">
+              <a href="/handover" className="block">
+                <div className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-all">
+                  <div className="flex items-center gap-3">
+                    <Clipboard className="w-5 h-5 text-slate-600" />
+                    <span className="font-medium text-slate-900">Shift Handover</span>
+                  </div>
+                </div>
+              </a>
+              <a href="/requests" className="block">
+                <div className="bg-white rounded-xl border border-slate-200 p-4 hover:shadow-md transition-all">
+                  <div className="flex items-center gap-3">
+                    <Package className="w-5 h-5 text-slate-600" />
+                    <span className="font-medium text-slate-900">My Requests</span>
+                  </div>
+                </div>
+              </a>
             </div>
-          </div>
+          </>
         )}
 
-        {/* Quick Links */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {(user?.role === 'deployer' || user?.assigned_bnb) && (
-            <a href="/my-bnb" className="block">
-              <div data-testid="nav-my-bnb" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-                <h3 className="font-semibold font-tactical text-slate-900 mb-2">My BnB</h3>
-                <p className="text-sm text-slate-600">View your assigned BnB & kits</p>
+        {/* Admin/Supervisor View */}
+        {(isAdmin || isSupervisor) && (
+          <>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatsCard title="Active Kits" value={stats.kits} icon={Package} color="blue" />
+              <StatsCard title="Today's Shifts" value={stats.activeShifts} icon={Clock} color="green" />
+              <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={AlertCircle} color="amber" />
+              <StatsCard title="Total Items" value={stats.items} icon={Package} color="purple" />
+            </div>
+
+            {/* Primary Actions - Admin */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <a href="/deployment-planning" className="block">
+                <div className="bg-indigo-600 text-white rounded-xl p-6 hover:bg-indigo-700 transition-all">
+                  <Calendar className="w-8 h-8 mb-3" />
+                  <h3 className="text-lg font-bold">Deployment Planning</h3>
+                  <p className="text-indigo-200 text-sm">Plan daily BnB assignments</p>
+                </div>
+              </a>
+              <a href="/analytics" className="block">
+                <div className="bg-cyan-600 text-white rounded-xl p-6 hover:bg-cyan-700 transition-all">
+                  <BarChart3 className="w-8 h-8 mb-3" />
+                  <h3 className="text-lg font-bold">Analytics Dashboard</h3>
+                  <p className="text-cyan-200 text-sm">Performance trends & charts</p>
+                </div>
+              </a>
+              <a href="/incidents" className="block">
+                <div className="bg-red-600 text-white rounded-xl p-6 hover:bg-red-700 transition-all">
+                  <AlertTriangle className="w-8 h-8 mb-3" />
+                  <h3 className="text-lg font-bold">Incidents & Penalties</h3>
+                  <p className="text-red-200 text-sm">Track damage & accountability</p>
+                </div>
+              </a>
+            </div>
+
+            {/* Secondary Navigation */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Access</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {isAdmin && (
+                  <a href="/admin" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                    <Settings className="w-5 h-5" />
+                    <span>Admin Panel</span>
+                  </a>
+                )}
+                <a href="/inventory-summary" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <Package className="w-5 h-5" />
+                  <span>Inventory</span>
+                </a>
+                <a href="/events" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <History className="w-5 h-5" />
+                  <span>Events Log</span>
+                </a>
+                <a href="/requests" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <Clipboard className="w-5 h-5" />
+                  <span>Requests</span>
+                </a>
+                <a href="/reports/lost-items" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Lost Items</span>
+                </a>
+                <a href="/reports/ssd-offload" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <Package className="w-5 h-5" />
+                  <span>SSD Offload</span>
+                </a>
+                <a href="/damage" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>Damage Tracking</span>
+                </a>
+                {(isAdmin || isInventoryManager) && (
+                  <a href="/inventory-management" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                    <Settings className="w-5 h-5" />
+                    <span>Manage Inventory</span>
+                  </a>
+                )}
               </div>
-            </a>
-          )}
-          
-          {(user?.role === 'admin' || user?.role === 'supervisor') && (
-            <a href="/admin" className="block">
-              <div data-testid="nav-admin" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-                <h3 className="font-semibold font-tactical text-slate-900 mb-2">Admin Panel</h3>
-                <p className="text-sm text-slate-600">Manage assignments & teams</p>
+            </div>
+          </>
+        )}
+
+        {/* Inventory Manager View */}
+        {isInventoryManager && !isAdmin && (
+          <>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <StatsCard title="Total Items" value={stats.items} icon={Package} color="blue" />
+              <StatsCard title="Active Kits" value={stats.kits} icon={Package} color="green" />
+              <StatsCard title="Pending Requests" value={stats.pendingRequests} icon={AlertCircle} color="amber" />
+              <StatsCard title="Today's Shifts" value={stats.activeShifts} icon={Clock} color="purple" />
+            </div>
+
+            {/* Primary Actions - Inventory Manager */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <a href="/inventory-management" className="block">
+                <div className="bg-green-600 text-white rounded-xl p-6 hover:bg-green-700 transition-all">
+                  <Package className="w-8 h-8 mb-3" />
+                  <h3 className="text-lg font-bold">Inventory Management</h3>
+                  <p className="text-green-200 text-sm">Add, edit, manage items</p>
+                </div>
+              </a>
+              <a href="/inventory-summary" className="block">
+                <div className="bg-blue-600 text-white rounded-xl p-6 hover:bg-blue-700 transition-all">
+                  <BarChart3 className="w-8 h-8 mb-3" />
+                  <h3 className="text-lg font-bold">Inventory Summary</h3>
+                  <p className="text-blue-200 text-sm">Bird's eye view</p>
+                </div>
+              </a>
+            </div>
+
+            {/* Secondary Navigation */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Quick Access</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <a href="/inventory" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <Package className="w-5 h-5" />
+                  <span>Item Details</span>
+                </a>
+                <a href="/events" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <History className="w-5 h-5" />
+                  <span>Events Log</span>
+                </a>
+                <a href="/reports/lost-items" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Lost Items</span>
+                </a>
+                <a href="/damage" className="flex items-center gap-2 p-3 rounded-lg hover:bg-slate-50 text-slate-700">
+                  <AlertTriangle className="w-5 h-5" />
+                  <span>Damage Tracking</span>
+                </a>
               </div>
-            </a>
-          )}
-          
-          {(user?.role === 'admin' || user?.role === 'supervisor') && (
-            <a href="/deployment-planning" className="block">
-              <div data-testid="nav-deployment-planning" className="bg-white rounded-xl border border-indigo-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-                <h3 className="font-semibold font-tactical text-indigo-900 mb-2">Deployment Planning</h3>
-                <p className="text-sm text-indigo-700">Daily BnB & kit assignments</p>
-              </div>
-            </a>
-          )}
-          
-          {(user?.role === 'admin' || user?.role === 'supervisor') && (
-            <a href="/analytics" className="block">
-              <div data-testid="nav-analytics" className="bg-white rounded-xl border border-cyan-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-                <h3 className="font-semibold font-tactical text-cyan-900 mb-2">Analytics Dashboard</h3>
-                <p className="text-sm text-cyan-700">Performance trends & charts</p>
-              </div>
-            </a>
-          )}
-          
-          <a href="/inventory-summary" className="block">
-            <div data-testid="nav-inventory-summary" className="bg-white rounded-xl border border-blue-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-blue-900 mb-2">Inventory Summary</h3>
-              <p className="text-sm text-blue-700">Bird's eye view table</p>
             </div>
-          </a>
-          
-          <a href="/inventory" className="block">
-            <div data-testid="nav-inventory" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-slate-900 mb-2">Inventory Details</h3>
-              <p className="text-sm text-slate-600">Item-wise locations</p>
-            </div>
-          </a>
-          
-          <a href="/events" className="block">
-            <div data-testid="nav-events" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-slate-900 mb-2">Events Log</h3>
-              <p className="text-sm text-slate-600">Review all logged actions</p>
-            </div>
-          </a>
-          
-          <a href="/requests" className="block">
-            <div data-testid="nav-requests" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-slate-900 mb-2">Requests</h3>
-              <p className="text-sm text-slate-600">Manage item requests</p>
-            </div>
-          </a>
-          
-          <a href="/damage" className="block">
-            <div data-testid="nav-damage" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-slate-900 mb-2">Damage Tracking</h3>
-              <p className="text-sm text-slate-600">Monitor equipment issues</p>
-            </div>
-          </a>
-          
-          <a href="/reports/lost-items" className="block">
-            <div data-testid="nav-lost-items" className="bg-white rounded-xl border border-red-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-red-900 mb-2">Lost Items Report</h3>
-              <p className="text-sm text-red-700">Track lost inventory</p>
-            </div>
-          </a>
-          
-          <a href="/reports/ssd-offload" className="block">
-            <div data-testid="nav-ssd-offload" className="bg-white rounded-xl border border-blue-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-blue-900 mb-2">SSD Offload Dashboard</h3>
-              <p className="text-sm text-blue-700">Track SSDs at data center</p>
-            </div>
-          </a>
-          
-          {(user?.role === 'admin' || user?.role === 'inventory_manager') && (
-            <a href="/inventory-management" className="block">
-              <div data-testid="nav-inventory-management" className="bg-white rounded-xl border border-green-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-                <h3 className="font-semibold font-tactical text-green-900 mb-2">Inventory Management</h3>
-                <p className="text-sm text-green-700">Add, edit, manage items</p>
-              </div>
-            </a>
-          )}
-        </div>
-      </div>
+          </>
+        )}
+      </main>
 
       {/* Event Dialog */}
       <EventDialog

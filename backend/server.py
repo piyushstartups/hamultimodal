@@ -1543,6 +1543,267 @@ async def get_analytics_overview(
         "category_distribution": category_dist
     }
 
+# ========================
+# PHASE 3: HISTORY & ACCOUNTABILITY
+# ========================
+
+# Incident Models
+class IncidentCreate(BaseModel):
+    incident_type: str  # damage, loss, misuse
+    item_id: Optional[str] = None
+    kit_id: Optional[str] = None
+    user_id: str  # Worker responsible
+    shift_date: str
+    bnb_id: Optional[str] = None
+    description: str
+    severity: str = "medium"  # low, medium, high
+    penalty_amount: Optional[float] = None
+    notes: Optional[str] = None
+
+@api_router.get("/history/kit/{kit_id}")
+async def get_kit_history(
+    kit_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get complete deployment history for a kit"""
+    if current_user["role"] not in ["admin", "supervisor", "inventory_manager"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get kit details
+    kit = await db.kits.find_one({"kit_id": kit_id}, {"_id": 0})
+    if not kit:
+        raise HTTPException(status_code=404, detail="Kit not found")
+    
+    # Get all assignments where this kit was deployed
+    assignments = await db.assignments.find({
+        "kit_ids": kit_id
+    }, {"_id": 0}).sort("shift_date", -1).to_list(500)
+    
+    # Get all events for this kit
+    events = await db.events.find({
+        "$or": [
+            {"from_kit": kit_id},
+            {"to_kit": kit_id}
+        ]
+    }, {"_id": 0}).sort("timestamp", -1).to_list(500)
+    
+    # Get shift events specifically
+    shift_events = [e for e in events if e["event_type"] in ["start_shift", "end_shift"]]
+    damage_events = [e for e in events if e["event_type"] in ["damage", "lost", "wear_flag"]]
+    
+    # Calculate stats
+    unique_bnbs = list(set(a.get("bnb_id") for a in assignments if a.get("bnb_id")))
+    total_shifts = len([e for e in shift_events if e["event_type"] == "end_shift"])
+    total_hours = sum(e.get("hours_recorded", 0) or 0 for e in shift_events if e["event_type"] == "end_shift")
+    
+    return {
+        "kit": kit,
+        "stats": {
+            "total_deployments": len(assignments),
+            "unique_bnbs": len(unique_bnbs),
+            "total_shifts": total_shifts,
+            "total_hours": round(total_hours, 1),
+            "damage_incidents": len(damage_events)
+        },
+        "bnbs_deployed": unique_bnbs,
+        "recent_assignments": assignments[:20],
+        "recent_events": events[:50],
+        "damage_history": damage_events
+    }
+
+@api_router.get("/history/worker/{user_id}")
+async def get_worker_history(
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get complete work history for a worker"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        # Workers can view their own history
+        if current_user["id"] != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get user details
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    
+    # Get all shifts for this worker
+    shift_events = await db.events.find({
+        "user_id": user_id,
+        "event_type": {"$in": ["start_shift", "end_shift"]}
+    }, {"_id": 0}).sort("timestamp", -1).to_list(500)
+    
+    # Get all assignments where this worker was assigned
+    assignments = await db.assignments.find({
+        "$or": [
+            {"morning_team": user_id},
+            {"night_team": user_id}
+        ]
+    }, {"_id": 0}).sort("shift_date", -1).to_list(500)
+    
+    # Get incidents involving this worker
+    incidents = await db.incidents.find({
+        "user_id": user_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    # Calculate stats
+    end_shifts = [e for e in shift_events if e["event_type"] == "end_shift"]
+    total_hours = sum(e.get("hours_recorded", 0) or 0 for e in end_shifts)
+    unique_bnbs = list(set(a.get("bnb_id") for a in assignments if a.get("bnb_id")))
+    unique_kits = set()
+    for e in shift_events:
+        if e.get("from_kit"):
+            unique_kits.add(e["from_kit"])
+    
+    # Calculate total penalties
+    total_penalties = sum(i.get("penalty_amount", 0) or 0 for i in incidents)
+    
+    return {
+        "worker": user,
+        "stats": {
+            "total_shifts": len(end_shifts),
+            "total_hours": round(total_hours, 1),
+            "avg_hours_per_shift": round(total_hours / len(end_shifts), 1) if end_shifts else 0,
+            "unique_bnbs": len(unique_bnbs),
+            "unique_kits": len(unique_kits),
+            "total_incidents": len(incidents),
+            "total_penalties": total_penalties
+        },
+        "bnbs_worked": unique_bnbs,
+        "recent_shifts": end_shifts[:20],
+        "recent_assignments": assignments[:20],
+        "incidents": incidents
+    }
+
+@api_router.post("/incidents")
+async def create_incident(
+    incident: IncidentCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new incident record"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    incident_dict = {
+        "id": f"INC-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",
+        **incident.model_dump(),
+        "status": "open",
+        "created_by": current_user["id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.incidents.insert_one(incident_dict)
+    
+    # Create notification for the worker
+    await create_notification(
+        incident.user_id,
+        f"New incident reported: {incident.incident_type} - {incident.description[:50]}",
+        "incident"
+    )
+    
+    # Remove _id before returning
+    incident_dict.pop("_id", None)
+    return incident_dict
+
+@api_router.get("/incidents")
+async def get_incidents(
+    status: Optional[str] = None,
+    user_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all incidents with optional filters"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        # Workers can only see their own incidents
+        user_id = current_user["id"]
+    
+    query = {}
+    if status:
+        query["status"] = status
+    if user_id:
+        query["user_id"] = user_id
+    
+    incidents = await db.incidents.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    
+    # Enrich with user names
+    for incident in incidents:
+        user = await db.users.find_one({"id": incident["user_id"]}, {"_id": 0, "password_hash": 0})
+        incident["user_name"] = user["name"] if user else incident["user_id"]
+    
+    return incidents
+
+@api_router.put("/incidents/{incident_id}")
+async def update_incident(
+    incident_id: str,
+    status: str,
+    penalty_amount: Optional[float] = None,
+    notes: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an incident's status or penalty"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    update_data = {
+        "status": status,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["id"]
+    }
+    if penalty_amount is not None:
+        update_data["penalty_amount"] = penalty_amount
+    if notes:
+        update_data["notes"] = notes
+    
+    result = await db.incidents.update_one(
+        {"id": incident_id},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    
+    updated = await db.incidents.find_one({"id": incident_id}, {"_id": 0})
+    return updated
+
+@api_router.get("/incidents/summary")
+async def get_incidents_summary(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get incidents summary for dashboard"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Aggregate by status
+    pipeline = [
+        {"$group": {
+            "_id": "$status",
+            "count": {"$sum": 1},
+            "total_penalties": {"$sum": {"$ifNull": ["$penalty_amount", 0]}}
+        }}
+    ]
+    
+    by_status = await db.incidents.aggregate(pipeline).to_list(10)
+    
+    # Aggregate by type
+    pipeline_type = [
+        {"$group": {
+            "_id": "$incident_type",
+            "count": {"$sum": 1}
+        }}
+    ]
+    
+    by_type = await db.incidents.aggregate(pipeline_type).to_list(10)
+    
+    # Recent incidents
+    recent = await db.incidents.find({}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    
+    return {
+        "by_status": {item["_id"]: {"count": item["count"], "penalties": item["total_penalties"]} for item in by_status},
+        "by_type": {item["_id"]: item["count"] for item in by_type},
+        "recent": recent,
+        "total_open": sum(item["count"] for item in by_status if item["_id"] == "open")
+    }
+
 @api_router.get("/my-bnb/dashboard")
 async def get_my_bnb_dashboard(current_user: dict = Depends(get_current_user)):
     """Get dashboard view for associate's assigned BnB"""

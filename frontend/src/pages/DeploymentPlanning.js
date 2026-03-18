@@ -30,7 +30,8 @@ import {
   Edit,
   Trash2,
   CheckCircle2,
-  Clock
+  Clock,
+  Building
 } from 'lucide-react';
 import Layout from '../components/Layout';
 
@@ -44,6 +45,7 @@ export default function DeploymentPlanning() {
   // Dialog states
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
+  const [bnbDialogOpen, setBnbDialogOpen] = useState(false);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -51,6 +53,12 @@ export default function DeploymentPlanning() {
     kit_ids: [],
     morning_team: [],
     night_team: [],
+  });
+  
+  // BnB form data
+  const [bnbFormData, setBnbFormData] = useState({
+    kit_id: '',
+    status: 'active',
   });
   
   // Available options
@@ -133,6 +141,37 @@ export default function DeploymentPlanning() {
     setAssignmentDialogOpen(true);
   };
 
+  const openNewBnb = () => {
+    setBnbFormData({
+      kit_id: '',
+      status: 'active',
+    });
+    setBnbDialogOpen(true);
+  };
+
+  const handleCreateBnb = async (e) => {
+    e.preventDefault();
+    
+    if (!bnbFormData.kit_id) {
+      toast.error('Please enter a BnB ID');
+      return;
+    }
+
+    try {
+      await api.post('/kits', {
+        kit_id: bnbFormData.kit_id.toUpperCase(),
+        type: 'bnb',
+        status: bnbFormData.status,
+      });
+      toast.success('BnB location created');
+      setBnbDialogOpen(false);
+      fetchOptions();
+      fetchSummary();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create BnB');
+    }
+  };
+
   const openEditAssignment = (assignment) => {
     setEditingAssignment(assignment);
     setFormData({
@@ -205,10 +244,16 @@ export default function DeploymentPlanning() {
             <h1 className="text-2xl font-bold text-slate-900">Deployment Planning</h1>
             <p className="text-sm text-slate-600 mt-1">Plan and manage daily BnB deployments</p>
           </div>
-          <Button onClick={openNewAssignment} className="bg-green-600 hover:bg-green-700">
-            <Plus className="w-4 h-4 mr-2" />
-            New Assignment
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={openNewBnb} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+              <Building className="w-4 h-4 mr-2" />
+              Add BnB
+            </Button>
+            <Button onClick={openNewAssignment} className="bg-green-600 hover:bg-green-700">
+              <Plus className="w-4 h-4 mr-2" />
+              New Assignment
+            </Button>
+          </div>
         </div>
 
         {/* Date Navigation */}
@@ -584,6 +629,62 @@ export default function DeploymentPlanning() {
               </Button>
               <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700">
                 {editingAssignment ? 'Update' : 'Create'} Assignment
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add BnB Dialog */}
+      <Dialog open={bnbDialogOpen} onOpenChange={setBnbDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Add New BnB Location</DialogTitle>
+            <DialogDescription>
+              Create a new BnB location for deployment
+            </DialogDescription>
+          </DialogHeader>
+          
+          <form onSubmit={handleCreateBnb} className="space-y-4 mt-4">
+            <div>
+              <Label>BnB ID *</Label>
+              <Input
+                value={bnbFormData.kit_id}
+                onChange={(e) => setBnbFormData({ ...bnbFormData, kit_id: e.target.value.toUpperCase() })}
+                placeholder="e.g., BNB-05"
+                className="mt-2"
+                required
+              />
+              <p className="text-xs text-slate-500 mt-1">Unique identifier for this location</p>
+            </div>
+
+            <div>
+              <Label>Status</Label>
+              <Select 
+                value={bnbFormData.status} 
+                onValueChange={(val) => setBnbFormData({ ...bnbFormData, status: val })}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setBnbDialogOpen(false)} 
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-700">
+                Create BnB
               </Button>
             </div>
           </form>
