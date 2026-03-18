@@ -68,7 +68,12 @@ class DeploymentCreate(BaseModel):
     shift: str  # morning / evening
     assigned_kits: List[str] = []
     assigned_users: List[str] = []
-    deployment_manager: str  # user_id
+    deployment_managers: List[str] = []  # Multiple user_ids
+
+class ItemUpdate(BaseModel):
+    tracking_type: str  # individual / quantity
+    status: str = "active"  # active / damaged / lost / repair
+    current_kit: Optional[str] = None
 
 class EventCreate(BaseModel):
     event_type: str  # shift_start, shift_end, transfer, damage, activity
@@ -295,6 +300,31 @@ async def delete_item(item_name: str, user: dict = Depends(get_current_user_dep(
     await db.items.delete_one({"item_name": item_name})
     return {"status": "deleted"}
 
+@app.put("/api/items/{item_name}")
+async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get_current_user_dep())):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Check item exists
+    existing = await db.items.find_one({"item_name": item_name})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    await db.items.update_one(
+        {"item_name": item_name},
+        {"$set": {
+            "tracking_type": data.tracking_type,
+            "status": data.status,
+            "current_kit": data.current_kit
+        }}
+    )
+    return {
+        "item_name": item_name,
+        "tracking_type": data.tracking_type,
+        "status": data.status,
+        "current_kit": data.current_kit
+    }
+
 # ========================
 # DEPLOYMENTS
 # ========================
@@ -308,9 +338,9 @@ async def get_deployments(
     if date:
         query["date"] = date
     
-    # Deployment managers only see their deployments
+    # Deployment managers only see their deployments (where they are in deployment_managers array)
     if user["role"] == "deployment_manager":
-        query["deployment_manager"] = user["id"]
+        query["deployment_managers"] = user["id"]
     
     deployments = await db.deployments.find(query, {"_id": 0}).sort("date", -1).to_list(100)
     return deployments
@@ -321,7 +351,7 @@ async def get_today_deployments(user: dict = Depends(get_current_user_dep())):
     query = {"date": today}
     
     if user["role"] == "deployment_manager":
-        query["deployment_manager"] = user["id"]
+        query["deployment_managers"] = user["id"]
     
     return await db.deployments.find(query, {"_id": 0}).to_list(50)
 
@@ -329,6 +359,10 @@ async def get_today_deployments(user: dict = Depends(get_current_user_dep())):
 async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Validate at least one deployment manager
+    if not data.deployment_managers or len(data.deployment_managers) == 0:
+        raise HTTPException(status_code=400, detail="At least one deployment manager is required")
     
     # Check for duplicate
     existing = await db.deployments.find_one({
@@ -344,7 +378,7 @@ async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_cur
         "shift": data.shift,
         "assigned_kits": data.assigned_kits,
         "assigned_users": data.assigned_users,
-        "deployment_manager": data.deployment_manager,
+        "deployment_managers": data.deployment_managers,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.deployments.insert_one(doc)
@@ -363,7 +397,7 @@ async def update_deployment(deployment_id: str, data: DeploymentCreate, user: di
             "shift": data.shift,
             "assigned_kits": data.assigned_kits,
             "assigned_users": data.assigned_users,
-            "deployment_manager": data.deployment_manager
+            "deployment_managers": data.deployment_managers
         }}
     )
     return {"status": "updated"}

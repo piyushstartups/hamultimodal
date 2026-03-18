@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import {
   Select,
@@ -32,22 +31,19 @@ export default function Deployments() {
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDeployment, setEditingDeployment] = useState(null);
-  const [bnbDialogOpen, setBnbDialogOpen] = useState(false);
   
   // Options
   const [bnbs, setBnbs] = useState([]);
   const [kits, setKits] = useState([]);
   const [managers, setManagers] = useState([]);
   
-  // Form data
+  // Form data - deployment_managers is now an array
   const [formData, setFormData] = useState({
     bnb: '',
     shift: 'morning',
-    deployment_manager: '',
+    deployment_managers: [],
     assigned_kits: [],
   });
-  
-  const [newBnbName, setNewBnbName] = useState('');
 
   useEffect(() => {
     fetchDeployments();
@@ -75,7 +71,8 @@ export default function Deployments() {
       ]);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
-      setManagers(usersRes.data.filter(u => u.role === 'deployment_manager' || u.role === 'admin'));
+      // Filter to deployment_manager role only for assignment
+      setManagers(usersRes.data.filter(u => u.role === 'deployment_manager'));
     } catch (error) {
       console.error(error);
     }
@@ -111,9 +108,12 @@ export default function Deployments() {
     const dateKey = formatDateKey(date);
     let deps = deployments.filter(d => d.date === dateKey);
     
-    // Managers only see their deployments
+    // Managers only see deployments where they are assigned
     if (!isAdmin) {
-      deps = deps.filter(d => d.deployment_manager === user?.id);
+      deps = deps.filter(d => 
+        d.deployment_managers?.includes(user?.id) || 
+        d.deployment_manager === user?.id // backward compatibility
+      );
     }
     
     return deps;
@@ -133,7 +133,7 @@ export default function Deployments() {
     setFormData({
       bnb: '',
       shift: 'morning',
-      deployment_manager: '',
+      deployment_managers: [],
       assigned_kits: [],
     });
     setDialogOpen(true);
@@ -144,7 +144,8 @@ export default function Deployments() {
     setFormData({
       bnb: deployment.bnb,
       shift: deployment.shift,
-      deployment_manager: deployment.deployment_manager,
+      deployment_managers: deployment.deployment_managers || 
+        (deployment.deployment_manager ? [deployment.deployment_manager] : []), // backward compatibility
       assigned_kits: deployment.assigned_kits || [],
     });
     setDialogOpen(true);
@@ -153,8 +154,13 @@ export default function Deployments() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!formData.bnb || !formData.deployment_manager) {
-      toast.error('BnB and Deployment Manager are required');
+    if (!formData.bnb) {
+      toast.error('BnB is required');
+      return;
+    }
+    
+    if (formData.deployment_managers.length === 0) {
+      toast.error('At least one Deployment Manager is required');
       return;
     }
 
@@ -163,7 +169,7 @@ export default function Deployments() {
         date: formatDateKey(selectedDate),
         bnb: formData.bnb,
         shift: formData.shift,
-        deployment_manager: formData.deployment_manager,
+        deployment_managers: formData.deployment_managers,
         assigned_kits: formData.assigned_kits,
         assigned_users: [],
       };
@@ -194,27 +200,21 @@ export default function Deployments() {
     }
   };
 
-  const handleAddBnb = async (e) => {
-    e.preventDefault();
-    if (!newBnbName.trim()) return;
-    
-    try {
-      await api.post('/bnbs', { name: newBnbName.trim(), status: 'active' });
-      toast.success('BnB added');
-      setNewBnbName('');
-      setBnbDialogOpen(false);
-      fetchOptions();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add BnB');
-    }
-  };
-
   const toggleKit = (kitId) => {
     const arr = formData.assigned_kits;
     if (arr.includes(kitId)) {
       setFormData({ ...formData, assigned_kits: arr.filter(k => k !== kitId) });
     } else {
       setFormData({ ...formData, assigned_kits: [...arr, kitId] });
+    }
+  };
+
+  const toggleManager = (managerId) => {
+    const arr = formData.deployment_managers;
+    if (arr.includes(managerId)) {
+      setFormData({ ...formData, deployment_managers: arr.filter(m => m !== managerId) });
+    } else {
+      setFormData({ ...formData, deployment_managers: [...arr, managerId] });
     }
   };
 
@@ -228,6 +228,17 @@ export default function Deployments() {
     return u?.name || userId;
   };
 
+  const getManagerNames = (dep) => {
+    // Support both old (deployment_manager) and new (deployment_managers) format
+    if (dep.deployment_managers && dep.deployment_managers.length > 0) {
+      return dep.deployment_managers.map(id => getUserName(id)).join(', ');
+    }
+    if (dep.deployment_manager) {
+      return getUserName(dep.deployment_manager);
+    }
+    return 'Unassigned';
+  };
+
   return (
     <div className="min-h-screen bg-slate-100">
       {/* Header */}
@@ -235,21 +246,15 @@ export default function Deployments() {
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <a href="/dashboard">
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" data-testid="back-btn">
                 <ArrowLeft className="w-5 h-5" />
               </Button>
             </a>
             <div>
               <h1 className="text-lg font-bold text-slate-900">Deployments</h1>
-              <p className="text-sm text-slate-600">{isAdmin ? 'Plan & manage' : 'View your assignments'}</p>
+              <p className="text-sm text-slate-600">{isAdmin ? 'Plan & assign' : 'Your assignments'}</p>
             </div>
           </div>
-          {isAdmin && (
-            <Button variant="outline" size="sm" onClick={() => setBnbDialogOpen(true)}>
-              <Plus className="w-4 h-4 mr-1" />
-              Add BnB
-            </Button>
-          )}
         </div>
       </header>
 
@@ -259,11 +264,11 @@ export default function Deployments() {
           <div className="lg:col-span-2 bg-white rounded-xl border p-4">
             {/* Month Navigation */}
             <div className="flex items-center justify-between mb-4">
-              <Button variant="ghost" size="icon" onClick={() => navigateMonth(-1)}>
+              <Button variant="ghost" size="icon" onClick={() => navigateMonth(-1)} data-testid="prev-month-btn">
                 <ChevronLeft className="w-5 h-5" />
               </Button>
               <h2 className="text-lg font-semibold">{monthName}</h2>
-              <Button variant="ghost" size="icon" onClick={() => navigateMonth(1)}>
+              <Button variant="ghost" size="icon" onClick={() => navigateMonth(1)} data-testid="next-month-btn">
                 <ChevronRight className="w-5 h-5" />
               </Button>
             </div>
@@ -293,6 +298,7 @@ export default function Deployments() {
                   <button
                     key={dateKey}
                     onClick={() => setSelectedDate(day)}
+                    data-testid={`day-${dateKey}`}
                     className={`aspect-square p-1 rounded-lg border transition-all relative ${
                       isSelected 
                         ? 'bg-blue-500 text-white border-blue-500' 
@@ -327,7 +333,7 @@ export default function Deployments() {
                     {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </h3>
                   {isAdmin && (
-                    <Button size="sm" onClick={openAddDialog}>
+                    <Button size="sm" onClick={openAddDialog} data-testid="add-deployment-btn">
                       <Plus className="w-4 h-4 mr-1" />
                       Add
                     </Button>
@@ -342,7 +348,7 @@ export default function Deployments() {
                 ) : (
                   <div className="space-y-3">
                     {selectedDeployments.map((dep) => (
-                      <div key={dep.id} className="border rounded-lg overflow-hidden">
+                      <div key={dep.id} className="border rounded-lg overflow-hidden" data-testid={`deployment-${dep.id}`}>
                         <div className="bg-slate-900 text-white px-3 py-2 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{dep.bnb}</span>
@@ -350,19 +356,19 @@ export default function Deployments() {
                           </div>
                           {isAdmin && (
                             <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => openEditDialog(dep)}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => openEditDialog(dep)} data-testid={`edit-deployment-${dep.id}`}>
                                 <Edit className="w-3 h-3" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-red-500" onClick={() => handleDelete(dep.id)}>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-red-500" onClick={() => handleDelete(dep.id)} data-testid={`delete-deployment-${dep.id}`}>
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             </div>
                           )}
                         </div>
                         <div className="p-3 space-y-2 text-sm">
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-slate-400" />
-                            <span>{getUserName(dep.deployment_manager)}</span>
+                          <div className="flex items-start gap-2">
+                            <Users className="w-4 h-4 text-slate-400 mt-0.5" />
+                            <span className="flex-1">{getManagerNames(dep)}</span>
                           </div>
                           <div className="flex items-start gap-2">
                             <Package className="w-4 h-4 text-slate-400 mt-0.5" />
@@ -402,17 +408,18 @@ export default function Deployments() {
             <div>
               <Label>BnB *</Label>
               <Select value={formData.bnb} onValueChange={(v) => setFormData({ ...formData, bnb: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select BnB" /></SelectTrigger>
+                <SelectTrigger className="mt-1" data-testid="bnb-select"><SelectValue placeholder="Select BnB" /></SelectTrigger>
                 <SelectContent>
                   {bnbs.map(b => <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {bnbs.length === 0 && <p className="text-xs text-amber-600 mt-1">No BnBs available. Add BnBs via Admin Panel.</p>}
             </div>
             
             <div>
               <Label>Shift *</Label>
               <Select value={formData.shift} onValueChange={(v) => setFormData({ ...formData, shift: v })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1" data-testid="shift-select"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="morning">Morning</SelectItem>
                   <SelectItem value="evening">Evening</SelectItem>
@@ -421,13 +428,26 @@ export default function Deployments() {
             </div>
             
             <div>
-              <Label>Deployment Manager *</Label>
-              <Select value={formData.deployment_manager} onValueChange={(v) => setFormData({ ...formData, deployment_manager: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select manager" /></SelectTrigger>
-                <SelectContent>
-                  {managers.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Label>Deployment Managers * <span className="text-xs text-slate-500">(select one or more)</span></Label>
+              <p className="text-xs text-slate-500 mb-2">Click to select/deselect</p>
+              <div className="flex flex-wrap gap-2">
+                {managers.map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => toggleManager(m.id)}
+                    data-testid={`manager-${m.id}`}
+                    className={`px-3 py-1.5 text-sm rounded border transition-all ${
+                      formData.deployment_managers.includes(m.id)
+                        ? 'bg-green-500 text-white border-green-500'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-green-300'
+                    }`}
+                  >
+                    {m.name}
+                  </button>
+                ))}
+                {managers.length === 0 && <span className="text-sm text-amber-600">No deployment managers available. Add users via Admin Panel.</span>}
+              </div>
             </div>
             
             <div>
@@ -439,6 +459,7 @@ export default function Deployments() {
                     key={k.kit_id}
                     type="button"
                     onClick={() => toggleKit(k.kit_id)}
+                    data-testid={`kit-${k.kit_id}`}
                     className={`px-3 py-1 text-sm rounded border transition-all ${
                       formData.assigned_kits.includes(k.kit_id)
                         ? 'bg-blue-500 text-white border-blue-500'
@@ -456,37 +477,8 @@ export default function Deployments() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1">
+              <Button type="submit" className="flex-1" data-testid="submit-deployment-btn">
                 {editingDeployment ? 'Update' : 'Create'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add BnB Dialog */}
-      <Dialog open={bnbDialogOpen} onOpenChange={setBnbDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add New BnB</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddBnb} className="space-y-4 mt-4">
-            <div>
-              <Label>BnB Name *</Label>
-              <Input
-                value={newBnbName}
-                onChange={(e) => setNewBnbName(e.target.value)}
-                placeholder="e.g., BnB-05"
-                className="mt-1"
-                required
-              />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setBnbDialogOpen(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button type="submit" className="flex-1">
-                Add BnB
               </Button>
             </div>
           </form>
