@@ -87,7 +87,7 @@ class ShiftStart(BaseModel):
     activity_type: str  # cooking, cleaning, organizing, outdoor, other
 
 class EventCreate(BaseModel):
-    event_type: str  # transfer, damage, activity
+    event_type: str  # transfer, damage, lost
     item: str
     from_location: Optional[str] = None  # e.g., "kit:KIT-01" or "bnb:BnB-01" or "station:Main"
     to_location: Optional[str] = None  # e.g., "kit:KIT-02" or "bnb:BnB-02" or "station:Storage"
@@ -97,6 +97,32 @@ class EventCreate(BaseModel):
 class RequestCreate(BaseModel):
     item: str
     quantity: int = 1
+    notes: Optional[str] = None
+
+# Handover models
+class KitChecklist(BaseModel):
+    kit_id: str
+    gloves: int = 0
+    usb_hub: int = 0
+    imus: int = 0
+    head_camera: int = 0
+    l_shaped_wire: int = 0
+    laptop: int = 0
+    laptop_charger: int = 0
+    power_bank: int = 0
+    ssds: int = 0
+
+class BnbChecklist(BaseModel):
+    charging_station: int = 0
+    power_strip_8_port: int = 0
+    power_strip_4_5_port: int = 0
+
+class HandoverCreate(BaseModel):
+    deployment_id: str
+    handover_type: str  # outgoing / incoming
+    kit_checklists: List[KitChecklist]
+    bnb_checklist: BnbChecklist
+    missing_items: List[dict] = []  # [{item, quantity, kit_or_bnb, report_as_lost}]
     notes: Optional[str] = None
 
 # ========================
@@ -478,6 +504,23 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
             {"$set": {"status": "damaged"}}
         )
     
+    if data.event_type == "lost" and data.item:
+        # For individual items: mark as lost
+        # For quantity items: reduce quantity
+        item = await db.items.find_one({"item_name": data.item})
+        if item:
+            if item.get("tracking_type") == "individual":
+                await db.items.update_one(
+                    {"item_name": data.item},
+                    {"$set": {"status": "lost"}}
+                )
+            elif item.get("tracking_type") == "quantity":
+                new_qty = max(0, (item.get("quantity", 0) - data.quantity))
+                await db.items.update_one(
+                    {"item_name": data.item},
+                    {"$set": {"quantity": new_qty}}
+                )
+    
     await db.events.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -667,6 +710,80 @@ async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())
     
     updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
     return updated
+
+# ========================
+# HANDOVERS
+# ========================
+
+@app.get("/api/handovers/by-deployment/{deployment_id}")
+async def get_handovers_by_deployment(deployment_id: str, user: dict = Depends(get_current_user_dep())):
+    """Get all handovers for a deployment"""
+    handovers = await db.handovers.find(
+        {"deployment_id": deployment_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    return handovers
+
+@app.post("/api/handovers")
+async def create_handover(data: HandoverCreate, user: dict = Depends(get_current_user_dep())):
+    """Create a handover (outgoing or incoming)"""
+    # Get deployment details
+    deployment = await db.deployments.find_one({"id": data.deployment_id})
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Create lost events for any items marked as lost
+    for missing in data.missing_items:
+        if missing.get("report_as_lost"):
+            lost_event = {
+                "id": f"evt-{now.strftime('%Y%m%d%H%M%S%f')[:18]}-lost",
+                "event_type": "lost",
+                "user": user["id"],
+                "user_name": user["name"],
+                "item": missing.get("item"),
+                "from_location": f"kit:{missing.get('kit_id')}" if missing.get('kit_id') else f"bnb:{deployment['bnb']}",
+                "quantity": missing.get("quantity", 1),
+                "notes": f"Lost during handover - {data.handover_type}",
+                "timestamp": now.isoformat()
+            }
+            await db.events.insert_one(lost_event)
+            
+            # Update item status
+            item = await db.items.find_one({"item_name": missing.get("item")})
+            if item:
+                if item.get("tracking_type") == "individual":
+                    await db.items.update_one(
+                        {"item_name": missing.get("item")},
+                        {"$set": {"status": "lost"}}
+                    )
+                elif item.get("tracking_type") == "quantity":
+                    new_qty = max(0, (item.get("quantity", 0) - missing.get("quantity", 1)))
+                    await db.items.update_one(
+                        {"item_name": missing.get("item")},
+                        {"$set": {"quantity": new_qty}}
+                    )
+    
+    # Create handover record
+    handover_doc = {
+        "id": f"handover-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "deployment_id": data.deployment_id,
+        "date": deployment["date"],
+        "bnb": deployment["bnb"],
+        "handover_type": data.handover_type,
+        "user": user["id"],
+        "user_name": user["name"],
+        "kit_checklists": [kc.dict() for kc in data.kit_checklists],
+        "bnb_checklist": data.bnb_checklist.dict(),
+        "missing_items": data.missing_items,
+        "notes": data.notes,
+        "created_at": now.isoformat()
+    }
+    
+    await db.handovers.insert_one(handover_doc)
+    handover_doc.pop("_id", None)
+    return handover_doc
 
 # ========================
 # REQUESTS

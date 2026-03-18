@@ -18,7 +18,7 @@ import {
 } from '../components/ui/dialog';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRightLeft, AlertTriangle, FileText } from 'lucide-react';
+import { ArrowLeft, ArrowRightLeft, AlertTriangle, XCircle } from 'lucide-react';
 
 const LOCATION_TYPES = [
   { prefix: 'kit', label: 'Kit' },
@@ -96,17 +96,22 @@ export default function QuickActions() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!formData.item) {
+      toast.error('Please select an item');
+      return;
+    }
+    
     setLoading(true);
 
     try {
-      if (actionType === 'request') {
-        await api.post('/requests', {
-          item: formData.item,
-          quantity: formData.quantity,
-          notes: formData.notes
-        });
-        toast.success('Request submitted');
-      } else if (actionType === 'transfer') {
+      if (actionType === 'transfer') {
+        if (!formData.from_value || !formData.to_value) {
+          toast.error('Please select from and to locations');
+          setLoading(false);
+          return;
+        }
+        
         const from_location = `${formData.from_type}:${formData.from_value}`;
         const to_location = `${formData.to_type}:${formData.to_value}`;
         
@@ -119,6 +124,7 @@ export default function QuickActions() {
           notes: formData.notes || null
         });
         toast.success('Transfer recorded');
+        
       } else if (actionType === 'damage') {
         await api.post('/events', {
           event_type: 'damage',
@@ -127,7 +133,25 @@ export default function QuickActions() {
           quantity: 1,
           notes: formData.notes || null
         });
-        toast.success('Damage reported');
+        toast.success('Damage reported - item marked as damaged');
+        
+      } else if (actionType === 'lost') {
+        if (!formData.from_value) {
+          toast.error('Please select where the item was lost');
+          setLoading(false);
+          return;
+        }
+        
+        const from_location = `${formData.from_type}:${formData.from_value}`;
+        
+        await api.post('/events', {
+          event_type: 'lost',
+          item: formData.item,
+          from_location,
+          quantity: formData.quantity,
+          notes: formData.notes || null
+        });
+        toast.success('Lost item reported - inventory updated');
       }
       
       setDialogOpen(false);
@@ -143,164 +167,211 @@ export default function QuickActions() {
     switch (actionType) {
       case 'transfer': return 'Transfer Item';
       case 'damage': return 'Report Damage';
-      case 'request': return 'Request Item';
+      case 'lost': return 'Report Lost Item';
       default: return 'Action';
     }
   };
 
   const renderForm = () => {
-    switch (actionType) {
-      case 'transfer':
-        return (
-          <>
+    if (actionType === 'transfer') {
+      return (
+        <>
+          <div>
+            <Label>Item *</Label>
+            <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
+              <SelectTrigger className="mt-1" data-testid="item-select"><SelectValue placeholder="Select item" /></SelectTrigger>
+              <SelectContent>
+                {items.filter(i => i.status === 'active').map(i => (
+                  <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Item *</Label>
-              <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
-                <SelectTrigger className="mt-1" data-testid="item-select"><SelectValue placeholder="Select item" /></SelectTrigger>
+              <Label>From Type</Label>
+              <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
+                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>From Type</Label>
-                <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>From *</Label>
-                <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>To Type</Label>
-                <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>To *</Label>
-                <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
             <div>
-              <Label>Notes (optional)</Label>
-              <Textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Add notes about this transfer"
-                className="mt-1"
-              />
+              <Label>From *</Label>
+              <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          </>
-        );
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>To Type</Label>
+              <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>To *</Label>
+              <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <div>
+            <Label>Notes (optional)</Label>
+            <Textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder="Add transfer notes"
+              className="mt-1"
+            />
+          </div>
+        </>
+      );
+    }
 
-      case 'damage':
-        return (
-          <>
+    if (actionType === 'damage') {
+      return (
+        <>
+          <div>
+            <Label>Item *</Label>
+            <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
+              <SelectContent>
+                {items.filter(i => i.status === 'active').map(i => (
+                  <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Item *</Label>
-              <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
+              <Label>Location Type</Label>
+              <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
+                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Location Type</Label>
-                <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Location</Label>
-                <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                  <SelectContent>
-                    {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
             <div>
-              <Label>Description *</Label>
-              <Textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Describe the damage"
-                className="mt-1"
-                required
-              />
+              <Label>Location</Label>
+              <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          </>
-        );
+          </div>
+          
+          <div>
+            <Label>Description *</Label>
+            <Textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder="Describe the damage"
+              className="mt-1"
+              required
+            />
+          </div>
+          
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            This will mark the item as "damaged" in inventory.
+          </div>
+        </>
+      );
+    }
 
-      case 'request':
-        return (
-          <>
+    if (actionType === 'lost') {
+      const selectedItem = items.find(i => i.item_name === formData.item);
+      const isQuantityItem = selectedItem?.tracking_type === 'quantity';
+      
+      return (
+        <>
+          <div>
+            <Label>Item *</Label>
+            <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
+              <SelectContent>
+                {items.filter(i => i.status !== 'lost').map(i => (
+                  <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {isQuantityItem && (
             <div>
-              <Label>Item *</Label>
-              <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select item" /></SelectTrigger>
-                <SelectContent>
-                  {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Quantity</Label>
+              <Label>Quantity Lost</Label>
               <Input
                 type="number"
                 min="1"
+                max={selectedItem?.quantity || 100}
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
                 className="mt-1"
               />
+              <p className="text-xs text-slate-500 mt-1">Current stock: {selectedItem?.quantity || 0}</p>
+            </div>
+          )}
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Lost From (Type) *</Label>
+              <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div>
-              <Label>Reason</Label>
-              <Textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Why do you need this item?"
-                className="mt-1"
-              />
+              <Label>Location *</Label>
+              <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          </>
-        );
-
-      default:
-        return null;
+          </div>
+          
+          <div>
+            <Label>Notes (optional)</Label>
+            <Textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              placeholder="How was it lost? Any details..."
+              className="mt-1"
+            />
+          </div>
+          
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+            {isQuantityItem 
+              ? `This will reduce the item quantity by ${formData.quantity}.`
+              : 'This will mark the item as "lost" in inventory.'
+            }
+          </div>
+        </>
+      );
     }
+
+    return null;
   };
 
   return (
@@ -315,7 +386,7 @@ export default function QuickActions() {
           </a>
           <div>
             <h1 className="text-lg font-bold text-slate-900">Quick Actions</h1>
-            <p className="text-sm text-slate-600">Transfer, damage & requests</p>
+            <p className="text-sm text-slate-600">Inventory actions</p>
           </div>
         </div>
       </header>
@@ -340,17 +411,19 @@ export default function QuickActions() {
         </Button>
         
         <Button
-          onClick={() => openAction('request')}
-          className="w-full bg-purple-500 hover:bg-purple-600 text-white h-16 text-lg justify-start px-6"
-          data-testid="action-request"
+          onClick={() => openAction('lost')}
+          className="w-full bg-red-500 hover:bg-red-600 text-white h-16 text-lg justify-start px-6"
+          data-testid="action-lost"
         >
-          <FileText className="w-6 h-6 mr-4" />
-          Request Item
+          <XCircle className="w-6 h-6 mr-4" />
+          Report Lost Item
         </Button>
         
-        <p className="text-sm text-slate-500 text-center pt-4">
-          To start a collection shift, go to <strong>Deployments</strong> and select your assigned BnB
-        </p>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
+          <p className="text-sm text-blue-800">
+            <strong>To start a collection shift:</strong> Go to <a href="/deployments" className="underline font-medium">Deployments</a> → select your date → click your BnB → use kit controls
+          </p>
+        </div>
       </main>
 
       {/* Dialog */}
@@ -365,7 +438,12 @@ export default function QuickActions() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button type="submit" className="flex-1" disabled={loading} data-testid="submit-btn">
+              <Button 
+                type="submit" 
+                className={`flex-1 ${actionType === 'lost' ? 'bg-red-500 hover:bg-red-600' : ''}`}
+                disabled={loading} 
+                data-testid="submit-btn"
+              >
                 {loading ? 'Saving...' : 'Submit'}
               </Button>
             </div>
