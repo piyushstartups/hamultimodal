@@ -8,136 +8,136 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 2. Users don't think — only perform simple actions
 3. All tracking comes from Events (single source of truth)
 4. Show users only what is relevant to them
-5. **All time tracking is automatic - NO manual input**
+5. **Clear separation of responsibilities between pages**
+6. **All time tracking is automatic - NO manual input**
 
 ## User Roles
 
 | Role | Access |
 |------|--------|
-| admin | Full control: Inventory (CRUD), Deployments (planning), Admin Panel (users/bnbs/kits). Does NOT see Actions page. |
-| deployment_manager | Can: View deployments assigned to them, perform actions (shift logging), view inventory. Cannot: Edit inventory, access Admin Panel |
+| admin | Full control: Inventory (CRUD), Deployments (planning), Admin Panel (users/bnbs/kits). Does NOT see Quick Actions page. |
+| deployment_manager | Can: Use Quick Actions (Transfer/Damage/Request), Control shifts via Deployments page, View inventory. Cannot: Edit inventory, access Admin Panel |
 
-## Automatic Time Tracking System
-
-### How It Works
-- **NO manual time input** - Users never enter hours, duration, or times
-- **System auto-captures** timestamps on button clicks:
-  - `Start Collection` → records `start_time`
-  - `Pause` → records `pause_time`
-  - `Resume` → records `resume_time`
-  - `Stop` → records `end_time` + calculates duration
-
-### Duration Calculation
-```
-Total Duration = (end_time - start_time) - (sum of all paused periods)
-```
-
-### Shift Data Model
-```json
-{
-  "id": "shift-xxx",
-  "user": "user_id",
-  "kit": "KIT-01",
-  "ssd_used": "SSD-01",
-  "activity_type": "cleaning",
-  "status": "active|paused|completed",
-  "start_time": "auto-captured",
-  "pauses": [{"pause_time": "auto", "resume_time": "auto"}],
-  "end_time": "auto-captured",
-  "total_duration_seconds": "auto-calculated",
-  "total_duration_hours": "auto-calculated"
-}
-```
-
-## Page Responsibilities
-
-### Actions Page (Manager Only)
-- **Start Collection** - Opens dialog for Kit, SSD, Activity Type (required at START)
-- **Active Shift Panel** - Shows live timer, Pause/Resume/Stop buttons
-- **Other Actions** - Transfer Item, Report Damage, Request Item
-
-### Live Dashboard
-- Shows **ONLY auto-calculated** values:
-  - Total Hours Logged (from completed shifts)
-  - Shifts Completed / Active Now
-  - Hours per BnB (auto-calculated from shifts)
-- Note: "All durations are automatically calculated from shift start/stop times"
-
-### Inventory Page
-- **Admin**: Add/Edit/Delete items
-- **Manager**: View only
+## Page Structure (Strict Separation)
 
 ### Deployments Page
-- Planning only - date/BnB/Kits/Managers assignment
-- Supports **multiple deployment managers** per deployment
+- **Purpose:** Planning AND shift control
+- **Calendar view** with daily deployments
+- Click deployment → Expand to show **Kit Cards**
+- **Kit Card** shows:
+  - Kit ID
+  - Status (Not Started / Active / Paused / Completed)
+  - Control buttons: Start / Pause / Resume / Stop
+- **Start Collection** dialog requires only: SSD + Activity Type
+- Context is auto-populated: deployment_id, kit, bnb, date, user
 
-### Admin Panel
-- Users, BnBs, Kits management only
+### Quick Actions Page (Manager Only)
+- **Purpose:** Quick inventory actions (NO shift controls)
+- **Contains ONLY:**
+  - Transfer Item
+  - Report Damage
+  - Request Item
+- Note: "To start a collection shift, go to Deployments"
+
+### Inventory Page
+- **Purpose:** PRIMARY inventory management
+- **Admin Can:** Add/Edit/Delete items, update status
+- **Manager Can:** View items, Transfer, Report Damage
+- **Grouped by Category:** SSDs, Cameras, Gloves, Tools, General
+- **Location Types:** kit:X, bnb:X, station:X
+
+### Live Dashboard
+- Shows ONLY auto-calculated values from shifts
+
+### Admin Panel (Admin Only)
+- **Contains ONLY:** Users, BnBs, Kits
+- **NOT included:** Items (use Inventory), Deployments
 
 ## Data Model
 
-### Shifts (NEW - Auto Time Tracking)
-- id
-- user, user_name
+### Shifts (Context-Aware)
+- **deployment_id** (required)
+- **date** (from deployment)
+- **bnb** (from deployment)
 - kit
+- user, user_name
 - ssd_used
 - activity_type
 - status (active/paused/completed)
 - start_time (auto)
-- pauses (array of {pause_time, resume_time})
+- pauses [{pause_time, resume_time}]
 - end_time (auto)
-- total_paused_seconds (calculated)
-- total_duration_seconds (calculated)
-- total_duration_hours (calculated)
+- total_duration_seconds/hours (calculated)
+
+### Items
+- item_name (UNIQUE)
+- **category** (ssd, camera, gloves, tools, general)
+- tracking_type (individual/quantity)
+- status (active/damaged/lost/repair)
+- **current_location** (e.g., "kit:KIT-01", "bnb:BnB-01", "station:Storage")
+- quantity (for quantity-tracked items)
+
+### Events
+- event_type (transfer, damage)
+- item
+- **from_location** (e.g., "kit:KIT-01")
+- **to_location** (e.g., "bnb:BnB-02")
+- quantity
+- notes
+- user, timestamp
 
 ### Deployments
 - date, bnb, shift
 - assigned_kits (array)
-- **deployment_managers (array)** - Multiple managers per deployment
-
-### Items
-- item_name (UNIQUE)
-- tracking_type, status, current_kit
+- deployment_managers (array)
 
 ## API Endpoints
 
-### Shift Tracking (Auto Time)
-- `GET /api/shifts/active` - Get user's active shift
-- `POST /api/shifts/start` - Start shift (auto start_time)
-- `POST /api/shifts/{id}/pause` - Pause (auto pause_time)
-- `POST /api/shifts/{id}/resume` - Resume (auto resume_time)
-- `POST /api/shifts/{id}/stop` - Stop + calculate duration
-- `GET /api/shifts/today` - Today's completed shifts
+### Shift Tracking (Context-Aware)
+- `GET /api/shifts/by-deployment/{deployment_id}` - Get kit shifts for deployment
+- `POST /api/shifts/start` - Requires: deployment_id, kit, ssd_used, activity_type
+- `POST /api/shifts/{id}/pause`
+- `POST /api/shifts/{id}/resume`
+- `POST /api/shifts/{id}/stop`
 
-### Dashboard
-- `GET /api/dashboard/live` - Auto-calculated totals from shifts
+### Items
+- `GET /api/items` - Returns items with category and current_location
+- `POST /api/items` - Admin only, includes category field
+- `PUT /api/items/{name}` - Admin only
+- `DELETE /api/items/{name}` - Admin only
+
+### Events
+- `POST /api/events` - transfer/damage with from_location/to_location
 
 ## Test Credentials
 - **Admin**: `Admin` / `admin123`
 - **Manager**: `TestManager1` / `test123`
 
 ## Completed Features (2026-03-18)
-- [x] Automatic shift time tracking (Start/Pause/Resume/Stop)
-- [x] Auto-calculated durations (no manual input)
-- [x] Live timer display during active shift
-- [x] Dashboard shows only auto-calculated hours
+- [x] Shift controls moved to Deployments → Kit cards
+- [x] Quick Actions page: Transfer/Damage/Request only
+- [x] Context-aware shifts (deployment_id required)
+- [x] Inventory grouped by category
+- [x] Location types: kit:X, bnb:X, station:X
+- [x] Role-based inventory permissions
+- [x] Auto-calculated shift durations
 - [x] Multiple deployment managers per deployment
-- [x] Admin full CRUD on Inventory
-- [x] Role-based permissions
 
 ## Architecture
 ```
 /app
 ├── backend/
-│   └── server.py   # Includes /api/shifts/* endpoints
+│   └── server.py
 └── frontend/
     └── src/pages/
-        ├── Actions.js       # Shift control panel
+        ├── Actions.js       # Quick Actions (Transfer/Damage/Request)
+        ├── Dashboard.js     # Role-based navigation
+        ├── Deployments.js   # Calendar + Kit cards with shift controls
+        ├── Inventory.js     # Grouped by category, role-based actions
         ├── LiveDashboard.js # Auto-calculated stats
-        ├── Inventory.js     # Admin CRUD
-        ├── Deployments.js   # Multi-manager planning
-        └── AdminPanel.js    # Users/BnBs/Kits
+        ├── AdminPanel.js    # Users/BnBs/Kits only
+        └── Requests.js
 ```
 
 ## Last Updated
-2026-03-18 - Automatic shift time tracking, no manual time input
+2026-03-18 - Shift controls in Deployments, Quick Actions simplified, Inventory categories

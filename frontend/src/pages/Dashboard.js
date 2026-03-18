@@ -25,7 +25,7 @@ export default function Dashboard() {
 
   // Actions - only for deployment managers
   if (isManager) {
-    navItems.push({ href: '/actions', icon: Zap, label: 'Actions', desc: 'Log shifts & events', color: 'bg-green-500' });
+    navItems.push({ href: '/actions', icon: Zap, label: 'Quick Actions', desc: 'Transfer & damage', color: 'bg-green-500' });
   }
 
   // Live Dashboard - for everyone
