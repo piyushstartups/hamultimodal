@@ -116,11 +116,29 @@ All inventory data is derived from logged events. Users record actions (events),
 - [ ] Dashboard analytics charts
 
 ## Last Updated
-2026-03-18 - Completed Phase 2: Deployment Planning Dashboard with calendar view, assignment management, and all CRUD operations
+2026-03-18 - Completed Phase 2: Deployment Planning Dashboard + Admin Analytics Dashboard with charts and trends
 
 ## Recent Changes
 
-### Phase 2: Deployment Planning Dashboard
+### Phase 2 (Part 2): Admin Analytics Dashboard
+- **Overview Cards** - Total Hours, Total Shifts, Active BnBs, Active Workers
+- **Date Range Selector** - Last 7/14/30/90 days presets + custom date pickers
+- **Daily Hours Captured** - Area chart showing trends over time
+- **Hours by Category** - Donut/pie chart (cooking, cleaning, organizing, mixed, other)
+- **Performance by BnB** - Horizontal bar chart comparing BnBs
+- **Top Workers Leaderboard** - Ranked list with progress bars and shift counts
+- **Inventory Health Issues** - Bar chart showing wear/damaged reports by item type
+- **Category Summary** - Footer with color-coded breakdown
+
+**Backend Analytics Endpoints:**
+- `GET /admin/analytics/overview` - Comprehensive summary
+- `GET /admin/analytics/daily-hours` - Daily trend data
+- `GET /admin/analytics/bnb-performance` - Per-BnB metrics
+- `GET /admin/analytics/category-breakdown` - Category distribution
+- `GET /admin/analytics/worker-performance` - Worker rankings
+- `GET /admin/analytics/inventory-health` - Health issue tracking
+
+### Phase 2 (Part 1): Deployment Planning Dashboard
 - **Calendar/Week View** - Navigate between dates with 7-day week display
 - **Summary Stats** - Active BnBs, Deployed Kits, Workers Assigned, Shifts Logged
 - **Assignment Cards** - Display BnB with assigned kits and morning/night teams
