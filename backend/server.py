@@ -83,11 +83,12 @@ class ItemBase(BaseModel):
     item_id: str
     item_name: str
     tracking_type: str  # individual, quantity
-    status: Optional[str] = "active"  # active, damaged, repair, lost
+    status: Optional[str] = "active"  # active, damaged, repair, lost, wear_flag
     current_kit: Optional[str] = None  # kit_id (for individual items)
     category: Optional[str] = None  # ssd, glove, camera, imu, etc.
     total_capacity_gb: Optional[int] = None  # For SSDs
     side: Optional[str] = None  # For gloves: left, right
+    description: Optional[str] = None  # Additional details
 
 class ItemCreate(ItemBase):
     pass
@@ -99,7 +100,7 @@ class Item(ItemBase):
 
 # Event Models
 class EventBase(BaseModel):
-    event_type: str  # start_shift, end_shift, pause_kit, resume_kit, activity, transfer, damage, assignment
+    event_type: str  # start_shift, end_shift, pause_kit, resume_kit, activity, transfer, damage, assignment, lost, check_out, check_in, wear_flag, new_addition, repair
     user_id: str
     from_kit: Optional[str] = None
     to_kit: Optional[str] = None
@@ -424,6 +425,60 @@ async def get_ssds(current_user: dict = Depends(get_current_user)):
     """Get all SSDs for shift tracking"""
     ssds = await db.items.find({"category": "ssd"}, {"_id": 0}).to_list(1000)
     return ssds
+
+@api_router.put("/items/{item_id}")
+async def update_item(item_id: str, item_update: ItemBase, current_user: dict = Depends(get_current_user)):
+    """Update an item (inventory manager only)"""
+    if current_user["role"] not in ["admin", "inventory_manager"]:
+        raise HTTPException(status_code=403, detail="Inventory manager access required")
+    
+    item = await db.items.find_one({"item_id": item_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    update_data = item_update.model_dump(exclude_unset=True)
+    await db.items.update_one({"item_id": item_id}, {"$set": update_data})
+    
+    updated_item = await db.items.find_one({"item_id": item_id}, {"_id": 0})
+    return updated_item
+
+@api_router.delete("/items/{item_id}")
+async def delete_item(item_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete an item (inventory manager only)"""
+    if current_user["role"] not in ["admin", "inventory_manager"]:
+        raise HTTPException(status_code=403, detail="Inventory manager access required")
+    
+    result = await db.items.delete_one({"item_id": item_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    return {"status": "success", "message": "Item deleted"}
+
+@api_router.post("/items/bulk-add")
+async def bulk_add_items(items: List[ItemCreate], current_user: dict = Depends(get_current_user)):
+    """Bulk add items (inventory manager only)"""
+    if current_user["role"] not in ["admin", "inventory_manager"]:
+        raise HTTPException(status_code=403, detail="Inventory manager access required")
+    
+    created_items = []
+    for item in items:
+        # Check if item_id already exists
+        existing = await db.items.find_one({"item_id": item.item_id}, {"_id": 0})
+        if existing:
+            continue
+        
+        item_dict = item.model_dump()
+        item_dict["id"] = f"item_{datetime.now(timezone.utc).timestamp()}_{item.item_id}"
+        item_dict["created_at"] = datetime.now(timezone.utc).isoformat()
+        
+        await db.items.insert_one(item_dict)
+        created_items.append(item_dict["id"])
+    
+    return {
+        "status": "success",
+        "items_created": len(created_items),
+        "item_ids": created_items
+    }
 
 @api_router.put("/items/{item_id}/report-lost")
 async def report_item_lost(item_id: str, notes: Optional[str] = None, current_user: dict = Depends(get_current_user)):
@@ -791,6 +846,59 @@ async def create_event(event: EventCreate, current_user: dict = Depends(get_curr
                 event.from_kit,
                 f"Kit resumed by {user['name']}",
                 "shift",
+                event_dict["id"]
+            )
+    
+    if event.event_type == "check_out":
+        # When deployer checks out items
+        user = await db.users.find_one({"id": event.user_id}, {"_id": 0})
+        if event.from_kit:
+            await notify_kit_owners(
+                event.from_kit,
+                f"{user['name']} checked out {event.quantity} x {event.item_id}",
+                "checkout",
+                event_dict["id"]
+            )
+    
+    if event.event_type == "check_in":
+        # When deployer checks in items
+        user = await db.users.find_one({"id": event.user_id}, {"_id": 0})
+        if event.to_kit:
+            await notify_kit_owners(
+                event.to_kit,
+                f"{user['name']} checked in {event.quantity} x {event.item_id}",
+                "checkin",
+                event_dict["id"]
+            )
+    
+    if event.event_type == "wear_flag":
+        # Mark item as showing wear but still usable
+        if event.item_id:
+            item = await db.items.find_one({"item_id": event.item_id}, {"_id": 0})
+            if item and item.get("tracking_type") == "individual":
+                await db.items.update_one(
+                    {"item_id": event.item_id},
+                    {"$set": {"status": "wear_flag"}}
+                )
+            
+            # Notify inventory managers
+            managers = await db.users.find({"role": {"$in": ["inventory_manager", "admin"]}}, {"_id": 0}).to_list(100)
+            for manager in managers:
+                await create_notification(
+                    manager["id"],
+                    f"Wear flag: {event.item_id} needs attention",
+                    "wear_flag",
+                    event_dict["id"]
+                )
+    
+    if event.event_type == "new_addition":
+        # New item added to inventory
+        managers = await db.users.find({"role": {"$in": ["inventory_manager", "admin"]}}, {"_id": 0}).to_list(100)
+        for manager in managers:
+            await create_notification(
+                manager["id"],
+                f"New inventory: {event.quantity} x {event.item_id} added to {event.to_kit}",
+                "inventory",
                 event_dict["id"]
             )
     
