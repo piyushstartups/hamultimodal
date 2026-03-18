@@ -1293,6 +1293,256 @@ async def get_deployment_summary(
     
     return summary
 
+# ========================
+# ANALYTICS ENDPOINTS
+# ========================
+
+@api_router.get("/admin/analytics/daily-hours")
+async def get_daily_hours_analytics(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get daily hours captured over a date range for trend charts"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Aggregate end_shift events to get hours per day
+    pipeline = [
+        {"$match": {
+            "event_type": "end_shift",
+            "timestamp": {"$gte": f"{start_date}T00:00:00", "$lte": f"{end_date}T23:59:59"}
+        }},
+        {"$addFields": {
+            "date": {"$substr": ["$timestamp", 0, 10]},
+            "hours": {"$ifNull": ["$hours_recorded", 0]}
+        }},
+        {"$group": {
+            "_id": "$date",
+            "total_hours": {"$sum": "$hours"},
+            "shift_count": {"$sum": 1}
+        }},
+        {"$sort": {"_id": 1}},
+        {"$project": {
+            "date": "$_id",
+            "total_hours": 1,
+            "shift_count": 1,
+            "_id": 0
+        }}
+    ]
+    
+    results = await db.events.aggregate(pipeline).to_list(100)
+    return results
+
+@api_router.get("/admin/analytics/bnb-performance")
+async def get_bnb_performance_analytics(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get performance metrics per BnB for the date range"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get all BnBs
+    bnbs = await db.kits.find({"type": "bnb"}, {"_id": 0}).to_list(100)
+    
+    # Get assignments for the date range
+    assignments = await db.assignments.find({
+        "shift_date": {"$gte": start_date, "$lte": end_date}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Get shift events for the date range
+    shift_events = await db.events.find({
+        "event_type": {"$in": ["start_shift", "end_shift"]},
+        "timestamp": {"$gte": f"{start_date}T00:00:00", "$lte": f"{end_date}T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Build performance data per BnB
+    bnb_performance = []
+    for bnb in bnbs:
+        bnb_id = bnb["kit_id"]
+        
+        # Get kits assigned to this BnB
+        bnb_assignments = [a for a in assignments if a.get("bnb_id") == bnb_id]
+        kit_ids = set()
+        for a in bnb_assignments:
+            kit_ids.update(a.get("kit_ids", []))
+        
+        # Get shifts for these kits
+        bnb_shifts = [e for e in shift_events if e.get("from_kit") in kit_ids]
+        end_shifts = [e for e in bnb_shifts if e["event_type"] == "end_shift"]
+        
+        total_hours = sum(e.get("hours_recorded", 0) or 0 for e in end_shifts)
+        
+        bnb_performance.append({
+            "bnb_id": bnb_id,
+            "days_active": len(bnb_assignments),
+            "total_kits": len(kit_ids),
+            "total_shifts": len(end_shifts),
+            "total_hours": round(total_hours, 1),
+            "avg_hours_per_shift": round(total_hours / len(end_shifts), 1) if end_shifts else 0
+        })
+    
+    return bnb_performance
+
+@api_router.get("/admin/analytics/category-breakdown")
+async def get_category_breakdown_analytics(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get data captured by category for pie/bar charts"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Aggregate by data_category
+    pipeline = [
+        {"$match": {
+            "event_type": "end_shift",
+            "timestamp": {"$gte": f"{start_date}T00:00:00", "$lte": f"{end_date}T23:59:59"}
+        }},
+        {"$group": {
+            "_id": {"$ifNull": ["$data_category", "unspecified"]},
+            "total_hours": {"$sum": {"$ifNull": ["$hours_recorded", 0]}},
+            "shift_count": {"$sum": 1}
+        }},
+        {"$project": {
+            "category": "$_id",
+            "total_hours": 1,
+            "shift_count": 1,
+            "_id": 0
+        }}
+    ]
+    
+    results = await db.events.aggregate(pipeline).to_list(100)
+    return results
+
+@api_router.get("/admin/analytics/inventory-health")
+async def get_inventory_health_analytics(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get inventory health issues reported during shifts"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get end_shift events with inventory health in notes
+    events = await db.events.find({
+        "event_type": "end_shift",
+        "timestamp": {"$gte": f"{start_date}T00:00:00", "$lte": f"{end_date}T23:59:59"},
+        "notes": {"$regex": "Inventory Issues", "$options": "i"}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Parse health issues from notes
+    health_issues = {
+        "left_glove": {"wear": 0, "damaged": 0},
+        "right_glove": {"wear": 0, "damaged": 0},
+        "head_cam": {"wear": 0, "damaged": 0}
+    }
+    
+    for event in events:
+        notes = event.get("notes", "")
+        if "Left Glove: wear" in notes:
+            health_issues["left_glove"]["wear"] += 1
+        if "Left Glove: damaged" in notes:
+            health_issues["left_glove"]["damaged"] += 1
+        if "Right Glove: wear" in notes:
+            health_issues["right_glove"]["wear"] += 1
+        if "Right Glove: damaged" in notes:
+            health_issues["right_glove"]["damaged"] += 1
+        if "Head Cam: wear" in notes:
+            health_issues["head_cam"]["wear"] += 1
+        if "Head Cam: damaged" in notes:
+            health_issues["head_cam"]["damaged"] += 1
+    
+    return {
+        "total_shifts_with_issues": len(events),
+        "issues": health_issues
+    }
+
+@api_router.get("/admin/analytics/worker-performance")
+async def get_worker_performance_analytics(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get performance metrics per worker"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Aggregate by user_id
+    pipeline = [
+        {"$match": {
+            "event_type": "end_shift",
+            "timestamp": {"$gte": f"{start_date}T00:00:00", "$lte": f"{end_date}T23:59:59"}
+        }},
+        {"$group": {
+            "_id": "$user_id",
+            "total_hours": {"$sum": {"$ifNull": ["$hours_recorded", 0]}},
+            "shift_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_hours": -1}},
+        {"$project": {
+            "user_id": "$_id",
+            "total_hours": 1,
+            "shift_count": 1,
+            "_id": 0
+        }}
+    ]
+    
+    results = await db.events.aggregate(pipeline).to_list(100)
+    
+    # Enrich with user names
+    for result in results:
+        user = await db.users.find_one({"id": result["user_id"]}, {"_id": 0, "password_hash": 0})
+        result["name"] = user["name"] if user else result["user_id"]
+    
+    return results
+
+@api_router.get("/admin/analytics/overview")
+async def get_analytics_overview(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get comprehensive analytics overview for the date range"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get all relevant data in parallel-style queries
+    end_shifts = await db.events.find({
+        "event_type": "end_shift",
+        "timestamp": {"$gte": f"{start_date}T00:00:00", "$lte": f"{end_date}T23:59:59"}
+    }, {"_id": 0}).to_list(1000)
+    
+    assignments = await db.assignments.find({
+        "shift_date": {"$gte": start_date, "$lte": end_date}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Calculate totals
+    total_hours = sum(e.get("hours_recorded", 0) or 0 for e in end_shifts)
+    total_shifts = len(end_shifts)
+    active_bnbs = len(set(a.get("bnb_id") for a in assignments))
+    unique_workers = len(set(e.get("user_id") for e in end_shifts))
+    
+    # Calculate category distribution
+    category_dist = {}
+    for e in end_shifts:
+        cat = e.get("data_category") or "unspecified"
+        category_dist[cat] = category_dist.get(cat, 0) + (e.get("hours_recorded", 0) or 0)
+    
+    return {
+        "period": {"start": start_date, "end": end_date},
+        "total_hours": round(total_hours, 1),
+        "total_shifts": total_shifts,
+        "active_bnbs": active_bnbs,
+        "unique_workers": unique_workers,
+        "avg_hours_per_shift": round(total_hours / total_shifts, 1) if total_shifts > 0 else 0,
+        "category_distribution": category_dist
+    }
+
 @api_router.get("/my-bnb/dashboard")
 async def get_my_bnb_dashboard(current_user: dict = Depends(get_current_user)):
     """Get dashboard view for associate's assigned BnB"""

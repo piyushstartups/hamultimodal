@@ -18,6 +18,7 @@ import LostItemsReport from "./pages/LostItemsReport";
 import SSDOffloadDashboard from "./pages/SSDOffloadDashboard";
 import InventoryManagement from "./pages/InventoryManagement";
 import DeploymentPlanning from "./pages/DeploymentPlanning";
+import AdminAnalytics from "./pages/AdminAnalytics";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -153,6 +154,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <DeploymentPlanning />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/analytics"
+              element={
+                <ProtectedRoute>
+                  <AdminAnalytics />
                 </ProtectedRoute>
               }
             />
