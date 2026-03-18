@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
+import InventorySummary from "./pages/InventorySummary";
 import Events from "./pages/Events";
 import Requests from "./pages/Requests";
 import Damage from "./pages/Damage";
@@ -54,6 +55,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Inventory />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory-summary"
+              element={
+                <ProtectedRoute>
+                  <InventorySummary />
                 </ProtectedRoute>
               }
             />

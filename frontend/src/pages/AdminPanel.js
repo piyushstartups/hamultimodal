@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { toast } from 'sonner';
-import { Users, Package, Calendar, Plus, X } from 'lucide-react';
+import { Users, Package, Calendar, Plus, Settings } from 'lucide-react';
 import Layout from '../components/Layout';
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog';
+import { AddBnBDialog, AddUserDialog, ChangePasswordDialog } from '../components/AdminDialogs';
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -28,6 +29,10 @@ export default function AdminPanel() {
   const [bnbs, setBnbs] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [addBnBOpen, setAddBnBOpen] = useState(false);
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
   const [assignmentForm, setAssignmentForm] = useState({
@@ -174,7 +179,7 @@ export default function AdminPanel() {
         <p className="text-sm text-slate-600 mt-1">Human Archive - Daily BnB assignments and team allocation</p>
       </div>
 
-      {/* Date Selector & New Assignment Button */}
+      {/* Date Selector & Action Buttons */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Label>Viewing Date:</Label>
@@ -186,14 +191,30 @@ export default function AdminPanel() {
             className="w-48"
           />
         </div>
-        <Button
-          data-testid="new-assignment-btn"
-          onClick={() => setDialogOpen(true)}
-          className="bg-slate-900 hover:bg-slate-800"
-        >
-          <Calendar className="w-4 h-4 mr-2" />
-          New Assignment
-        </Button>
+        <div className="flex gap-3">
+          <Button
+            onClick={() => setAddBnBOpen(true)}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add BnB/Kit
+          </Button>
+          <Button
+            onClick={() => setAddUserOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Add User
+          </Button>
+          <Button
+            data-testid="new-assignment-btn"
+            onClick={() => setDialogOpen(true)}
+            className="bg-slate-900 hover:bg-slate-800"
+          >
+            <Calendar className="w-4 h-4 mr-2" />
+            New Assignment
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -430,6 +451,37 @@ export default function AdminPanel() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Add BnB/Kit Dialog */}
+      <AddBnBDialog
+        open={addBnBOpen}
+        onClose={() => setAddBnBOpen(false)}
+        onSuccess={() => {
+          setAddBnBOpen(false);
+          fetchData();
+        }}
+      />
+
+      {/* Add User Dialog */}
+      <AddUserDialog
+        open={addUserOpen}
+        onClose={() => setAddUserOpen(false)}
+        onSuccess={() => {
+          setAddUserOpen(false);
+          fetchData();
+        }}
+      />
+
+      {/* Change Password Dialog */}
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onClose={() => {
+          setChangePasswordOpen(false);
+          setSelectedUser(null);
+        }}
+        userId={selectedUser?.id}
+        userName={selectedUser?.name}
+      />
     </Layout>
   );
 }

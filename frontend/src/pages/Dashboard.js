@@ -211,10 +211,17 @@ export default function Dashboard() {
             </a>
           )}
           
+          <a href="/inventory-summary" className="block">
+            <div data-testid="nav-inventory-summary" className="bg-white rounded-xl border border-blue-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+              <h3 className="font-semibold font-tactical text-blue-900 mb-2">Inventory Summary</h3>
+              <p className="text-sm text-blue-700">Bird's eye view table</p>
+            </div>
+          </a>
+          
           <a href="/inventory" className="block">
             <div data-testid="nav-inventory" className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
-              <h3 className="font-semibold font-tactical text-slate-900 mb-2">Inventory View</h3>
-              <p className="text-sm text-slate-600">View all items and their locations</p>
+              <h3 className="font-semibold font-tactical text-slate-900 mb-2">Inventory Details</h3>
+              <p className="text-sm text-slate-600">Item-wise locations</p>
             </div>
           </a>
           
