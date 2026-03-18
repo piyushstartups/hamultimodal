@@ -561,6 +561,156 @@ export default function InventoryManagement() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Add Dialog */}
+      <Dialog open={bulkAddOpen} onOpenChange={setBulkAddOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-tactical text-xl">Bulk Add Items</DialogTitle>
+          </DialogHeader>
+          <BulkAddForm 
+            onSuccess={() => {
+              setBulkAddOpen(false);
+              fetchItems();
+            }}
+            onCancel={() => setBulkAddOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </Layout>
+  );
+}
+
+// Bulk Add Form Component
+function BulkAddForm({ onSuccess, onCancel }) {
+  const [bulkItems, setBulkItems] = useState([
+    { item_id: '', item_name: '', category: '', tracking_type: 'individual', status: 'active', current_kit: '' }
+  ]);
+  const [loading, setLoading] = useState(false);
+
+  const addRow = () => {
+    setBulkItems([...bulkItems, { item_id: '', item_name: '', category: '', tracking_type: 'individual', status: 'active', current_kit: '' }]);
+  };
+
+  const removeRow = (index) => {
+    if (bulkItems.length > 1) {
+      setBulkItems(bulkItems.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateRow = (index, field, value) => {
+    const updated = [...bulkItems];
+    updated[index][field] = value;
+    setBulkItems(updated);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Filter out empty rows
+    const validItems = bulkItems.filter(item => item.item_id && item.item_name);
+    
+    if (validItems.length === 0) {
+      toast.error('Please add at least one item');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await api.post('/items/bulk-add', validItems);
+      toast.success(`Successfully added ${response.data.items_created} items`);
+      onSuccess();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add items');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+      <p className="text-sm text-slate-600">Add multiple items at once. Fill in the details for each row.</p>
+      
+      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+        {bulkItems.map((item, index) => (
+          <div key={index} className="grid grid-cols-6 gap-2 p-3 bg-slate-50 rounded-lg items-end">
+            <div>
+              <Label className="text-xs">Item ID *</Label>
+              <Input
+                value={item.item_id}
+                onChange={(e) => updateRow(index, 'item_id', e.target.value.toUpperCase())}
+                placeholder="SSD-001"
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Name *</Label>
+              <Input
+                value={item.item_name}
+                onChange={(e) => updateRow(index, 'item_name', e.target.value)}
+                placeholder="SSD Drive"
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Category</Label>
+              <Input
+                value={item.category}
+                onChange={(e) => updateRow(index, 'category', e.target.value)}
+                placeholder="ssd"
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Type</Label>
+              <Select value={item.tracking_type} onValueChange={(val) => updateRow(index, 'tracking_type', val)}>
+                <SelectTrigger className="mt-1 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="individual">Individual</SelectItem>
+                  <SelectItem value="quantity">Quantity</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Location</Label>
+              <Input
+                value={item.current_kit}
+                onChange={(e) => updateRow(index, 'current_kit', e.target.value)}
+                placeholder="STATION-01"
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => removeRow(index)}
+                className="text-red-600 hover:text-red-700"
+                disabled={bulkItems.length === 1}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Button type="button" variant="outline" onClick={addRow} className="w-full">
+        <Plus className="w-4 h-4 mr-2" />
+        Add Another Row
+      </Button>
+
+      <div className="flex gap-3 pt-4">
+        <Button type="button" variant="outline" onClick={onCancel} className="flex-1" disabled={loading}>
+          Cancel
+        </Button>
+        <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={loading}>
+          {loading ? 'Adding...' : `Add ${bulkItems.filter(i => i.item_id && i.item_name).length} Items`}
+        </Button>
+      </div>
+    </form>
   );
 }

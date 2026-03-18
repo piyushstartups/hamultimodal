@@ -650,41 +650,141 @@ async def bulk_transfer_items(
 
 @api_router.get("/items/inventory")
 async def get_inventory(current_user: dict = Depends(get_current_user)):
-    """Get inventory state derived from events"""
+    """Get inventory state derived from events - OPTIMIZED with aggregation"""
     items = await db.items.find({}, {"_id": 0}).to_list(1000)
-    kits = await db.kits.find({}, {"_id": 0}).to_list(1000)
     
-    # For quantity-based items, calculate quantities per kit from events
-    quantity_items = [item for item in items if item["tracking_type"] == "quantity"]
-    inventory = []
+    # Separate individual items from quantity-based items
+    individual_items = [item for item in items if item.get("tracking_type") == "individual"]
+    quantity_items = [item for item in items if item.get("tracking_type") == "quantity"]
     
-    for item in items:
-        if item["tracking_type"] == "individual":
-            inventory.append(item)
-        else:
-            # Calculate quantities per kit
-            for kit in kits:
-                # Get all transfer events for this item and kit
-                events = await db.events.find({
-                    "item_id": item["item_id"],
-                    "event_type": "transfer"
-                }, {"_id": 0}).sort("timestamp", -1).to_list(1000)
-                
-                quantity = 0
-                for event in events:
-                    if event.get("to_kit") == kit["kit_id"]:
-                        quantity += event.get("quantity", 0)
-                    if event.get("from_kit") == kit["kit_id"]:
-                        quantity -= event.get("quantity", 0)
-                
-                if quantity > 0:
-                    inventory.append({
-                        **item,
-                        "current_kit": kit["kit_id"],
-                        "quantity": quantity
-                    })
+    inventory = list(individual_items)  # Individual items already have current_kit
+    
+    if quantity_items:
+        # Use aggregation pipeline for quantity-based items
+        quantity_item_ids = [item["item_id"] for item in quantity_items]
+        
+        # Aggregate transfer events to calculate quantities per kit
+        pipeline = [
+            {"$match": {
+                "event_type": "transfer",
+                "item_id": {"$in": quantity_item_ids}
+            }},
+            {"$group": {
+                "_id": {"item_id": "$item_id", "kit_id": "$to_kit"},
+                "total_in": {"$sum": "$quantity"}
+            }},
+            {"$lookup": {
+                "from": "events",
+                "let": {"item_id": "$_id.item_id", "kit_id": "$_id.kit_id"},
+                "pipeline": [
+                    {"$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$event_type", "transfer"]},
+                                {"$eq": ["$item_id", "$$item_id"]},
+                                {"$eq": ["$from_kit", "$$kit_id"]}
+                            ]
+                        }
+                    }},
+                    {"$group": {"_id": None, "total_out": {"$sum": "$quantity"}}}
+                ],
+                "as": "outgoing"
+            }},
+            {"$project": {
+                "item_id": "$_id.item_id",
+                "kit_id": "$_id.kit_id",
+                "quantity": {
+                    "$subtract": [
+                        "$total_in",
+                        {"$ifNull": [{"$arrayElemAt": ["$outgoing.total_out", 0]}, 0]}
+                    ]
+                }
+            }},
+            {"$match": {"quantity": {"$gt": 0}}}
+        ]
+        
+        quantity_results = await db.events.aggregate(pipeline).to_list(1000)
+        
+        # Build a map of quantity items for quick lookup
+        item_map = {item["item_id"]: item for item in quantity_items}
+        
+        for result in quantity_results:
+            if result["item_id"] in item_map:
+                base_item = item_map[result["item_id"]].copy()
+                base_item["current_kit"] = result["kit_id"]
+                base_item["quantity"] = result["quantity"]
+                inventory.append(base_item)
     
     return inventory
+
+@api_router.get("/items/inventory-summary")
+async def get_inventory_summary(current_user: dict = Depends(get_current_user)):
+    """Get optimized inventory summary grouped by kit and category"""
+    # Get all kits
+    kits = await db.kits.find({}, {"_id": 0}).to_list(1000)
+    
+    # Use aggregation to get item counts by kit and category
+    pipeline = [
+        {"$match": {"current_kit": {"$ne": None}}},
+        {"$group": {
+            "_id": {
+                "kit": "$current_kit",
+                "category": {"$ifNull": ["$category", "uncategorized"]},
+                "status": "$status"
+            },
+            "count": {"$sum": 1},
+            "items": {"$push": {
+                "item_id": "$item_id",
+                "item_name": "$item_name",
+                "status": "$status"
+            }}
+        }},
+        {"$group": {
+            "_id": {"kit": "$_id.kit", "category": "$_id.category"},
+            "total": {"$sum": "$count"},
+            "active": {"$sum": {"$cond": [{"$eq": ["$_id.status", "active"]}, "$count", 0]}},
+            "damaged": {"$sum": {"$cond": [{"$eq": ["$_id.status", "damaged"]}, "$count", 0]}},
+            "lost": {"$sum": {"$cond": [{"$eq": ["$_id.status", "lost"]}, "$count", 0]}},
+            "wear_flag": {"$sum": {"$cond": [{"$eq": ["$_id.status", "wear_flag"]}, "$count", 0]}},
+            "repair": {"$sum": {"$cond": [{"$eq": ["$_id.status", "repair"]}, "$count", 0]}}
+        }},
+        {"$sort": {"_id.kit": 1, "_id.category": 1}}
+    ]
+    
+    results = await db.items.aggregate(pipeline).to_list(1000)
+    
+    # Build kit-based summary
+    kit_summary = {}
+    for kit in kits:
+        kit_summary[kit["kit_id"]] = {
+            "kit_id": kit["kit_id"],
+            "type": kit["type"],
+            "status": kit["status"],
+            "categories": {}
+        }
+    
+    for result in results:
+        kit_id = result["_id"]["kit"]
+        category = result["_id"]["category"]
+        
+        if kit_id not in kit_summary:
+            kit_summary[kit_id] = {
+                "kit_id": kit_id,
+                "type": "unknown",
+                "status": "unknown",
+                "categories": {}
+            }
+        
+        kit_summary[kit_id]["categories"][category] = {
+            "total": result["total"],
+            "active": result["active"],
+            "damaged": result["damaged"],
+            "lost": result["lost"],
+            "wear_flag": result["wear_flag"],
+            "repair": result["repair"]
+        }
+    
+    return list(kit_summary.values())
 
 # ========================
 # EVENT ROUTES
@@ -1402,6 +1502,60 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ========================
+# DATABASE INDEXES
+# ========================
+
+async def create_indexes():
+    """Create database indexes for query optimization"""
+    try:
+        # Events collection indexes - critical for performance
+        await db.events.create_index([("event_type", 1), ("timestamp", -1)])
+        await db.events.create_index([("item_id", 1), ("timestamp", -1)])
+        await db.events.create_index([("user_id", 1), ("timestamp", -1)])
+        await db.events.create_index([("from_kit", 1)])
+        await db.events.create_index([("to_kit", 1)])
+        await db.events.create_index([("ssd_id", 1), ("event_type", 1)])
+        
+        # Items collection indexes
+        await db.items.create_index([("item_id", 1)], unique=True)
+        await db.items.create_index([("category", 1)])
+        await db.items.create_index([("status", 1)])
+        await db.items.create_index([("current_kit", 1)])
+        
+        # Kits collection indexes
+        await db.kits.create_index([("kit_id", 1)], unique=True)
+        await db.kits.create_index([("type", 1)])
+        await db.kits.create_index([("assigned_bnb", 1)])
+        
+        # Users collection indexes
+        await db.users.create_index([("id", 1)], unique=True)
+        await db.users.create_index([("name", 1)], unique=True)
+        await db.users.create_index([("role", 1)])
+        await db.users.create_index([("assigned_bnb", 1)])
+        
+        # Requests collection indexes
+        await db.requests.create_index([("status", 1), ("timestamp", -1)])
+        await db.requests.create_index([("requested_by", 1)])
+        
+        # Notifications collection indexes
+        await db.notifications.create_index([("user_id", 1), ("read", 1), ("timestamp", -1)])
+        
+        # Assignments collection indexes
+        await db.assignments.create_index([("bnb_id", 1), ("shift_date", -1)])
+        
+        # Handovers collection indexes
+        await db.handovers.create_index([("bnb_id", 1), ("shift_date", -1)])
+        
+        logger.info("Database indexes created successfully")
+    except Exception as e:
+        logger.warning(f"Index creation warning (may already exist): {e}")
+
+@app.on_event("startup")
+async def startup_db_client():
+    """Initialize database indexes on startup"""
+    await create_indexes()
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

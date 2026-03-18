@@ -16,6 +16,7 @@ import AdminPanel from "./pages/AdminPanel";
 import Handover from "./pages/Handover";
 import LostItemsReport from "./pages/LostItemsReport";
 import SSDOffloadDashboard from "./pages/SSDOffloadDashboard";
+import InventoryManagement from "./pages/InventoryManagement";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -135,6 +136,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <SSDOffloadDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/inventory-management"
+              element={
+                <ProtectedRoute>
+                  <InventoryManagement />
                 </ProtectedRoute>
               }
             />

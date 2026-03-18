@@ -377,6 +377,136 @@ export const EventDialog = ({ open, onClose, eventType, onSuccess }) => {
           </>
         );
 
+      case 'check_out':
+        return (
+          <>
+            <div>
+              <Label>From Kit (Check Out From)</Label>
+              <Select value={formData.from_kit} onValueChange={(val) => setFormData({ ...formData, from_kit: val })}>
+                <SelectTrigger data-testid="from-kit-select" className="mt-2">
+                  <SelectValue placeholder="Select kit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {kits.map(kit => (
+                    <SelectItem key={kit.kit_id} value={kit.kit_id}>
+                      {kit.kit_id} - {kit.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Item</Label>
+              <Select value={formData.item_id} onValueChange={(val) => setFormData({ ...formData, item_id: val })}>
+                <SelectTrigger data-testid="item-select" className="mt-2">
+                  <SelectValue placeholder="Select item" />
+                </SelectTrigger>
+                <SelectContent>
+                  {items.map(item => (
+                    <SelectItem key={item.item_id} value={item.item_id}>
+                      {item.item_id} - {item.item_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Quantity</Label>
+              <Input
+                data-testid="quantity-input"
+                type="number"
+                min="1"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
+                className="mt-2"
+              />
+            </div>
+          </>
+        );
+
+      case 'check_in':
+        return (
+          <>
+            <div>
+              <Label>To Kit (Check In To)</Label>
+              <Select value={formData.to_kit} onValueChange={(val) => setFormData({ ...formData, to_kit: val })}>
+                <SelectTrigger data-testid="to-kit-select" className="mt-2">
+                  <SelectValue placeholder="Select kit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {kits.map(kit => (
+                    <SelectItem key={kit.kit_id} value={kit.kit_id}>
+                      {kit.kit_id} - {kit.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Item</Label>
+              <Select value={formData.item_id} onValueChange={(val) => setFormData({ ...formData, item_id: val })}>
+                <SelectTrigger data-testid="item-select" className="mt-2">
+                  <SelectValue placeholder="Select item" />
+                </SelectTrigger>
+                <SelectContent>
+                  {items.map(item => (
+                    <SelectItem key={item.item_id} value={item.item_id}>
+                      {item.item_id} - {item.item_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Quantity</Label>
+              <Input
+                data-testid="quantity-input"
+                type="number"
+                min="1"
+                value={formData.quantity}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
+                className="mt-2"
+              />
+            </div>
+          </>
+        );
+
+      case 'wear_flag':
+        return (
+          <>
+            <div>
+              <Label>Kit</Label>
+              <Select value={formData.from_kit} onValueChange={(val) => setFormData({ ...formData, from_kit: val })}>
+                <SelectTrigger data-testid="kit-select" className="mt-2">
+                  <SelectValue placeholder="Select kit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {kits.map(kit => (
+                    <SelectItem key={kit.kit_id} value={kit.kit_id}>
+                      {kit.kit_id} - {kit.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Item (showing wear)</Label>
+              <Select value={formData.item_id} onValueChange={(val) => setFormData({ ...formData, item_id: val })}>
+                <SelectTrigger data-testid="item-select" className="mt-2">
+                  <SelectValue placeholder="Select item" />
+                </SelectTrigger>
+                <SelectContent>
+                  {items.map(item => (
+                    <SelectItem key={item.item_id} value={item.item_id}>
+                      {item.item_id} - {item.item_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        );
+
       default:
         return null;
     }
@@ -390,6 +520,9 @@ export const EventDialog = ({ open, onClose, eventType, onSuccess }) => {
       transfer: 'Transfer Item',
       damage: 'Report Damage',
       request: 'Create Request',
+      check_out: 'Check Out Item',
+      check_in: 'Check In Item',
+      wear_flag: 'Flag Item Wear',
     };
     return titles[eventType] || 'Event';
   };

@@ -259,6 +259,15 @@ export default function Dashboard() {
               <p className="text-sm text-blue-700">Track SSDs at data center</p>
             </div>
           </a>
+          
+          {(user?.role === 'admin' || user?.role === 'inventory_manager') && (
+            <a href="/inventory-management" className="block">
+              <div data-testid="nav-inventory-management" className="bg-white rounded-xl border border-green-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                <h3 className="font-semibold font-tactical text-green-900 mb-2">Inventory Management</h3>
+                <p className="text-sm text-green-700">Add, edit, manage items</p>
+              </div>
+            </a>
+          )}
         </div>
       </div>
 
