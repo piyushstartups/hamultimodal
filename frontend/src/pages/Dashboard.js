@@ -15,10 +15,12 @@ import {
 } from 'lucide-react';
 import EventDialog from '../components/EventDialog';
 import StatsCard from '../components/StatsCard';
+import BulkTransferDialog from '../components/BulkTransferDialog';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
   const [eventType, setEventType] = useState('');
   const [stats, setStats] = useState({ kits: 0, items: 0, activeShifts: 0, pendingRequests: 0 });
   const [unreadCount, setUnreadCount] = useState(0);
@@ -70,6 +72,7 @@ export default function Dashboard() {
 
   const handleEventCreated = () => {
     setDialogOpen(false);
+    setBulkTransferOpen(false);
     fetchStats();
     fetchUnreadCount();
   };
@@ -173,6 +176,18 @@ export default function Dashboard() {
                 </Button>
               ))}
             </div>
+            
+            <div className="mt-4">
+              <Button
+                data-testid="bulk-transfer-button"
+                onClick={() => setBulkTransferOpen(true)}
+                className="bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200"
+                variant="outline"
+              >
+                <ArrowRightLeft className="w-4 h-4 mr-2" />
+                Bulk Transfer Items
+              </Button>
+            </div>
           </div>
         )}
 
@@ -223,6 +238,20 @@ export default function Dashboard() {
               <p className="text-sm text-slate-600">Monitor equipment issues</p>
             </div>
           </a>
+          
+          <a href="/reports/lost-items" className="block">
+            <div data-testid="nav-lost-items" className="bg-white rounded-xl border border-red-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+              <h3 className="font-semibold font-tactical text-red-900 mb-2">Lost Items Report</h3>
+              <p className="text-sm text-red-700">Track lost inventory</p>
+            </div>
+          </a>
+          
+          <a href="/reports/ssd-offload" className="block">
+            <div data-testid="nav-ssd-offload" className="bg-white rounded-xl border border-blue-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+              <h3 className="font-semibold font-tactical text-blue-900 mb-2">SSD Offload Dashboard</h3>
+              <p className="text-sm text-blue-700">Track SSDs at data center</p>
+            </div>
+          </a>
         </div>
       </div>
 
@@ -231,6 +260,13 @@ export default function Dashboard() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         eventType={eventType}
+        onSuccess={handleEventCreated}
+      />
+      
+      {/* Bulk Transfer Dialog */}
+      <BulkTransferDialog
+        open={bulkTransferOpen}
+        onClose={() => setBulkTransferOpen(false)}
         onSuccess={handleEventCreated}
       />
     </div>

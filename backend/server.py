@@ -462,6 +462,137 @@ async def report_item_lost(item_id: str, notes: Optional[str] = None, current_us
     
     return {"status": "success", "message": "Item reported as lost"}
 
+@api_router.get("/reports/lost-items")
+async def get_lost_items_report(current_user: dict = Depends(get_current_user)):
+    """Get report of all lost items with who reported them"""
+    lost_items = await db.items.find({"status": "lost"}, {"_id": 0}).to_list(1000)
+    
+    # Get lost events for each item
+    report = []
+    for item in lost_items:
+        lost_event = await db.events.find_one(
+            {"item_id": item["item_id"], "event_type": "lost"},
+            {"_id": 0}
+        )
+        
+        if lost_event:
+            user = await db.users.find_one({"id": lost_event["user_id"]}, {"_id": 0})
+            report.append({
+                **item,
+                "reported_by": user.get("name") if user else "Unknown",
+                "reported_by_id": lost_event["user_id"],
+                "reported_at": lost_event["timestamp"],
+                "last_known_location": lost_event.get("from_kit"),
+                "notes": lost_event.get("notes")
+            })
+    
+    return report
+
+@api_router.get("/reports/ssd-offload")
+async def get_ssd_offload_report(current_user: dict = Depends(get_current_user)):
+    """Get report of SSDs at data center for offloading"""
+    # Get all SSDs at DATA-CENTER
+    ssds_at_dc = await db.items.find({
+        "category": "ssd",
+        "current_kit": "DATA-CENTER"
+    }, {"_id": 0}).to_list(1000)
+    
+    report = []
+    for ssd in ssds_at_dc:
+        # Get latest transfer event to DATA-CENTER
+        transfer_event = await db.events.find_one(
+            {
+                "item_id": ssd["item_id"],
+                "to_kit": "DATA-CENTER",
+                "event_type": "transfer"
+            },
+            {"_id": 0}
+        ).sort("timestamp", -1)
+        
+        # Get latest end_shift event with SSD space
+        last_space_event = await db.events.find_one(
+            {
+                "ssd_id": ssd["item_id"],
+                "event_type": "end_shift",
+                "ssd_space_gb": {"$ne": None}
+            },
+            {"_id": 0}
+        ).sort("timestamp", -1)
+        
+        if transfer_event:
+            user = await db.users.find_one({"id": transfer_event["user_id"]}, {"_id": 0})
+            report.append({
+                **ssd,
+                "transferred_by": user.get("name") if user else "Unknown",
+                "transferred_at": transfer_event["timestamp"],
+                "from_kit": transfer_event.get("from_kit"),
+                "last_space_gb": last_space_event.get("ssd_space_gb") if last_space_event else None,
+                "last_space_logged_at": last_space_event.get("timestamp") if last_space_event else None,
+                "days_at_dc": (datetime.now(timezone.utc) - datetime.fromisoformat(transfer_event["timestamp"])).days
+            })
+    
+    return report
+
+@api_router.post("/events/bulk-transfer")
+async def bulk_transfer_items(
+    item_ids: List[str],
+    from_kit: str,
+    to_kit: str,
+    notes: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Transfer multiple items at once"""
+    created_events = []
+    
+    for item_id in item_ids:
+        item = await db.items.find_one({"item_id": item_id}, {"_id": 0})
+        if not item:
+            continue
+        
+        # Create transfer event
+        event_dict = {
+            "id": f"event_{datetime.now(timezone.utc).timestamp()}_{item_id}",
+            "event_type": "transfer",
+            "user_id": current_user["id"],
+            "from_kit": from_kit,
+            "to_kit": to_kit,
+            "item_id": item_id,
+            "quantity": 1,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "notes": notes
+        }
+        await db.events.insert_one(event_dict)
+        created_events.append(event_dict["id"])
+        
+        # Update item location if individual
+        if item.get("tracking_type") == "individual":
+            await db.items.update_one(
+                {"item_id": item_id},
+                {"$set": {"current_kit": to_kit}}
+            )
+    
+    # Notify kit owners
+    if to_kit:
+        await notify_kit_owners(
+            to_kit,
+            f"Bulk transfer: {len(item_ids)} items received from {from_kit} by {current_user['name']}",
+            "transfer",
+            None
+        )
+    if from_kit:
+        await notify_kit_owners(
+            from_kit,
+            f"Bulk transfer: {len(item_ids)} items sent to {to_kit} by {current_user['name']}",
+            "transfer",
+            None
+        )
+    
+    return {
+        "status": "success",
+        "items_transferred": len(created_events),
+        "event_ids": created_events
+    }
+
 @api_router.get("/items/inventory")
 async def get_inventory(current_user: dict = Depends(get_current_user)):
     """Get inventory state derived from events"""

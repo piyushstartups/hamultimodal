@@ -13,6 +13,8 @@ import Notifications from "./pages/Notifications";
 import MyBnB from "./pages/MyBnB";
 import AdminPanel from "./pages/AdminPanel";
 import Handover from "./pages/Handover";
+import LostItemsReport from "./pages/LostItemsReport";
+import SSDOffloadDashboard from "./pages/SSDOffloadDashboard";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -108,6 +110,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Handover />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/reports/lost-items"
+              element={
+                <ProtectedRoute>
+                  <LostItemsReport />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/reports/ssd-offload"
+              element={
+                <ProtectedRoute>
+                  <SSDOffloadDashboard />
                 </ProtectedRoute>
               }
             />
