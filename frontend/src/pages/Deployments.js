@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -17,7 +17,18 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Edit, Trash2, MapPin, Package, Users } from 'lucide-react';
+import { 
+  ArrowLeft, ChevronLeft, ChevronRight, Plus, Edit, Trash2, 
+  MapPin, Package, Users, Play, Pause, Square, Timer, ChevronDown, ChevronUp
+} from 'lucide-react';
+
+const ACTIVITY_TYPES = [
+  { value: 'cooking', label: 'Cooking' },
+  { value: 'cleaning', label: 'Cleaning' },
+  { value: 'organizing', label: 'Organizing' },
+  { value: 'outdoor', label: 'Outdoor' },
+  { value: 'other', label: 'Other' },
+];
 
 export default function Deployments() {
   const { user } = useAuth();
@@ -27,17 +38,28 @@ export default function Deployments() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [deployments, setDeployments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedDeployment, setExpandedDeployment] = useState(null);
+  const [kitShifts, setKitShifts] = useState({});
   
-  // Dialog states
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingDeployment, setEditingDeployment] = useState(null);
+  // Shift control state
+  const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [selectedKit, setSelectedKit] = useState(null);
+  const [selectedDeployment, setSelectedDeployment] = useState(null);
+  const [shiftFormData, setShiftFormData] = useState({ ssd_used: '', activity_type: '' });
+  const [shiftLoading, setShiftLoading] = useState(false);
   
-  // Options
+  // Timer state
+  const [elapsedTimes, setElapsedTimes] = useState({});
+  
+  // Options for admin
   const [bnbs, setBnbs] = useState([]);
   const [kits, setKits] = useState([]);
   const [managers, setManagers] = useState([]);
+  const [items, setItems] = useState([]);
   
-  // Form data - deployment_managers is now an array
+  // Deployment dialog
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingDeployment, setEditingDeployment] = useState(null);
   const [formData, setFormData] = useState({
     bnb: '',
     shift: 'morning',
@@ -49,6 +71,39 @@ export default function Deployments() {
     fetchDeployments();
     fetchOptions();
   }, [currentMonth]);
+
+  // Timer effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newElapsed = {};
+      Object.entries(kitShifts).forEach(([kit, shift]) => {
+        if (shift && shift.status === 'active') {
+          const startTime = new Date(shift.start_time);
+          const now = new Date();
+          const pausedSeconds = shift.total_paused_seconds || 0;
+          const elapsed = Math.floor((now - startTime) / 1000) - pausedSeconds;
+          newElapsed[kit] = Math.max(0, elapsed);
+        } else if (shift && shift.status === 'paused') {
+          // Calculate time up to last pause
+          const startTime = new Date(shift.start_time);
+          const pauses = shift.pauses || [];
+          let totalPaused = 0;
+          for (const p of pauses) {
+            if (p.resume_time) {
+              totalPaused += (new Date(p.resume_time) - new Date(p.pause_time)) / 1000;
+            }
+          }
+          const lastPause = pauses[pauses.length - 1];
+          if (lastPause && !lastPause.resume_time) {
+            const activeTime = Math.floor((new Date(lastPause.pause_time) - startTime) / 1000) - totalPaused;
+            newElapsed[kit] = Math.max(0, activeTime);
+          }
+        }
+      });
+      setElapsedTimes(newElapsed);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [kitShifts]);
 
   const fetchDeployments = async () => {
     setLoading(true);
@@ -64,17 +119,37 @@ export default function Deployments() {
 
   const fetchOptions = async () => {
     try {
-      const [bnbsRes, kitsRes, usersRes] = await Promise.all([
+      const [bnbsRes, kitsRes, usersRes, itemsRes] = await Promise.all([
         api.get('/bnbs'),
         api.get('/kits'),
-        api.get('/users')
+        api.get('/users'),
+        api.get('/items')
       ]);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
-      // Filter to deployment_manager role only for assignment
       setManagers(usersRes.data.filter(u => u.role === 'deployment_manager'));
+      setItems(itemsRes.data);
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  const fetchKitShifts = async (deploymentId) => {
+    try {
+      const response = await api.get(`/shifts/by-deployment/${deploymentId}`);
+      setKitShifts(response.data);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const toggleDeploymentExpand = (dep) => {
+    if (expandedDeployment === dep.id) {
+      setExpandedDeployment(null);
+      setKitShifts({});
+    } else {
+      setExpandedDeployment(dep.id);
+      fetchKitShifts(dep.id);
     }
   };
 
@@ -86,12 +161,10 @@ export default function Deployments() {
     const lastDay = new Date(year, month + 1, 0);
     const days = [];
     
-    // Add empty slots for days before first day of month
     for (let i = 0; i < firstDay.getDay(); i++) {
       days.push(null);
     }
     
-    // Add all days of month
     for (let i = 1; i <= lastDay.getDate(); i++) {
       days.push(new Date(year, month, i));
     }
@@ -108,11 +181,10 @@ export default function Deployments() {
     const dateKey = formatDateKey(date);
     let deps = deployments.filter(d => d.date === dateKey);
     
-    // Managers only see deployments where they are assigned
     if (!isAdmin) {
       deps = deps.filter(d => 
         d.deployment_managers?.includes(user?.id) || 
-        d.deployment_manager === user?.id // backward compatibility
+        d.deployment_manager === user?.id
       );
     }
     
@@ -122,20 +194,106 @@ export default function Deployments() {
   const navigateMonth = (direction) => {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + direction, 1));
     setSelectedDate(null);
+    setExpandedDeployment(null);
   };
 
+  const formatTime = (seconds) => {
+    if (!seconds && seconds !== 0) return '--:--:--';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatDuration = (hours) => {
+    if (!hours) return '0h 0m';
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return `${h}h ${m}m`;
+  };
+
+  // Shift control functions
+  const openStartShift = (dep, kit) => {
+    setSelectedDeployment(dep);
+    setSelectedKit(kit);
+    setShiftFormData({ ssd_used: '', activity_type: '' });
+    setShiftDialogOpen(true);
+  };
+
+  const handleStartShift = async (e) => {
+    e.preventDefault();
+    if (!shiftFormData.ssd_used || !shiftFormData.activity_type) {
+      toast.error('SSD and Activity Type are required');
+      return;
+    }
+    
+    setShiftLoading(true);
+    try {
+      await api.post('/shifts/start', {
+        deployment_id: selectedDeployment.id,
+        kit: selectedKit,
+        ssd_used: shiftFormData.ssd_used,
+        activity_type: shiftFormData.activity_type
+      });
+      toast.success('Shift started!');
+      setShiftDialogOpen(false);
+      fetchKitShifts(selectedDeployment.id);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to start shift');
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
+  const handlePauseShift = async (kit) => {
+    const shift = kitShifts[kit];
+    if (!shift) return;
+    
+    try {
+      await api.post(`/shifts/${shift.id}/pause`);
+      toast.success('Shift paused');
+      fetchKitShifts(expandedDeployment);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to pause');
+    }
+  };
+
+  const handleResumeShift = async (kit) => {
+    const shift = kitShifts[kit];
+    if (!shift) return;
+    
+    try {
+      await api.post(`/shifts/${shift.id}/resume`);
+      toast.success('Shift resumed');
+      fetchKitShifts(expandedDeployment);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to resume');
+    }
+  };
+
+  const handleStopShift = async (kit) => {
+    const shift = kitShifts[kit];
+    if (!shift) return;
+    
+    if (!confirm('Stop this shift? Duration will be calculated automatically.')) return;
+    
+    try {
+      const response = await api.post(`/shifts/${shift.id}/stop`);
+      toast.success(`Shift completed! Duration: ${formatDuration(response.data.total_duration_hours)}`);
+      fetchKitShifts(expandedDeployment);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to stop');
+    }
+  };
+
+  // Admin deployment functions
   const openAddDialog = () => {
     if (!selectedDate) {
       toast.error('Please select a date first');
       return;
     }
     setEditingDeployment(null);
-    setFormData({
-      bnb: '',
-      shift: 'morning',
-      deployment_managers: [],
-      assigned_kits: [],
-    });
+    setFormData({ bnb: '', shift: 'morning', deployment_managers: [], assigned_kits: [] });
     setDialogOpen(true);
   };
 
@@ -144,8 +302,7 @@ export default function Deployments() {
     setFormData({
       bnb: deployment.bnb,
       shift: deployment.shift,
-      deployment_managers: deployment.deployment_managers || 
-        (deployment.deployment_manager ? [deployment.deployment_manager] : []), // backward compatibility
+      deployment_managers: deployment.deployment_managers || [],
       assigned_kits: deployment.assigned_kits || [],
     });
     setDialogOpen(true);
@@ -153,14 +310,8 @@ export default function Deployments() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.bnb) {
-      toast.error('BnB is required');
-      return;
-    }
-    
-    if (formData.deployment_managers.length === 0) {
-      toast.error('At least one Deployment Manager is required');
+    if (!formData.bnb || formData.deployment_managers.length === 0) {
+      toast.error('BnB and at least one manager required');
       return;
     }
 
@@ -185,7 +336,7 @@ export default function Deployments() {
       setDialogOpen(false);
       fetchDeployments();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save');
+      toast.error(error.response?.data?.detail || 'Failed');
     }
   };
 
@@ -193,7 +344,7 @@ export default function Deployments() {
     if (!confirm('Delete this deployment?')) return;
     try {
       await api.delete(`/deployments/${deploymentId}`);
-      toast.success('Deployment deleted');
+      toast.success('Deleted');
       fetchDeployments();
     } catch (error) {
       toast.error('Failed to delete');
@@ -202,26 +353,19 @@ export default function Deployments() {
 
   const toggleKit = (kitId) => {
     const arr = formData.assigned_kits;
-    if (arr.includes(kitId)) {
-      setFormData({ ...formData, assigned_kits: arr.filter(k => k !== kitId) });
-    } else {
-      setFormData({ ...formData, assigned_kits: [...arr, kitId] });
-    }
+    setFormData({
+      ...formData,
+      assigned_kits: arr.includes(kitId) ? arr.filter(k => k !== kitId) : [...arr, kitId]
+    });
   };
 
   const toggleManager = (managerId) => {
     const arr = formData.deployment_managers;
-    if (arr.includes(managerId)) {
-      setFormData({ ...formData, deployment_managers: arr.filter(m => m !== managerId) });
-    } else {
-      setFormData({ ...formData, deployment_managers: [...arr, managerId] });
-    }
+    setFormData({
+      ...formData,
+      deployment_managers: arr.includes(managerId) ? arr.filter(m => m !== managerId) : [...arr, managerId]
+    });
   };
-
-  const days = getDaysInMonth(currentMonth);
-  const monthName = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const today = formatDateKey(new Date());
-  const selectedDeployments = selectedDate ? getDeploymentsForDate(selectedDate) : [];
 
   const getUserName = (userId) => {
     const u = managers.find(m => m.id === userId);
@@ -229,15 +373,40 @@ export default function Deployments() {
   };
 
   const getManagerNames = (dep) => {
-    // Support both old (deployment_manager) and new (deployment_managers) format
     if (dep.deployment_managers && dep.deployment_managers.length > 0) {
       return dep.deployment_managers.map(id => getUserName(id)).join(', ');
     }
-    if (dep.deployment_manager) {
-      return getUserName(dep.deployment_manager);
-    }
     return 'Unassigned';
   };
+
+  const getKitStatus = (kit) => {
+    const shift = kitShifts[kit];
+    if (!shift) return 'not_started';
+    return shift.status;
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'active': return 'bg-green-500';
+      case 'paused': return 'bg-amber-500';
+      case 'completed': return 'bg-blue-500';
+      default: return 'bg-slate-300';
+    }
+  };
+
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case 'active': return 'Active';
+      case 'paused': return 'Paused';
+      case 'completed': return 'Completed';
+      default: return 'Not Started';
+    }
+  };
+
+  const days = getDaysInMonth(currentMonth);
+  const monthName = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const today = formatDateKey(new Date());
+  const selectedDeployments = selectedDate ? getDeploymentsForDate(selectedDate) : [];
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -252,7 +421,7 @@ export default function Deployments() {
             </a>
             <div>
               <h1 className="text-lg font-bold text-slate-900">Deployments</h1>
-              <p className="text-sm text-slate-600">{isAdmin ? 'Plan & assign' : 'Your assignments'}</p>
+              <p className="text-sm text-slate-600">{isAdmin ? 'Plan & manage' : 'Your assignments'}</p>
             </div>
           </div>
         </div>
@@ -262,32 +431,25 @@ export default function Deployments() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Calendar */}
           <div className="lg:col-span-2 bg-white rounded-xl border p-4">
-            {/* Month Navigation */}
             <div className="flex items-center justify-between mb-4">
-              <Button variant="ghost" size="icon" onClick={() => navigateMonth(-1)} data-testid="prev-month-btn">
+              <Button variant="ghost" size="icon" onClick={() => navigateMonth(-1)}>
                 <ChevronLeft className="w-5 h-5" />
               </Button>
               <h2 className="text-lg font-semibold">{monthName}</h2>
-              <Button variant="ghost" size="icon" onClick={() => navigateMonth(1)} data-testid="next-month-btn">
+              <Button variant="ghost" size="icon" onClick={() => navigateMonth(1)}>
                 <ChevronRight className="w-5 h-5" />
               </Button>
             </div>
             
-            {/* Day Headers */}
             <div className="grid grid-cols-7 gap-1 mb-2">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="text-center text-xs font-medium text-slate-500 py-2">
-                  {day}
-                </div>
+                <div key={day} className="text-center text-xs font-medium text-slate-500 py-2">{day}</div>
               ))}
             </div>
             
-            {/* Calendar Grid */}
             <div className="grid grid-cols-7 gap-1">
               {days.map((day, index) => {
-                if (!day) {
-                  return <div key={`empty-${index}`} className="aspect-square" />;
-                }
+                if (!day) return <div key={`empty-${index}`} className="aspect-square" />;
                 
                 const dateKey = formatDateKey(day);
                 const isToday = dateKey === today;
@@ -297,24 +459,19 @@ export default function Deployments() {
                 return (
                   <button
                     key={dateKey}
-                    onClick={() => setSelectedDate(day)}
+                    onClick={() => { setSelectedDate(day); setExpandedDeployment(null); }}
                     data-testid={`day-${dateKey}`}
                     className={`aspect-square p-1 rounded-lg border transition-all relative ${
-                      isSelected 
-                        ? 'bg-blue-500 text-white border-blue-500' 
-                        : isToday
-                        ? 'bg-blue-50 border-blue-200'
-                        : 'bg-white border-slate-200 hover:border-blue-300'
+                      isSelected ? 'bg-blue-500 text-white border-blue-500' 
+                      : isToday ? 'bg-blue-50 border-blue-200'
+                      : 'bg-white border-slate-200 hover:border-blue-300'
                     }`}
                   >
                     <span className="text-sm font-medium">{day.getDate()}</span>
                     {dayDeployments.length > 0 && (
-                      <div className={`absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5`}>
+                      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
                         {dayDeployments.slice(0, 3).map((_, i) => (
-                          <div 
-                            key={i} 
-                            className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} 
-                          />
+                          <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />
                         ))}
                       </div>
                     )}
@@ -325,7 +482,7 @@ export default function Deployments() {
           </div>
 
           {/* Selected Date Details */}
-          <div className="bg-white rounded-xl border p-4">
+          <div className="bg-white rounded-xl border p-4 max-h-[600px] overflow-y-auto">
             {selectedDate ? (
               <>
                 <div className="flex items-center justify-between mb-4">
@@ -349,41 +506,148 @@ export default function Deployments() {
                   <div className="space-y-3">
                     {selectedDeployments.map((dep) => (
                       <div key={dep.id} className="border rounded-lg overflow-hidden" data-testid={`deployment-${dep.id}`}>
-                        <div className="bg-slate-900 text-white px-3 py-2 flex items-center justify-between">
+                        {/* Deployment Header */}
+                        <div 
+                          className="bg-slate-900 text-white px-3 py-2 flex items-center justify-between cursor-pointer"
+                          onClick={() => toggleDeploymentExpand(dep)}
+                        >
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{dep.bnb}</span>
                             <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{dep.shift}</span>
                           </div>
-                          {isAdmin && (
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={() => openEditDialog(dep)} data-testid={`edit-deployment-${dep.id}`}>
-                                <Edit className="w-3 h-3" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-red-500" onClick={() => handleDelete(dep.id)} data-testid={`delete-deployment-${dep.id}`}>
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                        <div className="p-3 space-y-2 text-sm">
-                          <div className="flex items-start gap-2">
-                            <Users className="w-4 h-4 text-slate-400 mt-0.5" />
-                            <span className="flex-1">{getManagerNames(dep)}</span>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <Package className="w-4 h-4 text-slate-400 mt-0.5" />
-                            <div className="flex flex-wrap gap-1">
-                              {dep.assigned_kits?.map(kit => (
-                                <span key={kit} className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded">
-                                  {kit}
-                                </span>
-                              ))}
-                              {(!dep.assigned_kits || dep.assigned_kits.length === 0) && (
-                                <span className="text-slate-400">No kits</span>
-                              )}
-                            </div>
+                          <div className="flex items-center gap-2">
+                            {isAdmin && (
+                              <>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/20" onClick={(e) => { e.stopPropagation(); openEditDialog(dep); }}>
+                                  <Edit className="w-3 h-3" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-red-500" onClick={(e) => { e.stopPropagation(); handleDelete(dep.id); }}>
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </>
+                            )}
+                            {expandedDeployment === dep.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </div>
                         </div>
+                        
+                        {/* Deployment Info */}
+                        <div className="px-3 py-2 border-b bg-slate-50 text-sm">
+                          <div className="flex items-center gap-2 text-slate-600">
+                            <Users className="w-4 h-4" />
+                            <span>{getManagerNames(dep)}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Kit Cards - Only shown when expanded */}
+                        {expandedDeployment === dep.id && (
+                          <div className="p-3 space-y-2">
+                            <p className="text-xs font-medium text-slate-500 uppercase">Kits</p>
+                            {(!dep.assigned_kits || dep.assigned_kits.length === 0) ? (
+                              <p className="text-sm text-slate-400">No kits assigned</p>
+                            ) : (
+                              dep.assigned_kits.map(kit => {
+                                const status = getKitStatus(kit);
+                                const shift = kitShifts[kit];
+                                
+                                return (
+                                  <div key={kit} className="border rounded-lg p-3" data-testid={`kit-card-${kit}`}>
+                                    {/* Kit Header */}
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <Package className="w-4 h-4 text-slate-500" />
+                                        <span className="font-medium">{kit}</span>
+                                      </div>
+                                      <span className={`text-xs px-2 py-0.5 rounded text-white ${getStatusColor(status)}`}>
+                                        {getStatusLabel(status)}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Timer for active/paused */}
+                                    {(status === 'active' || status === 'paused') && (
+                                      <div className={`text-center py-2 mb-2 rounded ${status === 'active' ? 'bg-green-50' : 'bg-amber-50'}`}>
+                                        <p className="text-2xl font-mono font-bold" data-testid={`timer-${kit}`}>
+                                          {formatTime(elapsedTimes[kit])}
+                                        </p>
+                                        {shift && (
+                                          <p className="text-xs text-slate-500 mt-1">
+                                            {shift.activity_type} • {shift.ssd_used}
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                    
+                                    {/* Completed info */}
+                                    {status === 'completed' && shift && (
+                                      <div className="bg-blue-50 rounded p-2 mb-2 text-center">
+                                        <p className="text-lg font-bold text-blue-600">{formatDuration(shift.total_duration_hours)}</p>
+                                        <p className="text-xs text-slate-500">{shift.activity_type} • {shift.ssd_used}</p>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Control Buttons */}
+                                    <div className="flex gap-2">
+                                      {status === 'not_started' && (
+                                        <Button 
+                                          size="sm" 
+                                          className="flex-1 bg-green-500 hover:bg-green-600"
+                                          onClick={() => openStartShift(dep, kit)}
+                                          data-testid={`start-${kit}`}
+                                        >
+                                          <Play className="w-4 h-4 mr-1" />
+                                          Start
+                                        </Button>
+                                      )}
+                                      {status === 'active' && (
+                                        <>
+                                          <Button 
+                                            size="sm" 
+                                            className="flex-1 bg-amber-500 hover:bg-amber-600"
+                                            onClick={() => handlePauseShift(kit)}
+                                            data-testid={`pause-${kit}`}
+                                          >
+                                            <Pause className="w-4 h-4 mr-1" />
+                                            Pause
+                                          </Button>
+                                          <Button 
+                                            size="sm" 
+                                            className="flex-1 bg-red-500 hover:bg-red-600"
+                                            onClick={() => handleStopShift(kit)}
+                                            data-testid={`stop-${kit}`}
+                                          >
+                                            <Square className="w-4 h-4 mr-1" />
+                                            Stop
+                                          </Button>
+                                        </>
+                                      )}
+                                      {status === 'paused' && (
+                                        <>
+                                          <Button 
+                                            size="sm" 
+                                            className="flex-1 bg-green-500 hover:bg-green-600"
+                                            onClick={() => handleResumeShift(kit)}
+                                            data-testid={`resume-${kit}`}
+                                          >
+                                            <Play className="w-4 h-4 mr-1" />
+                                            Resume
+                                          </Button>
+                                          <Button 
+                                            size="sm" 
+                                            className="flex-1 bg-red-500 hover:bg-red-600"
+                                            onClick={() => handleStopShift(kit)}
+                                            data-testid={`stop-${kit}`}
+                                          >
+                                            <Square className="w-4 h-4 mr-1" />
+                                            Stop
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -398,7 +662,49 @@ export default function Deployments() {
         </div>
       </main>
 
-      {/* Add/Edit Deployment Dialog */}
+      {/* Start Shift Dialog */}
+      <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Start Collection - {selectedKit}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleStartShift} className="space-y-4 mt-4">
+            <div>
+              <Label>SSD *</Label>
+              <Select value={shiftFormData.ssd_used} onValueChange={(v) => setShiftFormData({ ...shiftFormData, ssd_used: v })}>
+                <SelectTrigger className="mt-1" data-testid="ssd-select"><SelectValue placeholder="Select SSD" /></SelectTrigger>
+                <SelectContent>
+                  {items.filter(i => i.category === 'ssd' || i.item_name.toLowerCase().includes('ssd')).length > 0 
+                    ? items.filter(i => i.category === 'ssd' || i.item_name.toLowerCase().includes('ssd')).map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)
+                    : items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)
+                  }
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label>Activity Type *</Label>
+              <Select value={shiftFormData.activity_type} onValueChange={(v) => setShiftFormData({ ...shiftFormData, activity_type: v })}>
+                <SelectTrigger className="mt-1" data-testid="activity-select"><SelectValue placeholder="Select activity" /></SelectTrigger>
+                <SelectContent>
+                  {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button type="button" variant="outline" onClick={() => setShiftDialogOpen(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1 bg-green-500 hover:bg-green-600" disabled={shiftLoading} data-testid="start-shift-btn">
+                {shiftLoading ? 'Starting...' : 'Start Collection'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin: Add/Edit Deployment Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -408,18 +714,17 @@ export default function Deployments() {
             <div>
               <Label>BnB *</Label>
               <Select value={formData.bnb} onValueChange={(v) => setFormData({ ...formData, bnb: v })}>
-                <SelectTrigger className="mt-1" data-testid="bnb-select"><SelectValue placeholder="Select BnB" /></SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select BnB" /></SelectTrigger>
                 <SelectContent>
                   {bnbs.map(b => <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {bnbs.length === 0 && <p className="text-xs text-amber-600 mt-1">No BnBs available. Add BnBs via Admin Panel.</p>}
             </div>
             
             <div>
               <Label>Shift *</Label>
               <Select value={formData.shift} onValueChange={(v) => setFormData({ ...formData, shift: v })}>
-                <SelectTrigger className="mt-1" data-testid="shift-select"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="morning">Morning</SelectItem>
                   <SelectItem value="evening">Evening</SelectItem>
@@ -428,58 +733,44 @@ export default function Deployments() {
             </div>
             
             <div>
-              <Label>Deployment Managers * <span className="text-xs text-slate-500">(select one or more)</span></Label>
-              <p className="text-xs text-slate-500 mb-2">Click to select/deselect</p>
-              <div className="flex flex-wrap gap-2">
+              <Label>Managers *</Label>
+              <div className="flex flex-wrap gap-2 mt-1">
                 {managers.map(m => (
                   <button
                     key={m.id}
                     type="button"
                     onClick={() => toggleManager(m.id)}
-                    data-testid={`manager-${m.id}`}
                     className={`px-3 py-1.5 text-sm rounded border transition-all ${
-                      formData.deployment_managers.includes(m.id)
-                        ? 'bg-green-500 text-white border-green-500'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-green-300'
+                      formData.deployment_managers.includes(m.id) ? 'bg-green-500 text-white border-green-500' : 'bg-white text-slate-700 border-slate-200'
                     }`}
                   >
                     {m.name}
                   </button>
                 ))}
-                {managers.length === 0 && <span className="text-sm text-amber-600">No deployment managers available. Add users via Admin Panel.</span>}
               </div>
             </div>
             
             <div>
               <Label>Kits</Label>
-              <p className="text-xs text-slate-500 mb-2">Click to select</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 mt-1">
                 {kits.map(k => (
                   <button
                     key={k.kit_id}
                     type="button"
                     onClick={() => toggleKit(k.kit_id)}
-                    data-testid={`kit-${k.kit_id}`}
                     className={`px-3 py-1 text-sm rounded border transition-all ${
-                      formData.assigned_kits.includes(k.kit_id)
-                        ? 'bg-blue-500 text-white border-blue-500'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300'
+                      formData.assigned_kits.includes(k.kit_id) ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-700 border-slate-200'
                     }`}
                   >
                     {k.kit_id}
                   </button>
                 ))}
-                {kits.length === 0 && <span className="text-sm text-slate-400">No kits available</span>}
               </div>
             </div>
 
             <div className="flex gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button type="submit" className="flex-1" data-testid="submit-deployment-btn">
-                {editingDeployment ? 'Update' : 'Create'}
-              </Button>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">Cancel</Button>
+              <Button type="submit" className="flex-1">{editingDeployment ? 'Update' : 'Create'}</Button>
             </div>
           </form>
         </DialogContent>

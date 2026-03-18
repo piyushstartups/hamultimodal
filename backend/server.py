@@ -58,9 +58,11 @@ class KitCreate(BaseModel):
 
 class ItemCreate(BaseModel):
     item_name: str
+    category: str = "general"  # ssd, camera, gloves, etc.
     tracking_type: str  # individual / quantity
     status: str = "active"  # active / damaged / lost / repair
-    current_kit: Optional[str] = None
+    current_location: Optional[str] = None  # e.g., "kit:KIT-01" or "bnb:BnB-01" or "station:Storage"
+    quantity: int = 1  # For quantity-tracked items
 
 class DeploymentCreate(BaseModel):
     date: str  # YYYY-MM-DD
@@ -71,21 +73,24 @@ class DeploymentCreate(BaseModel):
     deployment_managers: List[str] = []  # Multiple user_ids
 
 class ItemUpdate(BaseModel):
+    category: Optional[str] = None
     tracking_type: str  # individual / quantity
     status: str = "active"  # active / damaged / lost / repair
-    current_kit: Optional[str] = None
+    current_location: Optional[str] = None
+    quantity: Optional[int] = None
 
-# Shift models for automatic time tracking
+# Shift models for automatic time tracking - CONTEXT-AWARE (tied to deployment/kit)
 class ShiftStart(BaseModel):
-    kit: str
+    deployment_id: str  # Required - which deployment this shift belongs to
+    kit: str  # Required - which kit
     ssd_used: str
     activity_type: str  # cooking, cleaning, organizing, outdoor, other
 
 class EventCreate(BaseModel):
-    event_type: str  # transfer, damage, activity (NOT shift_start/shift_end - use shift endpoints)
-    kit: str
-    item: Optional[str] = None
-    to_kit: Optional[str] = None
+    event_type: str  # transfer, damage, activity
+    item: str
+    from_location: Optional[str] = None  # e.g., "kit:KIT-01" or "bnb:BnB-01" or "station:Main"
+    to_location: Optional[str] = None  # e.g., "kit:KIT-02" or "bnb:BnB-02" or "station:Storage"
     quantity: int = 1
     notes: Optional[str] = None
 
@@ -284,16 +289,21 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
     
     doc = {
         "item_name": data.item_name,
+        "category": data.category,
         "tracking_type": data.tracking_type,
         "status": data.status,
-        "current_kit": data.current_kit
+        "current_location": data.current_location,
+        "quantity": data.quantity if data.tracking_type == "quantity" else 1
     }
     await db.items.insert_one(doc)
+    # Return without _id
     return {
         "item_name": data.item_name,
+        "category": data.category,
         "tracking_type": data.tracking_type,
         "status": data.status,
-        "current_kit": data.current_kit
+        "current_location": data.current_location,
+        "quantity": doc["quantity"]
     }
 
 @app.delete("/api/items/{item_name}")
@@ -313,20 +323,20 @@ async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get
     if not existing:
         raise HTTPException(status_code=404, detail="Item not found")
     
-    await db.items.update_one(
-        {"item_name": item_name},
-        {"$set": {
-            "tracking_type": data.tracking_type,
-            "status": data.status,
-            "current_kit": data.current_kit
-        }}
-    )
-    return {
-        "item_name": item_name,
+    update_data = {
         "tracking_type": data.tracking_type,
         "status": data.status,
-        "current_kit": data.current_kit
+        "current_location": data.current_location
     }
+    if data.category:
+        update_data["category"] = data.category
+    if data.quantity is not None:
+        update_data["quantity"] = data.quantity
+    
+    await db.items.update_one({"item_name": item_name}, {"$set": update_data})
+    
+    updated = await db.items.find_one({"item_name": item_name}, {"_id": 0})
+    return updated
 
 # ========================
 # DEPLOYMENTS
@@ -445,20 +455,20 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
         "event_type": data.event_type,
         "user": user["id"],
         "user_name": user["name"],
-        "kit": data.kit,
         "item": data.item,
-        "to_kit": data.to_kit,
+        "from_location": data.from_location,
+        "to_location": data.to_location,
         "quantity": data.quantity,
         "notes": data.notes,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
     # AUTOMATIONS
-    if data.event_type == "transfer" and data.item and data.to_kit:
-        # Update item.current_kit for individual items
+    if data.event_type == "transfer" and data.item and data.to_location:
+        # Update item.current_location for individual items
         await db.items.update_one(
             {"item_name": data.item, "tracking_type": "individual"},
-            {"$set": {"current_kit": data.to_kit}}
+            {"$set": {"current_location": data.to_location}}
         )
     
     if data.event_type == "damage" and data.item:
@@ -484,6 +494,24 @@ async def get_active_shift(user: dict = Depends(get_current_user_dep())):
         {"_id": 0}
     )
     return shift
+
+@app.get("/api/shifts/by-deployment/{deployment_id}")
+async def get_shifts_by_deployment(deployment_id: str, user: dict = Depends(get_current_user_dep())):
+    """Get all shifts for a specific deployment (to show kit statuses)"""
+    shifts = await db.shifts.find(
+        {"deployment_id": deployment_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Return as a dict keyed by kit for easy lookup
+    kit_shifts = {}
+    for shift in shifts:
+        kit = shift["kit"]
+        # Keep the most recent shift for each kit
+        if kit not in kit_shifts or shift.get("start_time", "") > kit_shifts[kit].get("start_time", ""):
+            kit_shifts[kit] = shift
+    
+    return kit_shifts
 
 @app.get("/api/shifts")
 async def get_shifts(
@@ -514,17 +542,25 @@ async def get_today_shifts(user: dict = Depends(get_current_user_dep())):
 
 @app.post("/api/shifts/start")
 async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_dep())):
-    """Start a new shift - captures start_time automatically"""
-    # Check if user already has an active shift
+    """Start a new shift for a specific kit in a deployment - captures start_time automatically"""
+    # Check if this kit already has an active shift
     existing = await db.shifts.find_one(
-        {"user": user["id"], "status": {"$in": ["active", "paused"]}}
+        {"kit": data.kit, "deployment_id": data.deployment_id, "status": {"$in": ["active", "paused"]}}
     )
     if existing:
-        raise HTTPException(status_code=400, detail="You already have an active shift. Stop it first.")
+        raise HTTPException(status_code=400, detail="This kit already has an active shift.")
+    
+    # Get deployment details for context
+    deployment = await db.deployments.find_one({"id": data.deployment_id})
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
     
     now = datetime.now(timezone.utc)
     shift = {
         "id": f"shift-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "deployment_id": data.deployment_id,
+        "date": deployment["date"],
+        "bnb": deployment["bnb"],
         "user": user["id"],
         "user_name": user["name"],
         "kit": data.kit,
