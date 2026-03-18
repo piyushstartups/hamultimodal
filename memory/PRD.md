@@ -116,9 +116,29 @@ All inventory data is derived from logged events. Users record actions (events),
 - [ ] Dashboard analytics charts
 
 ## Last Updated
-2026-03-18 - Completed Phase 2: Deployment Planning Dashboard + Admin Analytics Dashboard with charts and trends
+2026-03-18 - Completed Phase 3: Kit/Worker History, Incidents & Penalties, Role-based Simplified Dashboards
 
 ## Recent Changes
+
+### Phase 3: History & Accountability
+- **Kit History** (`/history/kit/{kit_id}`) - All BnBs deployed to, shifts, damage events
+- **Worker History** (`/history/worker/{user_id}`) - Shifts, hours, BnBs worked, incidents, penalties
+- **Incidents & Penalties** page - Track damage, loss, misuse with accountability
+  - Create incidents linked to workers
+  - Assign severity (low/medium/high) and penalty amounts
+  - Status workflow: open → investigating → resolved → closed
+  - Worker History accessible from incident detail
+- **Incidents Summary** - by status, by type, recent, total penalties
+
+### Role-Based Simplified Dashboards
+- **Admin/Supervisor**: 3 primary cards (Deployment Planning, Analytics, Incidents) + Quick Access links
+- **Deployer/Station**: 3 large action buttons (Start Shift, End Shift, Report Issue) + My BnB + 2 secondary links
+- **Inventory Manager**: Focused on inventory management features
+
+### UX Improvements
+- **Add BnB** moved from Admin Panel to Deployment Planning (more logical placement)
+- Reduced cognitive load for field workers - they see only what they need
+- Clean, focused interfaces per role
 
 ### Phase 2 (Part 2): Admin Analytics Dashboard
 - **Overview Cards** - Total Hours, Total Shifts, Active BnBs, Active Workers
