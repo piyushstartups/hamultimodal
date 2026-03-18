@@ -1,7 +1,9 @@
-# Ops Management System - Product Requirements Document
+# HA Multimodal Management - Product Requirements Document
 
 ## Overview
 Clean, minimal, web-based internal operations system for managing daily deployments, shifts, inventory, and handovers with **automatic time tracking**.
+
+**Application Name:** HA Multimodal Management
 
 **Core Principles:**
 1. Every action takes under 10 seconds
@@ -161,27 +163,31 @@ Deployments → Date → BnB → Handover buttons
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
 - [x] Calendar collapse for managers
-- [x] Reliable Stop button
+- [x] Reliable Stop button (fixed UI state update issue)
 - [x] Report Lost Item in Quick Actions
 - [x] Handover system with kit/BnB checklists
 - [x] Missing item tracking with auto-loss reporting
 - [x] Context-aware shifts (deployment_id required)
 - [x] Role-based permissions
+- [x] Analytics Dashboard with date range support
+- [x] Admin Historical Live Dashboard with date picker
+- [x] App name updated to "HA Multimodal Management"
 
 ## Architecture
 ```
 /app
 ├── backend/
-│   └── server.py   # Shifts, handovers, events, items
+│   └── server.py   # Shifts, handovers, events, items, analytics
 └── frontend/
     └── src/pages/
         ├── Actions.js       # Quick Actions (Transfer/Damage/Lost)
+        ├── Analytics.js     # Date range analytics with charts
         ├── Dashboard.js     # Role-based navigation
         ├── Deployments.js   # Calendar + BnB + Kit cards + Handover
         ├── Inventory.js     # Grouped by category
-        ├── LiveDashboard.js # Auto-calculated stats
+        ├── LiveDashboard.js # Auto-calculated stats + Admin date picker
         └── AdminPanel.js    # Users/BnBs/Kits
 ```
 
 ## Last Updated
-2026-03-18 - UX improvements, handover system, loss tracking
+2026-03-18 - Final fixes: Stop button bug fixed, Analytics dashboard added, Admin historical view added
