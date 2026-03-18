@@ -8,13 +8,36 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 2. Users don't think — only perform simple actions
 3. All tracking comes from Events (single source of truth)
 4. Show users only what is relevant to them
+5. Clear separation of responsibilities between pages
 
 ## User Roles
 
 | Role | Access |
 |------|--------|
-| admin | Full access - creates deployments, manages users/kits/items/BnBs, sees all dashboards. Does NOT see Actions page. |
-| deployment_manager | Sees only assigned BnBs, logs shifts, transfers, reports damage, creates requests. Does NOT see Admin Panel. |
+| admin | Full control: Inventory (CRUD), Deployments (planning), Admin Panel (users/bnbs/kits). Does NOT see Actions page. |
+| deployment_manager | Can: View deployments assigned to them, perform actions (shift logging), view inventory. Cannot: Edit inventory, access Admin Panel |
+
+## Page Responsibilities (Strict Separation)
+
+### Inventory Page
+- **Purpose:** PRIMARY place for all inventory management
+- **Admin Can:** Add/Edit/Delete items, update status (active/damaged/lost/repair)
+- **Manager Can:** View items only (no edit/delete buttons visible)
+
+### Deployments Page  
+- **Purpose:** PLANNING ONLY - date-based assignment
+- **Admin Can:** Create/Edit/Delete deployments, assign BnBs/Kits/Managers
+- **Manager Can:** View their assigned deployments only
+- **NOT included:** No inventory controls, no BnB management
+
+### Admin Panel
+- **Purpose:** System CONFIGURATION only
+- **Contains:** Users, BnBs, Kits management tabs
+- **NOT included:** Items (managed in Inventory), Deployments (managed in Deployments page)
+
+### Actions Page (Manager Only)
+- **Purpose:** Log shifts and events
+- **Contains:** Start Shift, End Shift, Transfer Item, Report Damage, Request Item
 
 ## Data Model
 
@@ -34,26 +57,25 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 - item_name (UNIQUE)
 - tracking_type (individual / quantity)
 - status (active / damaged / lost / repair)
-- current_kit (for individual items)
+- current_kit (optional)
 
 ### Deployments
 - date (YYYY-MM-DD)
 - bnb
 - shift (morning / evening)
-- assigned_kits
-- assigned_users
-- deployment_manager
+- assigned_kits (array)
+- **deployment_managers (array)** - Multiple managers per deployment
+- assigned_users (array)
 
-### Events (Core Table)
+### Events
 - event_type (shift_start, shift_end, transfer, damage, activity)
 - user
 - kit
 - item (optional)
 - to_kit (for transfers)
-- quantity
 - ssd_used (required for shift_end)
-- activity_type (required for shift_end: cooking, cleaning, organizing, outdoor, other)
-- hours_logged (optional, for shift_end)
+- activity_type (required for shift_end)
+- hours_logged (optional)
 - notes
 - timestamp
 
@@ -63,57 +85,49 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 - quantity
 - status (pending / fulfilled / rejected)
 
-## UI Structure
-
-### Pages
-1. **Deployments** - Calendar-based view for planning & viewing daily assignments (BnB, Manager, Kits, Shift). BnB management integrated.
-2. **Actions** - (Deployment Manager only) 5 buttons: Start Shift, End Shift, Transfer Item, Report Damage, Request Item
-3. **Live Dashboard** - Today's stats (Total Hours Logged, Shifts Completed, Hours per BnB)
-4. **Inventory** - View items with status/location
-5. **Requests** - List with status update
-6. **Admin Panel** - (Admin only) Manage users, kits, items, BnBs
-
-### Role-Based Navigation
-- **Admin**: Deployments, Live Dashboard, Inventory, Requests, Admin Panel
-- **Deployment Manager**: Deployments, Actions, Live Dashboard, Inventory, Requests
-
-## Automations
-1. When `event_type = transfer`: Update `item.current_kit = to_kit` (individual items)
-2. When `event_type = damage`: Update `item.status = damaged`
-
 ## API Endpoints
 
 ### Auth
 - `POST /api/auth/login`
 - `GET /api/auth/me`
 
-### CRUD
+### Users, BnBs, Kits
 - `GET/POST/DELETE /api/users`
 - `GET/POST/DELETE /api/bnbs`
 - `GET/POST/DELETE /api/kits`
-- `GET/POST/DELETE /api/items` (duplicate item_name prevention)
-- `GET/POST/PUT/DELETE /api/deployments`
+
+### Items (Full CRUD)
+- `GET /api/items`
+- `POST /api/items` (Admin only)
+- `PUT /api/items/{item_name}` (Admin only) - Update item
+- `DELETE /api/items/{item_name}` (Admin only)
+
+### Deployments (Multiple Managers)
+- `GET /api/deployments` (Managers filtered to their assignments)
+- `POST /api/deployments` (Admin only, requires deployment_managers array)
+- `PUT /api/deployments/{id}` (Admin only)
+- `DELETE /api/deployments/{id}` (Admin only)
+
+### Events & Requests
 - `GET/POST /api/events`
 - `GET/POST/PUT /api/requests`
 
 ### Dashboard
-- `GET /api/dashboard/live` - Returns: {date, total_hours, total_shifts, per_bnb: [{bnb, shift, hours_logged}], recent_events}
+- `GET /api/dashboard/live` - Simplified: total_hours, total_shifts, per_bnb hours
 
 ## Test Credentials
 - **Admin**: `Admin` / `admin123`
+- **Manager**: `TestManager1` / `test123`
 
 ## Completed Features (2026-03-18)
-- [x] Complete application rebuild with simplified architecture
-- [x] Two-role system (admin, deployment_manager)
-- [x] Card-based dashboard navigation with role-based views
-- [x] Calendar-based Deployments page with day selection
-- [x] BnB management integrated into Deployments page
-- [x] Mandatory shift logging fields (SSD_used, activity_type) for End Shift
-- [x] Simplified Live Dashboard (Total Hours, Shifts Completed, Hours per BnB)
-- [x] Duplicate item prevention with unique index
-
-## Upcoming Tasks
-- None specified
+- [x] Admin full CRUD on Inventory page (Add/Edit/Delete items)
+- [x] Admin Panel limited to Users, BnBs, Kits only
+- [x] Deployments page strictly for planning (no BnB management)
+- [x] Multiple deployment managers per deployment
+- [x] Role-based view filtering (managers see only their deployments)
+- [x] Strict permissions (managers can view inventory but not edit)
+- [x] Mandatory shift logging fields (SSD_used, activity_type)
+- [x] Simplified Live Dashboard
 
 ## Architecture
 ```
@@ -125,23 +139,21 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 └── frontend/
     ├── .env
     ├── package.json
-    ├── public/
-    │   └── index.html
     └── src/
         ├── components/ui/
         ├── contexts/AuthContext.js
         ├── lib/api.js
         └── pages/
-            ├── Actions.js
-            ├── AdminPanel.js
-            ├── Dashboard.js
-            ├── Deployments.js
-            ├── Inventory.js
-            ├── LiveDashboard.js
+            ├── Actions.js         # Manager only - shift logging
+            ├── AdminPanel.js      # Admin only - Users/BnBs/Kits
+            ├── Dashboard.js       # Role-based navigation
+            ├── Deployments.js     # Planning with multiple managers
+            ├── Inventory.js       # Full CRUD for Admin
+            ├── LiveDashboard.js   # Simplified stats
             ├── Login.js
             ├── MyDeployments.js
             └── Requests.js
 ```
 
 ## Last Updated
-2026-03-18 - Calendar-based deployments, role-based UI, mandatory shift fields, simplified dashboard
+2026-03-18 - Clear separation of responsibilities, multiple deployment managers, Admin inventory CRUD
