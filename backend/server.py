@@ -76,7 +76,9 @@ class EventCreate(BaseModel):
     item: Optional[str] = None
     to_kit: Optional[str] = None
     quantity: int = 1
-    data_collected: Optional[float] = None
+    ssd_used: Optional[str] = None  # Which SSD was used (required for shift_end)
+    activity_type: Optional[str] = None  # cooking, cleaning, organizing, outdoor, other
+    hours_logged: Optional[float] = None
     notes: Optional[str] = None
 
 class RequestCreate(BaseModel):
@@ -399,7 +401,9 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
         "item": data.item,
         "to_kit": data.to_kit,
         "quantity": data.quantity,
-        "data_collected": data.data_collected,
+        "ssd_used": data.ssd_used,
+        "activity_type": data.activity_type,
+        "hours_logged": data.hours_logged,
         "notes": data.notes,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -465,7 +469,7 @@ async def update_request(request_id: str, status: str, user: dict = Depends(get_
     return {"status": "updated"}
 
 # ========================
-# LIVE DASHBOARD (TODAY ONLY)
+# LIVE DASHBOARD (TODAY ONLY) - SIMPLIFIED
 # ========================
 
 @app.get("/api/dashboard/live")
@@ -481,13 +485,13 @@ async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
     # Get today's deployments
     deployments = await db.deployments.find({"date": today}, {"_id": 0}).to_list(50)
     
-    # Calculate totals
-    shift_starts = [e for e in events if e["event_type"] == "shift_start"]
+    # Get shift_end events with hours
     shift_ends = [e for e in events if e["event_type"] == "shift_end"]
     
-    total_data_collected = sum(e.get("data_collected", 0) or 0 for e in events)
+    # Calculate total hours logged
+    total_hours = sum(e.get("hours_logged", 0) or 0 for e in shift_ends)
     
-    # Per BnB stats
+    # Per BnB stats - ONLY hours logged
     bnb_stats = {}
     for dep in deployments:
         bnb = dep["bnb"]
@@ -495,11 +499,7 @@ async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
             bnb_stats[bnb] = {
                 "bnb": bnb,
                 "shift": dep["shift"],
-                "kits": dep["assigned_kits"],
-                "shift_starts": 0,
-                "shift_ends": 0,
-                "data_collected": 0,
-                "active_shifts": 0
+                "hours_logged": 0
             }
     
     # Map events to BnBs via kits
@@ -508,29 +508,20 @@ async def get_live_dashboard(user: dict = Depends(get_current_user_dep())):
         for kit in dep.get("assigned_kits", []):
             kit_to_bnb[kit] = dep["bnb"]
     
-    for event in events:
+    for event in shift_ends:
         kit = event.get("kit")
         bnb = kit_to_bnb.get(kit)
         if bnb and bnb in bnb_stats:
-            if event["event_type"] == "shift_start":
-                bnb_stats[bnb]["shift_starts"] += 1
-            elif event["event_type"] == "shift_end":
-                bnb_stats[bnb]["shift_ends"] += 1
-            bnb_stats[bnb]["data_collected"] += event.get("data_collected", 0) or 0
+            bnb_stats[bnb]["hours_logged"] += event.get("hours_logged", 0) or 0
     
-    # Calculate active shifts per BnB
+    # Round hours
     for bnb in bnb_stats:
-        bnb_stats[bnb]["active_shifts"] = bnb_stats[bnb]["shift_starts"] - bnb_stats[bnb]["shift_ends"]
+        bnb_stats[bnb]["hours_logged"] = round(bnb_stats[bnb]["hours_logged"], 1)
     
     return {
         "date": today,
-        "total": {
-            "shift_starts": len(shift_starts),
-            "shift_ends": len(shift_ends),
-            "active_shifts": len(shift_starts) - len(shift_ends),
-            "data_collected": round(total_data_collected, 2),
-            "total_events": len(events)
-        },
+        "total_hours": round(total_hours, 1),
+        "total_shifts": len(shift_ends),
         "per_bnb": list(bnb_stats.values()),
         "recent_events": events[:10]
     }

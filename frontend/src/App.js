@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import MyDeployments from "./pages/MyDeployments";
+import Deployments from "./pages/Deployments";
 import Actions from "./pages/Actions";
 import LiveDashboard from "./pages/LiveDashboard";
 import Inventory from "./pages/Inventory";
@@ -34,6 +35,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/my-deployments" element={<ProtectedRoute><MyDeployments /></ProtectedRoute>} />
+          <Route path="/deployments" element={<ProtectedRoute><Deployments /></ProtectedRoute>} />
           <Route path="/actions" element={<ProtectedRoute><Actions /></ProtectedRoute>} />
           <Route path="/live" element={<ProtectedRoute><LiveDashboard /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />

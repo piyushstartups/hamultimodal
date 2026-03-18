@@ -13,17 +13,33 @@ import {
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isManager = user?.role === 'deployment_manager';
 
-  const navItems = [
-    { href: '/my-deployments', icon: Calendar, label: 'My Deployments', desc: 'View assigned work', color: 'bg-blue-500' },
-    { href: '/actions', icon: Zap, label: 'Actions', desc: 'Log shifts & events', color: 'bg-green-500' },
-    { href: '/live', icon: BarChart3, label: 'Live Dashboard', desc: "Today's performance", color: 'bg-purple-500' },
-    { href: '/inventory', icon: Package, label: 'Inventory', desc: 'View items & status', color: 'bg-amber-500' },
-    { href: '/requests', icon: FileText, label: 'Requests', desc: 'Item requests', color: 'bg-cyan-500' },
-  ];
+  // Admin sees: Deployments (calendar), Live Dashboard, Inventory, Requests, Admin Panel
+  // Manager sees: Deployments (calendar), Actions, Live Dashboard, Inventory, Requests
 
+  const navItems = [];
+
+  // Deployments (calendar) - for everyone
+  navItems.push({ href: '/deployments', icon: Calendar, label: 'Deployments', desc: 'Plan & view deployments', color: 'bg-blue-500' });
+
+  // Actions - only for deployment managers
+  if (isManager) {
+    navItems.push({ href: '/actions', icon: Zap, label: 'Actions', desc: 'Log shifts & events', color: 'bg-green-500' });
+  }
+
+  // Live Dashboard - for everyone
+  navItems.push({ href: '/live', icon: BarChart3, label: 'Live Dashboard', desc: "Today's hours", color: 'bg-purple-500' });
+
+  // Inventory - for everyone
+  navItems.push({ href: '/inventory', icon: Package, label: 'Inventory', desc: 'View items & status', color: 'bg-amber-500' });
+
+  // Requests - for everyone
+  navItems.push({ href: '/requests', icon: FileText, label: 'Requests', desc: 'Item requests', color: 'bg-cyan-500' });
+
+  // Admin Panel - only for admin
   if (isAdmin) {
-    navItems.push({ href: '/admin', icon: Settings, label: 'Admin Panel', desc: 'Manage system', color: 'bg-slate-700' });
+    navItems.push({ href: '/admin', icon: Settings, label: 'Admin Panel', desc: 'Users & Settings', color: 'bg-slate-700' });
   }
 
   return (
@@ -48,6 +64,7 @@ export default function Dashboard() {
             <a
               key={item.href}
               href={item.href}
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               className="bg-white rounded-xl border p-5 hover:shadow-md transition-all group"
             >
               <div className={`w-12 h-12 ${item.color} rounded-xl flex items-center justify-center mb-3 group-hover:scale-105 transition-transform`}>

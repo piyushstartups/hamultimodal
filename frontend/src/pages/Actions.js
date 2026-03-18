@@ -21,12 +21,21 @@ import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
 import { ArrowLeft, Play, Square, ArrowRightLeft, AlertTriangle, FileText } from 'lucide-react';
 
+const ACTIVITY_TYPES = [
+  { value: 'cooking', label: 'Cooking' },
+  { value: 'cleaning', label: 'Cleaning' },
+  { value: 'organizing', label: 'Organizing' },
+  { value: 'outdoor', label: 'Outdoor' },
+  { value: 'other', label: 'Other' },
+];
+
 export default function Actions() {
   const { user } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [actionType, setActionType] = useState('');
   const [kits, setKits] = useState([]);
   const [items, setItems] = useState([]);
+  const [ssds, setSsds] = useState([]);
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -34,7 +43,9 @@ export default function Actions() {
     item: '',
     to_kit: '',
     quantity: 1,
-    data_collected: '',
+    ssd_used: '',
+    activity_type: '',
+    hours_logged: '',
     notes: ''
   });
 
@@ -50,6 +61,11 @@ export default function Actions() {
       ]);
       setKits(kitsRes.data);
       setItems(itemsRes.data);
+      // Filter SSDs (items that are SSDs)
+      setSsds(itemsRes.data.filter(i => 
+        i.item_name.toLowerCase().includes('ssd') || 
+        i.tracking_type === 'individual'
+      ));
     } catch (error) {
       console.error(error);
     }
@@ -57,12 +73,25 @@ export default function Actions() {
 
   const openAction = (type) => {
     setActionType(type);
-    setFormData({ kit: '', item: '', to_kit: '', quantity: 1, data_collected: '', notes: '' });
+    setFormData({ kit: '', item: '', to_kit: '', quantity: 1, ssd_used: '', activity_type: '', hours_logged: '', notes: '' });
     setDialogOpen(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validation for End Shift
+    if (actionType === 'shift_end') {
+      if (!formData.ssd_used) {
+        toast.error('SSD used is required');
+        return;
+      }
+      if (!formData.activity_type) {
+        toast.error('Activity type is required');
+        return;
+      }
+    }
+    
     setLoading(true);
 
     try {
@@ -80,7 +109,9 @@ export default function Actions() {
           item: formData.item || null,
           to_kit: formData.to_kit || null,
           quantity: formData.quantity,
-          data_collected: formData.data_collected ? parseFloat(formData.data_collected) : null,
+          ssd_used: formData.ssd_used || null,
+          activity_type: formData.activity_type || null,
+          hours_logged: formData.hours_logged ? parseFloat(formData.hours_logged) : null,
           notes: formData.notes || null
         });
         toast.success('Event logged');
@@ -141,13 +172,38 @@ export default function Actions() {
                 </SelectContent>
               </Select>
             </div>
+            
             <div>
-              <Label>Data Collected (GB)</Label>
+              <Label>SSD Used *</Label>
+              <Select value={formData.ssd_used} onValueChange={(v) => setFormData({ ...formData, ssd_used: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select SSD" /></SelectTrigger>
+                <SelectContent>
+                  {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500 mt-1">Which SSD was used in this kit?</p>
+            </div>
+            
+            <div>
+              <Label>Activity Type *</Label>
+              <Select value={formData.activity_type} onValueChange={(v) => setFormData({ ...formData, activity_type: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select activity" /></SelectTrigger>
+                <SelectContent>
+                  {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500 mt-1">What activity did the kit perform?</p>
+            </div>
+            
+            <div>
+              <Label>Hours Logged</Label>
               <Input
                 type="number"
-                value={formData.data_collected}
-                onChange={(e) => setFormData({ ...formData, data_collected: e.target.value })}
-                placeholder="e.g., 150"
+                step="0.5"
+                min="0"
+                value={formData.hours_logged}
+                onChange={(e) => setFormData({ ...formData, hours_logged: e.target.value })}
+                placeholder="e.g., 4.5"
                 className="mt-1"
               />
             </div>
@@ -271,7 +327,7 @@ export default function Actions() {
           </a>
           <div>
             <h1 className="text-lg font-bold text-slate-900">Actions</h1>
-            <p className="text-sm text-slate-600">Log shifts and events</p>
+            <p className="text-sm text-slate-600">Log shifts & events</p>
           </div>
         </div>
       </header>
@@ -283,6 +339,7 @@ export default function Actions() {
             <Button
               key={action.type}
               onClick={() => openAction(action.type)}
+              data-testid={`action-${action.type}`}
               className={`${action.color} text-white h-16 text-lg justify-start px-6`}
             >
               <action.icon className="w-6 h-6 mr-4" />
