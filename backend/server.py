@@ -1176,6 +1176,123 @@ async def get_assignments(
     assignments = await db.assignments.find(query, {"_id": 0}).sort("shift_date", -1).to_list(1000)
     return assignments
 
+@api_router.get("/admin/assignments/range")
+async def get_assignments_range(
+    start_date: str,
+    end_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get assignments for a date range (for calendar view)"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    assignments = await db.assignments.find({
+        "shift_date": {"$gte": start_date, "$lte": end_date}
+    }, {"_id": 0}).sort("shift_date", 1).to_list(1000)
+    return assignments
+
+@api_router.put("/admin/assignments/{assignment_id}")
+async def update_assignment(
+    assignment_id: str,
+    assignment: AssignmentCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an existing assignment"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    existing = await db.assignments.find_one({"id": assignment_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    update_data = assignment.model_dump()
+    await db.assignments.update_one({"id": assignment_id}, {"$set": update_data})
+    
+    # Update kits assignment
+    for kit_id in assignment.kit_ids:
+        await db.kits.update_one(
+            {"kit_id": kit_id},
+            {"$set": {"assigned_bnb": assignment.bnb_id}}
+        )
+    
+    # Update users
+    for user_id in assignment.morning_team:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"assigned_bnb": assignment.bnb_id, "shift_team": "morning"}}
+        )
+    for user_id in assignment.night_team:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"assigned_bnb": assignment.bnb_id, "shift_team": "night"}}
+        )
+    
+    updated = await db.assignments.find_one({"id": assignment_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/admin/assignments/{assignment_id}")
+async def delete_assignment(
+    assignment_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete an assignment"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.assignments.delete_one({"id": assignment_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    return {"status": "success", "message": "Assignment deleted"}
+
+@api_router.get("/admin/deployment-summary")
+async def get_deployment_summary(
+    shift_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get comprehensive deployment summary for a specific date"""
+    if current_user["role"] not in ["admin", "supervisor"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Get all assignments for the date
+    assignments = await db.assignments.find({"shift_date": shift_date}, {"_id": 0}).to_list(100)
+    
+    # Get all BnBs
+    bnbs = await db.kits.find({"type": "bnb"}, {"_id": 0}).to_list(100)
+    
+    # Get all kits
+    kits = await db.kits.find({"type": "kit"}, {"_id": 0}).to_list(100)
+    
+    # Get all users (deployers and station workers)
+    users = await db.users.find({"role": {"$in": ["deployer", "station"]}}, {"_id": 0, "password_hash": 0}).to_list(100)
+    
+    # Get shift events for the date
+    date_start = f"{shift_date}T00:00:00"
+    date_end = f"{shift_date}T23:59:59"
+    shift_events = await db.events.find({
+        "event_type": {"$in": ["start_shift", "end_shift"]},
+        "timestamp": {"$gte": date_start, "$lte": date_end}
+    }, {"_id": 0}).to_list(1000)
+    
+    # Build summary
+    summary = {
+        "date": shift_date,
+        "total_bnbs": len(bnbs),
+        "active_bnbs": len(assignments),
+        "total_kits": len(kits),
+        "deployed_kits": sum(len(a.get("kit_ids", [])) for a in assignments),
+        "total_workers": len(users),
+        "assigned_workers": sum(len(a.get("morning_team", [])) + len(a.get("night_team", [])) for a in assignments),
+        "shifts_started": len([e for e in shift_events if e["event_type"] == "start_shift"]),
+        "shifts_ended": len([e for e in shift_events if e["event_type"] == "end_shift"]),
+        "assignments": assignments,
+        "bnbs": bnbs,
+        "available_kits": [k for k in kits if not k.get("assigned_bnb")],
+        "available_workers": users
+    }
+    
+    return summary
+
 @api_router.get("/my-bnb/dashboard")
 async def get_my_bnb_dashboard(current_user: dict = Depends(get_current_user)):
     """Get dashboard view for associate's assigned BnB"""

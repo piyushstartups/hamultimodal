@@ -17,6 +17,7 @@ import Handover from "./pages/Handover";
 import LostItemsReport from "./pages/LostItemsReport";
 import SSDOffloadDashboard from "./pages/SSDOffloadDashboard";
 import InventoryManagement from "./pages/InventoryManagement";
+import DeploymentPlanning from "./pages/DeploymentPlanning";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -144,6 +145,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <InventoryManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/deployment-planning"
+              element={
+                <ProtectedRoute>
+                  <DeploymentPlanning />
                 </ProtectedRoute>
               }
             />

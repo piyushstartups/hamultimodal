@@ -211,6 +211,15 @@ export default function Dashboard() {
             </a>
           )}
           
+          {(user?.role === 'admin' || user?.role === 'supervisor') && (
+            <a href="/deployment-planning" className="block">
+              <div data-testid="nav-deployment-planning" className="bg-white rounded-xl border border-indigo-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                <h3 className="font-semibold font-tactical text-indigo-900 mb-2">Deployment Planning</h3>
+                <p className="text-sm text-indigo-700">Daily BnB & kit assignments</p>
+              </div>
+            </a>
+          )}
+          
           <a href="/inventory-summary" className="block">
             <div data-testid="nav-inventory-summary" className="bg-white rounded-xl border border-blue-200 p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
               <h3 className="font-semibold font-tactical text-blue-900 mb-2">Inventory Summary</h3>
