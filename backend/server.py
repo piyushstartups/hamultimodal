@@ -11,6 +11,10 @@ import os
 import logging
 import secrets
 
+# Configure logging first
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Load environment variables from .env file (won't override existing env vars)
 load_dotenv()
 
@@ -28,33 +32,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database - handle both local MongoDB and Atlas connections
+# Database config
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "ops_management_v2")
 
-# Create MongoDB client with settings that work for both local and Atlas
-try:
-    client = AsyncIOMotorClient(
-        MONGO_URL,
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=10000,
-        socketTimeoutMS=10000,
-    )
-    db = client[DB_NAME]
-    logging.info(f"MongoDB client initialized for database: {DB_NAME}")
-except Exception as e:
-    logging.error(f"Failed to initialize MongoDB client: {e}")
-    raise
+# Lazy database connection - initialize client but don't connect yet
+client = None
+db = None
 
-# Auth - generate a random key if not provided (for production, should be set via env)
+def get_db():
+    """Get database connection, creating it if needed"""
+    global client, db
+    if client is None:
+        logger.info(f"Connecting to MongoDB: {DB_NAME}")
+        client = AsyncIOMotorClient(
+            MONGO_URL,
+            serverSelectionTimeoutMS=30000,
+            connectTimeoutMS=30000,
+            socketTimeoutMS=30000,
+        )
+        db = client[DB_NAME]
+    return db
+
+# Auth - generate a random key if not provided
 SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
     SECRET_KEY = secrets.token_urlsafe(32)
-    logging.warning("SECRET_KEY not set, using auto-generated key. Set SECRET_KEY env var in production!")
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    logger.warning("SECRET_KEY not set, using auto-generated key.")
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ========================
 # MODELS
@@ -164,7 +170,7 @@ async def get_current_user(authorization: str = None):
     try:
         token = authorization.replace("Bearer ", "")
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0})
+        user = await get_db().users.find_one({"id": payload["user_id"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         return user
@@ -187,7 +193,7 @@ def get_current_user_dep():
 async def startup():
     # Create indexes - wrap each in try/except to handle existing indexes or duplicates
     try:
-        await db.items.drop_index("item_name_1")
+        await get_db().items.drop_index("item_name_1")
     except Exception:
         pass  # Index might not exist
     
@@ -208,21 +214,21 @@ async def startup():
     
     # Compound indexes
     try:
-        await db.deployments.create_index([("date", 1), ("bnb", 1), ("shift", 1)])
+        await get_db().deployments.create_index([("date", 1), ("bnb", 1), ("shift", 1)])
     except Exception as e:
         logger.warning(f"Deployment index creation skipped: {e}")
     
     try:
-        await db.events.create_index([("timestamp", -1)])
-        await db.events.create_index([("event_type", 1), ("timestamp", -1)])
+        await get_db().events.create_index([("timestamp", -1)])
+        await get_db().events.create_index([("event_type", 1), ("timestamp", -1)])
     except Exception as e:
         logger.warning(f"Events index creation skipped: {e}")
     
     # Seed admin if not exists
-    admin = await db.users.find_one({"role": "admin"})
+    admin = await get_db().users.find_one({"role": "admin"})
     if not admin:
         try:
-            await db.users.insert_one({
+            await get_db().users.insert_one({
                 "id": "admin-001",
                 "name": "Admin",
                 "role": "admin",
@@ -240,7 +246,7 @@ async def startup():
 
 @app.post("/api/auth/login")
 async def login(data: UserLogin):
-    user = await db.users.find_one({"name": data.name})
+    user = await get_db().users.find_one({"name": data.name})
     if not user or not pwd_context.verify(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -260,7 +266,7 @@ async def get_me(user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/users")
 async def get_users(user: dict = Depends(get_current_user_dep())):
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(100)
+    users = await get_db().users.find({}, {"_id": 0, "password_hash": 0}).to_list(100)
     return users
 
 @app.post("/api/users")
@@ -268,7 +274,7 @@ async def create_user(data: UserCreate, user: dict = Depends(get_current_user_de
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    existing = await db.users.find_one({"name": data.name})
+    existing = await get_db().users.find_one({"name": data.name})
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
     
@@ -278,14 +284,14 @@ async def create_user(data: UserCreate, user: dict = Depends(get_current_user_de
         "role": data.role,
         "password_hash": pwd_context.hash(data.password)
     }
-    await db.users.insert_one(user_doc)
+    await get_db().users.insert_one(user_doc)
     return {"id": user_doc["id"], "name": data.name, "role": data.role}
 
 @app.delete("/api/users/{user_id}")
 async def delete_user(user_id: str, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    await db.users.delete_one({"id": user_id})
+    await get_db().users.delete_one({"id": user_id})
     return {"status": "deleted"}
 
 # ========================
@@ -294,7 +300,7 @@ async def delete_user(user_id: str, user: dict = Depends(get_current_user_dep())
 
 @app.get("/api/bnbs")
 async def get_bnbs(user: dict = Depends(get_current_user_dep())):
-    return await db.bnbs.find({}, {"_id": 0}).to_list(100)
+    return await get_db().bnbs.find({}, {"_id": 0}).to_list(100)
 
 @app.post("/api/bnbs")
 async def create_bnb(data: BnBCreate, user: dict = Depends(get_current_user_dep())):
@@ -302,14 +308,14 @@ async def create_bnb(data: BnBCreate, user: dict = Depends(get_current_user_dep(
         raise HTTPException(status_code=403, detail="Admin only")
     
     doc = {"name": data.name, "status": data.status}
-    await db.bnbs.insert_one(doc)
+    await get_db().bnbs.insert_one(doc)
     return {"name": data.name, "status": data.status}
 
 @app.delete("/api/bnbs/{name}")
 async def delete_bnb(name: str, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    await db.bnbs.delete_one({"name": name})
+    await get_db().bnbs.delete_one({"name": name})
     return {"status": "deleted"}
 
 # ========================
@@ -318,7 +324,7 @@ async def delete_bnb(name: str, user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/kits")
 async def get_kits(user: dict = Depends(get_current_user_dep())):
-    return await db.kits.find({}, {"_id": 0}).to_list(100)
+    return await get_db().kits.find({}, {"_id": 0}).to_list(100)
 
 @app.post("/api/kits")
 async def create_kit(data: KitCreate, user: dict = Depends(get_current_user_dep())):
@@ -326,14 +332,14 @@ async def create_kit(data: KitCreate, user: dict = Depends(get_current_user_dep(
         raise HTTPException(status_code=403, detail="Admin only")
     
     doc = {"kit_id": data.kit_id, "status": data.status}
-    await db.kits.insert_one(doc)
+    await get_db().kits.insert_one(doc)
     return {"kit_id": data.kit_id, "status": data.status}
 
 @app.delete("/api/kits/{kit_id}")
 async def delete_kit(kit_id: str, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    await db.kits.delete_one({"kit_id": kit_id})
+    await get_db().kits.delete_one({"kit_id": kit_id})
     return {"status": "deleted"}
 
 # ========================
@@ -342,7 +348,7 @@ async def delete_kit(kit_id: str, user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/items")
 async def get_items(user: dict = Depends(get_current_user_dep())):
-    return await db.items.find({}, {"_id": 0}).to_list(500)
+    return await get_db().items.find({}, {"_id": 0}).to_list(500)
 
 @app.post("/api/items")
 async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_dep())):
@@ -350,7 +356,7 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
         raise HTTPException(status_code=403, detail="Admin only")
     
     # Check for duplicate item name
-    existing = await db.items.find_one({"item_name": data.item_name})
+    existing = await get_db().items.find_one({"item_name": data.item_name})
     if existing:
         raise HTTPException(status_code=400, detail="Item already exists")
     
@@ -362,7 +368,7 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
         "current_location": data.current_location,
         "quantity": data.quantity if data.tracking_type == "quantity" else 1
     }
-    await db.items.insert_one(doc)
+    await get_db().items.insert_one(doc)
     # Return without _id
     return {
         "item_name": data.item_name,
@@ -377,7 +383,7 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
 async def delete_item(item_name: str, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    await db.items.delete_one({"item_name": item_name})
+    await get_db().items.delete_one({"item_name": item_name})
     return {"status": "deleted"}
 
 @app.put("/api/items/{item_name}")
@@ -386,7 +392,7 @@ async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get
         raise HTTPException(status_code=403, detail="Admin only")
     
     # Check item exists
-    existing = await db.items.find_one({"item_name": item_name})
+    existing = await get_db().items.find_one({"item_name": item_name})
     if not existing:
         raise HTTPException(status_code=404, detail="Item not found")
     
@@ -400,9 +406,9 @@ async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get
     if data.quantity is not None:
         update_data["quantity"] = data.quantity
     
-    await db.items.update_one({"item_name": item_name}, {"$set": update_data})
+    await get_db().items.update_one({"item_name": item_name}, {"$set": update_data})
     
-    updated = await db.items.find_one({"item_name": item_name}, {"_id": 0})
+    updated = await get_db().items.find_one({"item_name": item_name}, {"_id": 0})
     return updated
 
 # ========================
@@ -422,7 +428,7 @@ async def get_deployments(
     if user["role"] == "deployment_manager":
         query["deployment_managers"] = user["id"]
     
-    deployments = await db.deployments.find(query, {"_id": 0}).sort("date", -1).to_list(100)
+    deployments = await get_db().deployments.find(query, {"_id": 0}).sort("date", -1).to_list(100)
     return deployments
 
 @app.get("/api/deployments/today")
@@ -433,7 +439,7 @@ async def get_today_deployments(user: dict = Depends(get_current_user_dep())):
     if user["role"] == "deployment_manager":
         query["deployment_managers"] = user["id"]
     
-    return await db.deployments.find(query, {"_id": 0}).to_list(50)
+    return await get_db().deployments.find(query, {"_id": 0}).to_list(50)
 
 @app.post("/api/deployments")
 async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_current_user_dep())):
@@ -445,7 +451,7 @@ async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_cur
         raise HTTPException(status_code=400, detail="At least one deployment manager is required")
     
     # Check for duplicate
-    existing = await db.deployments.find_one({
+    existing = await get_db().deployments.find_one({
         "date": data.date, "bnb": data.bnb, "shift": data.shift
     })
     if existing:
@@ -461,7 +467,7 @@ async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_cur
         "deployment_managers": data.deployment_managers,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    await db.deployments.insert_one(doc)
+    await get_db().deployments.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
@@ -470,7 +476,7 @@ async def update_deployment(deployment_id: str, data: DeploymentCreate, user: di
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    await db.deployments.update_one(
+    await get_db().deployments.update_one(
         {"id": deployment_id},
         {"$set": {
             "bnb": data.bnb,
@@ -486,7 +492,7 @@ async def update_deployment(deployment_id: str, data: DeploymentCreate, user: di
 async def delete_deployment(deployment_id: str, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
-    await db.deployments.delete_one({"id": deployment_id})
+    await get_db().deployments.delete_one({"id": deployment_id})
     return {"status": "deleted"}
 
 # ========================
@@ -505,12 +511,12 @@ async def get_events(
     if date:
         query["timestamp"] = {"$regex": f"^{date}"}
     
-    return await db.events.find(query, {"_id": 0}).sort("timestamp", -1).to_list(500)
+    return await get_db().events.find(query, {"_id": 0}).sort("timestamp", -1).to_list(500)
 
 @app.get("/api/events/today")
 async def get_today_events(user: dict = Depends(get_current_user_dep())):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return await db.events.find(
+    return await get_db().events.find(
         {"timestamp": {"$regex": f"^{today}"}},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(500)
@@ -533,14 +539,14 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
     # AUTOMATIONS
     if data.event_type == "transfer" and data.item and data.to_location:
         # Update item.current_location for individual items
-        await db.items.update_one(
+        await get_db().items.update_one(
             {"item_name": data.item, "tracking_type": "individual"},
             {"$set": {"current_location": data.to_location}}
         )
     
     if data.event_type == "damage" and data.item:
         # Update item.status to damaged
-        await db.items.update_one(
+        await get_db().items.update_one(
             {"item_name": data.item},
             {"$set": {"status": "damaged"}}
         )
@@ -548,21 +554,21 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
     if data.event_type == "lost" and data.item:
         # For individual items: mark as lost
         # For quantity items: reduce quantity
-        item = await db.items.find_one({"item_name": data.item})
+        item = await get_db().items.find_one({"item_name": data.item})
         if item:
             if item.get("tracking_type") == "individual":
-                await db.items.update_one(
+                await get_db().items.update_one(
                     {"item_name": data.item},
                     {"$set": {"status": "lost"}}
                 )
             elif item.get("tracking_type") == "quantity":
                 new_qty = max(0, (item.get("quantity", 0) - data.quantity))
-                await db.items.update_one(
+                await get_db().items.update_one(
                     {"item_name": data.item},
                     {"$set": {"quantity": new_qty}}
                 )
     
-    await db.events.insert_one(doc)
+    await get_db().events.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
@@ -573,7 +579,7 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
 @app.get("/api/shifts/active")
 async def get_active_shift(user: dict = Depends(get_current_user_dep())):
     """Get user's currently active shift (if any)"""
-    shift = await db.shifts.find_one(
+    shift = await get_db().shifts.find_one(
         {"user": user["id"], "status": {"$in": ["active", "paused"]}},
         {"_id": 0}
     )
@@ -582,7 +588,7 @@ async def get_active_shift(user: dict = Depends(get_current_user_dep())):
 @app.get("/api/shifts/by-deployment/{deployment_id}")
 async def get_shifts_by_deployment(deployment_id: str, user: dict = Depends(get_current_user_dep())):
     """Get all shifts for a specific deployment (to show kit statuses)"""
-    shifts = await db.shifts.find(
+    shifts = await get_db().shifts.find(
         {"deployment_id": deployment_id},
         {"_id": 0}
     ).to_list(100)
@@ -610,7 +616,7 @@ async def get_shifts(
     if user["role"] == "deployment_manager":
         query["user"] = user["id"]
     
-    shifts = await db.shifts.find(query, {"_id": 0}).sort("start_time", -1).to_list(100)
+    shifts = await get_db().shifts.find(query, {"_id": 0}).sort("start_time", -1).to_list(100)
     return shifts
 
 @app.get("/api/shifts/today")
@@ -622,20 +628,20 @@ async def get_today_shifts(user: dict = Depends(get_current_user_dep())):
     if user["role"] == "deployment_manager":
         query["user"] = user["id"]
     
-    return await db.shifts.find(query, {"_id": 0}).to_list(100)
+    return await get_db().shifts.find(query, {"_id": 0}).to_list(100)
 
 @app.post("/api/shifts/start")
 async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_dep())):
     """Start a new shift for a specific kit in a deployment - captures start_time automatically"""
     # Check if this kit already has an active shift
-    existing = await db.shifts.find_one(
+    existing = await get_db().shifts.find_one(
         {"kit": data.kit, "deployment_id": data.deployment_id, "status": {"$in": ["active", "paused"]}}
     )
     if existing:
         raise HTTPException(status_code=400, detail="This kit already has an active shift.")
     
     # Get deployment details for context
-    deployment = await db.deployments.find_one({"id": data.deployment_id})
+    deployment = await get_db().deployments.find_one({"id": data.deployment_id})
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
     
@@ -659,21 +665,21 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
         "total_duration_hours": None
     }
     
-    await db.shifts.insert_one(shift)
+    await get_db().shifts.insert_one(shift)
     shift.pop("_id", None)
     return shift
 
 @app.post("/api/shifts/{shift_id}/pause")
 async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
     """Pause an active shift - captures pause_time automatically"""
-    shift = await db.shifts.find_one({"id": shift_id, "user": user["id"]})
+    shift = await get_db().shifts.find_one({"id": shift_id, "user": user["id"]})
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
     if shift["status"] != "active":
         raise HTTPException(status_code=400, detail="Shift is not active")
     
     now = datetime.now(timezone.utc)
-    await db.shifts.update_one(
+    await get_db().shifts.update_one(
         {"id": shift_id},
         {
             "$set": {"status": "paused"},
@@ -681,13 +687,13 @@ async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep()
         }
     )
     
-    updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+    updated = await get_db().shifts.find_one({"id": shift_id}, {"_id": 0})
     return updated
 
 @app.post("/api/shifts/{shift_id}/resume")
 async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
     """Resume a paused shift - captures resume_time automatically"""
-    shift = await db.shifts.find_one({"id": shift_id, "user": user["id"]})
+    shift = await get_db().shifts.find_one({"id": shift_id, "user": user["id"]})
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
     if shift["status"] != "paused":
@@ -700,18 +706,18 @@ async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
     if pauses and pauses[-1].get("resume_time") is None:
         pauses[-1]["resume_time"] = now.isoformat()
     
-    await db.shifts.update_one(
+    await get_db().shifts.update_one(
         {"id": shift_id},
         {"$set": {"status": "active", "pauses": pauses}}
     )
     
-    updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+    updated = await get_db().shifts.find_one({"id": shift_id}, {"_id": 0})
     return updated
 
 @app.post("/api/shifts/{shift_id}/stop")
 async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
     """Stop a shift - captures end_time and calculates total duration automatically"""
-    shift = await db.shifts.find_one({"id": shift_id, "user": user["id"]})
+    shift = await get_db().shifts.find_one({"id": shift_id, "user": user["id"]})
     if not shift:
         raise HTTPException(status_code=404, detail="Shift not found")
     if shift["status"] == "completed":
@@ -738,7 +744,7 @@ async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())
     total_duration_seconds = total_elapsed_seconds - total_paused_seconds
     total_duration_hours = round(total_duration_seconds / 3600, 2)
     
-    await db.shifts.update_one(
+    await get_db().shifts.update_one(
         {"id": shift_id},
         {"$set": {
             "status": "completed",
@@ -749,7 +755,7 @@ async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())
         }}
     )
     
-    updated = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+    updated = await get_db().shifts.find_one({"id": shift_id}, {"_id": 0})
     return updated
 
 # ========================
@@ -759,7 +765,7 @@ async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())
 @app.get("/api/handovers/by-deployment/{deployment_id}")
 async def get_handovers_by_deployment(deployment_id: str, user: dict = Depends(get_current_user_dep())):
     """Get all handovers for a deployment"""
-    handovers = await db.handovers.find(
+    handovers = await get_db().handovers.find(
         {"deployment_id": deployment_id},
         {"_id": 0}
     ).sort("created_at", -1).to_list(10)
@@ -769,7 +775,7 @@ async def get_handovers_by_deployment(deployment_id: str, user: dict = Depends(g
 async def create_handover(data: HandoverCreate, user: dict = Depends(get_current_user_dep())):
     """Create a handover (outgoing or incoming)"""
     # Get deployment details
-    deployment = await db.deployments.find_one({"id": data.deployment_id})
+    deployment = await get_db().deployments.find_one({"id": data.deployment_id})
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
     
@@ -789,19 +795,19 @@ async def create_handover(data: HandoverCreate, user: dict = Depends(get_current
                 "notes": f"Lost during handover - {data.handover_type}",
                 "timestamp": now.isoformat()
             }
-            await db.events.insert_one(lost_event)
+            await get_db().events.insert_one(lost_event)
             
             # Update item status
-            item = await db.items.find_one({"item_name": missing.get("item")})
+            item = await get_db().items.find_one({"item_name": missing.get("item")})
             if item:
                 if item.get("tracking_type") == "individual":
-                    await db.items.update_one(
+                    await get_db().items.update_one(
                         {"item_name": missing.get("item")},
                         {"$set": {"status": "lost"}}
                     )
                 elif item.get("tracking_type") == "quantity":
                     new_qty = max(0, (item.get("quantity", 0) - missing.get("quantity", 1)))
-                    await db.items.update_one(
+                    await get_db().items.update_one(
                         {"item_name": missing.get("item")},
                         {"$set": {"quantity": new_qty}}
                     )
@@ -822,7 +828,7 @@ async def create_handover(data: HandoverCreate, user: dict = Depends(get_current
         "created_at": now.isoformat()
     }
     
-    await db.handovers.insert_one(handover_doc)
+    await get_db().handovers.insert_one(handover_doc)
     handover_doc.pop("_id", None)
     return handover_doc
 
@@ -838,7 +844,7 @@ async def get_requests(
     query = {}
     if status:
         query["status"] = status
-    return await db.requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return await get_db().requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
 
 @app.post("/api/requests")
 async def create_request(data: RequestCreate, user: dict = Depends(get_current_user_dep())):
@@ -852,7 +858,7 @@ async def create_request(data: RequestCreate, user: dict = Depends(get_current_u
         "status": "pending",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    await db.requests.insert_one(doc)
+    await get_db().requests.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
@@ -861,7 +867,7 @@ async def update_request(request_id: str, status: str, user: dict = Depends(get_
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    await db.requests.update_one(
+    await get_db().requests.update_one(
         {"id": request_id},
         {"$set": {"status": status, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
@@ -880,17 +886,17 @@ async def get_live_dashboard(
     target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
     # Get shifts for the target date
-    completed_shifts = await db.shifts.find(
+    completed_shifts = await get_db().shifts.find(
         {"date": target_date, "status": "completed"},
         {"_id": 0}
     ).to_list(500)
     
-    active_shifts = await db.shifts.find(
+    active_shifts = await get_db().shifts.find(
         {"date": target_date, "status": {"$in": ["active", "paused"]}},
         {"_id": 0}
     ).to_list(50)
     
-    deployments = await db.deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
+    deployments = await get_db().deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
     
     total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in completed_shifts)
     
@@ -925,7 +931,7 @@ async def get_live_dashboard(
     for bnb in bnb_stats:
         bnb_stats[bnb]["hours_logged"] = round(bnb_stats[bnb]["hours_logged"], 2)
     
-    events = await db.events.find(
+    events = await get_db().events.find(
         {"timestamp": {"$regex": f"^{target_date}"}},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(10)
@@ -959,7 +965,7 @@ async def get_analytics(
         start_date = (today - timedelta(days=6)).strftime("%Y-%m-%d")
     
     # Get all completed shifts in date range
-    shifts = await db.shifts.find(
+    shifts = await get_db().shifts.find(
         {
             "date": {"$gte": start_date, "$lte": end_date},
             "status": "completed"
@@ -1041,12 +1047,12 @@ async def health():
 async def setup_admin_get():
     """One-time setup endpoint to create admin user if none exists (GET for browser)"""
     try:
-        admin = await db.users.find_one({"role": "admin"})
+        admin = await get_db().users.find_one({"role": "admin"})
         if admin:
             return {"message": "Admin already exists", "username": admin.get("name")}
         
         # Create admin user
-        await db.users.insert_one({
+        await get_db().users.insert_one({
             "id": "admin-001",
             "name": "Admin",
             "role": "admin",
@@ -1061,12 +1067,12 @@ async def setup_admin_get():
 async def setup_admin():
     """One-time setup endpoint to create admin user if none exists"""
     try:
-        admin = await db.users.find_one({"role": "admin"})
+        admin = await get_db().users.find_one({"role": "admin"})
         if admin:
             return {"message": "Admin already exists", "username": admin.get("name")}
         
         # Create admin user
-        await db.users.insert_one({
+        await get_db().users.insert_one({
             "id": "admin-001",
             "name": "Admin",
             "role": "admin",
