@@ -124,20 +124,21 @@ export default function Deployments() {
     }
   }, [selectedDate, deployments, isManager, user]);
 
-  // Timer effect
+  // Timer effect - updated for new data structure with multiple records
   useEffect(() => {
     const interval = setInterval(() => {
       const newElapsed = {};
-      Object.entries(kitShifts).forEach(([kit, shift]) => {
-        if (shift && shift.status === 'active') {
-          const startTime = new Date(shift.start_time);
+      Object.entries(kitShifts).forEach(([kit, kitData]) => {
+        const activeRecord = kitData?.active_record;
+        if (activeRecord && activeRecord.status === 'active') {
+          const startTime = new Date(activeRecord.start_time);
           const now = new Date();
-          const pausedSeconds = shift.total_paused_seconds || 0;
+          const pausedSeconds = activeRecord.total_paused_seconds || 0;
           const elapsed = Math.floor((now - startTime) / 1000) - pausedSeconds;
           newElapsed[kit] = Math.max(0, elapsed);
-        } else if (shift && shift.status === 'paused') {
-          const startTime = new Date(shift.start_time);
-          const pauses = shift.pauses || [];
+        } else if (activeRecord && activeRecord.status === 'paused') {
+          const startTime = new Date(activeRecord.start_time);
+          const pauses = activeRecord.pauses || [];
           let totalPaused = 0;
           for (const p of pauses) {
             if (p.resume_time) {
@@ -296,19 +297,15 @@ export default function Deployments() {
   };
 
   const handlePauseShift = async (kit) => {
-    const shift = kitShifts[kit];
-    if (!shift) {
-      toast.error('No active shift found for this kit');
+    const kitData = kitShifts[kit];
+    const activeRecord = kitData?.active_record;
+    if (!activeRecord) {
+      toast.error('No active collection found for this kit');
       return;
     }
     try {
-      const response = await api.post(`/shifts/${shift.id}/pause`);
-      // Immediately update local state
-      setKitShifts(prev => ({
-        ...prev,
-        [kit]: response.data
-      }));
-      toast.success('Shift paused');
+      const response = await api.post(`/shifts/${activeRecord.id}/pause`);
+      toast.success('Collection paused');
       
       if (expandedDeployment) {
         await fetchKitShifts(expandedDeployment);
@@ -319,19 +316,15 @@ export default function Deployments() {
   };
 
   const handleResumeShift = async (kit) => {
-    const shift = kitShifts[kit];
-    if (!shift) {
-      toast.error('No paused shift found for this kit');
+    const kitData = kitShifts[kit];
+    const activeRecord = kitData?.active_record;
+    if (!activeRecord) {
+      toast.error('No paused collection found for this kit');
       return;
     }
     try {
-      const response = await api.post(`/shifts/${shift.id}/resume`);
-      // Immediately update local state
-      setKitShifts(prev => ({
-        ...prev,
-        [kit]: response.data
-      }));
-      toast.success('Shift resumed');
+      const response = await api.post(`/shifts/${activeRecord.id}/resume`);
+      toast.success('Collection resumed');
       
       if (expandedDeployment) {
         await fetchKitShifts(expandedDeployment);
@@ -342,32 +335,41 @@ export default function Deployments() {
   };
 
   const handleStopShift = async (kit) => {
-    const shift = kitShifts[kit];
-    if (!shift) {
-      toast.error('No active shift found for this kit');
+    const kitData = kitShifts[kit];
+    const activeRecord = kitData?.active_record;
+    if (!activeRecord) {
+      toast.error('No active collection found for this kit');
       return;
     }
-    if (!confirm('Stop this shift? Duration will be calculated automatically.')) return;
+    if (!confirm('Stop this collection? Duration will be calculated automatically.')) return;
     
     try {
-      const response = await api.post(`/shifts/${shift.id}/stop`);
-      const updatedShift = response.data;
+      const response = await api.post(`/shifts/${activeRecord.id}/stop`);
+      const completedRecord = response.data;
       
-      // Immediately update local state with the completed shift
-      setKitShifts(prev => ({
-        ...prev,
-        [kit]: updatedShift
-      }));
+      toast.success(`Collection completed! Duration: ${formatDuration(completedRecord.total_duration_hours)}`);
       
-      toast.success(`Shift completed! Duration: ${formatDuration(updatedShift.total_duration_hours)}`);
-      
-      // Also refetch to ensure consistency
       if (expandedDeployment) {
         await fetchKitShifts(expandedDeployment);
       }
     } catch (error) {
-      console.error('Stop shift error:', error);
-      toast.error(error.response?.data?.detail || 'Failed to stop shift');
+      console.error('Stop collection error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to stop collection');
+    }
+  };
+
+  const handleDeleteRecord = async (recordId) => {
+    if (!confirm('Delete this collection record?')) return;
+    
+    try {
+      await api.delete(`/shifts/${recordId}`);
+      toast.success('Collection record deleted');
+      
+      if (expandedDeployment) {
+        await fetchKitShifts(expandedDeployment);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete');
     }
   };
 
@@ -530,7 +532,29 @@ export default function Deployments() {
 
   const getUserName = (userId) => managers.find(m => m.id === userId)?.name || userId;
   const getManagerNames = (dep) => dep.deployment_managers?.length > 0 ? dep.deployment_managers.map(getUserName).join(', ') : 'Unassigned';
-  const getKitStatus = (kit) => kitShifts[kit]?.status || 'not_started';
+  
+  // Get kit status from the new data structure
+  const getKitStatus = (kit) => {
+    const kitData = kitShifts[kit];
+    if (!kitData) return 'not_started';
+    return kitData.active_record?.status || 'not_started';
+  };
+  
+  // Get the active record for a kit
+  const getActiveRecord = (kit) => kitShifts[kit]?.active_record || null;
+  
+  // Get all completed records for a kit
+  const getCompletedRecords = (kit) => {
+    const kitData = kitShifts[kit];
+    if (!kitData) return [];
+    return kitData.records?.filter(r => r.status === 'completed') || [];
+  };
+  
+  // Get total hours for a kit (sum of all completed records)
+  const getTotalKitHours = (kit) => {
+    const completed = getCompletedRecords(kit);
+    return completed.reduce((sum, r) => sum + (r.total_duration_hours || 0), 0);
+  };
   
   const getStatusColor = (status) => {
     switch (status) {
@@ -771,7 +795,9 @@ export default function Deployments() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {dep.assigned_kits.map(kit => {
                               const status = getKitStatus(kit);
-                              const shift = kitShifts[kit];
+                              const activeRecord = getActiveRecord(kit);
+                              const completedRecords = getCompletedRecords(kit);
+                              const totalHours = getTotalKitHours(kit);
                               
                               return (
                                 <div 
@@ -779,7 +805,6 @@ export default function Deployments() {
                                   className={`border-2 rounded-xl overflow-hidden ${
                                     status === 'active' ? 'border-green-400 bg-green-50' :
                                     status === 'paused' ? 'border-amber-400 bg-amber-50' :
-                                    status === 'completed' ? 'border-blue-400 bg-blue-50' :
                                     'border-slate-200 bg-white'
                                   }`}
                                   data-testid={`kit-card-${kit}`}
@@ -789,6 +814,11 @@ export default function Deployments() {
                                     <div className="flex items-center gap-2">
                                       <Package className="w-5 h-5 text-slate-600" />
                                       <span className="font-bold text-lg">{kit}</span>
+                                      {totalHours > 0 && (
+                                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                          Total: {formatDuration(totalHours)}
+                                        </span>
+                                      )}
                                     </div>
                                     <span className={`text-xs px-3 py-1 rounded-full text-white font-medium ${getStatusColor(status)}`}>
                                       {getStatusLabel(status)}
@@ -796,24 +826,14 @@ export default function Deployments() {
                                   </div>
                                   
                                   {/* Timer for active/paused */}
-                                  {(status === 'active' || status === 'paused') && (
+                                  {(status === 'active' || status === 'paused') && activeRecord && (
                                     <div className="px-4 py-3 text-center">
                                       <p className={`text-3xl font-mono font-bold ${status === 'active' ? 'text-green-600' : 'text-amber-600'}`} data-testid={`timer-${kit}`}>
                                         {formatTime(elapsedTimes[kit])}
                                       </p>
-                                      {shift && (
-                                        <p className="text-xs text-slate-500 mt-1">
-                                          {shift.activity_type} • {shift.ssd_used}
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
-                                  
-                                  {/* Completed info */}
-                                  {status === 'completed' && shift && (
-                                    <div className="px-4 py-3 text-center">
-                                      <p className="text-2xl font-bold text-blue-600">{formatDuration(shift.total_duration_hours)}</p>
-                                      <p className="text-xs text-slate-500 mt-1">{shift.activity_type} • {shift.ssd_used}</p>
+                                      <p className="text-xs text-slate-500 mt-1">
+                                        {activeRecord.activity_type} • {activeRecord.ssd_used}
+                                      </p>
                                     </div>
                                   )}
                                   
@@ -826,7 +846,7 @@ export default function Deployments() {
                                         data-testid={`start-${kit}`}
                                       >
                                         <Play className="w-5 h-5 mr-2" />
-                                        Start Collection
+                                        {completedRecords.length > 0 ? 'Start New Collection' : 'Start Collection'}
                                       </Button>
                                     )}
                                     {status === 'active' && (
@@ -869,10 +889,38 @@ export default function Deployments() {
                                         </Button>
                                       </div>
                                     )}
-                                    {status === 'completed' && (
-                                      <p className="text-center text-sm text-slate-500">Shift completed</p>
-                                    )}
                                   </div>
+                                  
+                                  {/* Completed Records List */}
+                                  {completedRecords.length > 0 && (
+                                    <div className="border-t border-slate-200">
+                                      <div className="px-4 py-2 bg-slate-50">
+                                        <p className="text-xs font-medium text-slate-500 uppercase">Collection Records ({completedRecords.length})</p>
+                                      </div>
+                                      <div className="divide-y divide-slate-100 max-h-40 overflow-y-auto">
+                                        {completedRecords.map((record, idx) => (
+                                          <div key={record.id} className="px-4 py-2 flex items-center justify-between text-sm" data-testid={`record-${record.id}`}>
+                                            <div>
+                                              <p className="font-medium text-slate-700">
+                                                {formatDuration(record.total_duration_hours)}
+                                                <span className="text-slate-400 ml-2 text-xs">{record.activity_type}</span>
+                                              </p>
+                                              <p className="text-xs text-slate-400">{record.ssd_used}</p>
+                                            </div>
+                                            <Button 
+                                              variant="ghost" 
+                                              size="icon" 
+                                              className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                              onClick={() => handleDeleteRecord(record.id)}
+                                              data-testid={`delete-record-${record.id}`}
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

@@ -731,21 +731,30 @@ async def get_active_shift(user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/shifts/by-deployment/{deployment_id}")
 async def get_shifts_by_deployment(deployment_id: str, user: dict = Depends(get_current_user_dep())):
-    """Get all shifts for a specific deployment (to show kit statuses)"""
-    shifts = await get_db().shifts.find(
+    """Get all collection records for a specific deployment"""
+    records = await get_db().shifts.find(
         {"deployment_id": deployment_id},
         {"_id": 0}
-    ).to_list(100)
+    ).sort("start_time", -1).to_list(200)
     
-    # Return as a dict keyed by kit for easy lookup
-    kit_shifts = {}
-    for shift in shifts:
-        kit = shift["kit"]
-        # Keep the most recent shift for each kit
-        if kit not in kit_shifts or shift.get("start_time", "") > kit_shifts[kit].get("start_time", ""):
-            kit_shifts[kit] = shift
+    # Group records by kit for easy lookup
+    # Each kit can have multiple records (collection sessions)
+    kit_records = {}
+    for record in records:
+        kit = record["kit"]
+        if kit not in kit_records:
+            kit_records[kit] = {
+                "active_record": None,  # Current active/paused record
+                "records": []  # All records for this kit
+            }
+        
+        kit_records[kit]["records"].append(record)
+        
+        # Track the active record (if any)
+        if record.get("status") in ["active", "paused"]:
+            kit_records[kit]["active_record"] = record
     
-    return kit_shifts
+    return kit_records
 
 @app.get("/api/shifts")
 async def get_shifts(
@@ -776,13 +785,13 @@ async def get_today_shifts(user: dict = Depends(get_current_user_dep())):
 
 @app.post("/api/shifts/start")
 async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_dep())):
-    """Start a new shift for a specific kit in a deployment - captures start_time automatically"""
-    # Check if this kit already has an active shift
+    """Start a new collection record for a specific kit - allows multiple records per kit"""
+    # Check if this kit already has an active/paused record
     existing = await get_db().shifts.find_one(
         {"kit": data.kit, "deployment_id": data.deployment_id, "status": {"$in": ["active", "paused"]}}
     )
     if existing:
-        raise HTTPException(status_code=400, detail="This kit already has an active shift.")
+        raise HTTPException(status_code=400, detail="This kit has an active collection. Stop it first before starting a new one.")
     
     # Get deployment details for context
     deployment = await get_db().deployments.find_one({"id": data.deployment_id})
@@ -790,8 +799,8 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
         raise HTTPException(status_code=404, detail="Deployment not found")
     
     now = datetime.now(timezone.utc)
-    shift = {
-        "id": f"shift-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
+    record = {
+        "id": f"rec-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
         "deployment_id": data.deployment_id,
         "date": deployment["date"],
         "bnb": deployment["bnb"],
@@ -809,9 +818,23 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
         "total_duration_hours": None
     }
     
-    await get_db().shifts.insert_one(shift)
-    shift.pop("_id", None)
-    return shift
+    await get_db().shifts.insert_one(record)
+    record.pop("_id", None)
+    return record
+
+@app.delete("/api/shifts/{shift_id}")
+async def delete_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
+    """Delete a collection record - allowed for admin and deployment managers"""
+    record = await get_db().shifts.find_one({"id": shift_id})
+    if not record:
+        raise HTTPException(status_code=404, detail="Collection record not found")
+    
+    # Allow deletion by admin or the user who created it
+    if user["role"] != "admin" and record.get("user") != user["id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own collection records")
+    
+    await get_db().shifts.delete_one({"id": shift_id})
+    return {"status": "deleted", "id": shift_id}
 
 @app.post("/api/shifts/{shift_id}/pause")
 async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
