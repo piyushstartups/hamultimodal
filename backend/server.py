@@ -186,59 +186,12 @@ def get_current_user_dep():
     return dependency
 
 # ========================
-# STARTUP
+# STARTUP - Minimal, no DB connection
 # ========================
 
 @app.on_event("startup")
 async def startup():
-    # Create indexes - wrap each in try/except to handle existing indexes or duplicates
-    try:
-        await get_db().items.drop_index("item_name_1")
-    except Exception:
-        pass  # Index might not exist
-    
-    # Create indexes with error handling for each
-    index_operations = [
-        (db.users, "id", {"unique": True}),
-        (db.users, "name", {"unique": True}),
-        (db.bnbs, "name", {"unique": True}),
-        (db.kits, "kit_id", {"unique": True}),
-        (db.items, "item_name", {"unique": True}),
-    ]
-    
-    for collection, field, options in index_operations:
-        try:
-            await collection.create_index(field, **options)
-        except Exception as e:
-            logger.warning(f"Index creation skipped for {collection.name}.{field}: {e}")
-    
-    # Compound indexes
-    try:
-        await get_db().deployments.create_index([("date", 1), ("bnb", 1), ("shift", 1)])
-    except Exception as e:
-        logger.warning(f"Deployment index creation skipped: {e}")
-    
-    try:
-        await get_db().events.create_index([("timestamp", -1)])
-        await get_db().events.create_index([("event_type", 1), ("timestamp", -1)])
-    except Exception as e:
-        logger.warning(f"Events index creation skipped: {e}")
-    
-    # Seed admin if not exists
-    admin = await get_db().users.find_one({"role": "admin"})
-    if not admin:
-        try:
-            await get_db().users.insert_one({
-                "id": "admin-001",
-                "name": "Admin",
-                "role": "admin",
-                "password_hash": pwd_context.hash("admin123")
-            })
-            logger.info("Created default admin user: Admin / admin123")
-        except Exception as e:
-            logger.warning(f"Admin user creation skipped: {e}")
-    
-    logger.info("Database initialized")
+    logger.info("App started successfully - DB will connect on first request")
 
 # ========================
 # AUTH ROUTES
