@@ -246,17 +246,20 @@ async def startup():
 
 @app.post("/api/auth/login")
 async def login(data: UserLogin):
-    # Auto-create admin if no users exist (first time setup)
-    user_count = await get_db().users.count_documents({})
-    if user_count == 0:
-        logger.info("No users found, creating default admin...")
-        await get_db().users.insert_one({
-            "id": "admin-001",
-            "name": "Admin",
-            "role": "admin",
-            "password_hash": pwd_context.hash("admin123")
-        })
-        logger.info("Default admin created: Admin / admin123")
+    # Auto-create Admin user if it doesn't exist
+    admin_exists = await get_db().users.find_one({"name": "Admin"})
+    if not admin_exists:
+        try:
+            logger.info("Admin user not found, creating...")
+            await get_db().users.insert_one({
+                "id": "admin-001",
+                "name": "Admin",
+                "role": "admin",
+                "password_hash": pwd_context.hash("admin123")
+            })
+            logger.info("Admin user created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create admin: {e}")
     
     user = await get_db().users.find_one({"name": data.name})
     if not user or not pwd_context.verify(data.password, user["password_hash"]):
