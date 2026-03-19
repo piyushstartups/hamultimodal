@@ -5,9 +5,13 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
+from dotenv import load_dotenv
 import jwt
 import os
 import logging
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ========================
 # APP SETUP
@@ -30,7 +34,9 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
 # Auth
-SECRET_KEY = os.environ.get("SECRET_KEY", "ops-secret-key-2024")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is required")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 logging.basicConfig(level=logging.INFO)
@@ -165,32 +171,52 @@ def get_current_user_dep():
 
 @app.on_event("startup")
 async def startup():
-    # Create indexes - use background=True to avoid blocking
-    # For items, we need to drop the old non-unique index first
+    # Create indexes - wrap each in try/except to handle existing indexes or duplicates
     try:
         await db.items.drop_index("item_name_1")
     except Exception:
         pass  # Index might not exist
     
-    await db.users.create_index("id", unique=True)
-    await db.users.create_index("name", unique=True)
-    await db.bnbs.create_index("name", unique=True)
-    await db.kits.create_index("kit_id", unique=True)
-    await db.items.create_index("item_name", unique=True)
-    await db.deployments.create_index([("date", 1), ("bnb", 1), ("shift", 1)])
-    await db.events.create_index([("timestamp", -1)])
-    await db.events.create_index([("event_type", 1), ("timestamp", -1)])
+    # Create indexes with error handling for each
+    index_operations = [
+        (db.users, "id", {"unique": True}),
+        (db.users, "name", {"unique": True}),
+        (db.bnbs, "name", {"unique": True}),
+        (db.kits, "kit_id", {"unique": True}),
+        (db.items, "item_name", {"unique": True}),
+    ]
+    
+    for collection, field, options in index_operations:
+        try:
+            await collection.create_index(field, **options)
+        except Exception as e:
+            logger.warning(f"Index creation skipped for {collection.name}.{field}: {e}")
+    
+    # Compound indexes
+    try:
+        await db.deployments.create_index([("date", 1), ("bnb", 1), ("shift", 1)])
+    except Exception as e:
+        logger.warning(f"Deployment index creation skipped: {e}")
+    
+    try:
+        await db.events.create_index([("timestamp", -1)])
+        await db.events.create_index([("event_type", 1), ("timestamp", -1)])
+    except Exception as e:
+        logger.warning(f"Events index creation skipped: {e}")
     
     # Seed admin if not exists
     admin = await db.users.find_one({"role": "admin"})
     if not admin:
-        await db.users.insert_one({
-            "id": "admin-001",
-            "name": "Admin",
-            "role": "admin",
-            "password_hash": pwd_context.hash("admin123")
-        })
-        logger.info("Created default admin user: Admin / admin123")
+        try:
+            await db.users.insert_one({
+                "id": "admin-001",
+                "name": "Admin",
+                "role": "admin",
+                "password_hash": pwd_context.hash("admin123")
+            })
+            logger.info("Created default admin user: Admin / admin123")
+        except Exception as e:
+            logger.warning(f"Admin user creation skipped: {e}")
     
     logger.info("Database initialized")
 
