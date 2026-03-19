@@ -485,13 +485,12 @@ async def get_bnb_day_view(deployment_id: str, user: dict = Depends(get_current_
         {"_id": 0}
     ).to_list(100)
     
-    # Get user details for managers
+    # Get user details for managers (bulk query to avoid N+1)
     manager_ids = deployment.get("deployment_managers", [])
-    managers = []
-    for mid in manager_ids:
-        mgr = await get_db().users.find_one({"id": mid}, {"_id": 0, "password_hash": 0})
-        if mgr:
-            managers.append(mgr)
+    managers = await get_db().users.find(
+        {"id": {"$in": manager_ids}},
+        {"_id": 0, "password_hash": 0}
+    ).to_list(len(manager_ids) if manager_ids else 1)
     
     # Build shift logs with user-kit mapping
     shift_logs = []
