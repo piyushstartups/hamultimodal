@@ -1037,18 +1037,42 @@ async def health():
 # ONE-TIME SETUP (create admin if not exists)
 # ========================
 
+@app.get("/api/setup")
+async def setup_admin_get():
+    """One-time setup endpoint to create admin user if none exists (GET for browser)"""
+    try:
+        admin = await db.users.find_one({"role": "admin"})
+        if admin:
+            return {"message": "Admin already exists", "username": admin.get("name")}
+        
+        # Create admin user
+        await db.users.insert_one({
+            "id": "admin-001",
+            "name": "Admin",
+            "role": "admin",
+            "password_hash": pwd_context.hash("admin123")
+        })
+        return {"message": "Admin user created", "username": "Admin", "password": "admin123"}
+    except Exception as e:
+        logger.error(f"Setup error: {e}")
+        return {"error": str(e)}
+
 @app.post("/api/setup")
 async def setup_admin():
     """One-time setup endpoint to create admin user if none exists"""
-    admin = await db.users.find_one({"role": "admin"})
-    if admin:
-        return {"message": "Admin already exists", "username": admin.get("name")}
-    
-    # Create admin user
-    await db.users.insert_one({
-        "id": "admin-001",
-        "name": "Admin",
-        "role": "admin",
-        "password_hash": pwd_context.hash("admin123")
-    })
-    return {"message": "Admin user created", "username": "Admin", "password": "admin123"}
+    try:
+        admin = await db.users.find_one({"role": "admin"})
+        if admin:
+            return {"message": "Admin already exists", "username": admin.get("name")}
+        
+        # Create admin user
+        await db.users.insert_one({
+            "id": "admin-001",
+            "name": "Admin",
+            "role": "admin",
+            "password_hash": pwd_context.hash("admin123")
+        })
+        return {"message": "Admin user created", "username": "Admin", "password": "admin123"}
+    except Exception as e:
+        logger.error(f"Setup error: {e}")
+        return {"error": str(e)}
