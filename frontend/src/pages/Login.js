@@ -45,6 +45,7 @@ export default function Login() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Enter username"
                 className="mt-1"
+                data-testid="username-input"
                 required
               />
             </div>
@@ -56,17 +57,14 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter password"
                 className="mt-1"
+                data-testid="password-input"
                 required
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading} data-testid="login-btn">
               {loading ? 'Logging in...' : 'Login'}
             </Button>
           </form>
-          
-          <div className="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-600">
-            <p className="font-medium mb-1">Demo: Admin / admin123</p>
-          </div>
         </div>
       </div>
     </div>
