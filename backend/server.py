@@ -25,8 +25,9 @@ app.add_middleware(
 
 # Database
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+DB_NAME = os.environ.get("DB_NAME", "ops_management_v2")
 client = AsyncIOMotorClient(MONGO_URL)
-db = client.ops_management_v2
+db = client[DB_NAME]
 
 # Auth
 SECRET_KEY = os.environ.get("SECRET_KEY", "ops-secret-key-2024")
