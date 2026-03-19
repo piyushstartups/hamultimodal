@@ -9,15 +9,16 @@ from dotenv import load_dotenv
 import jwt
 import os
 import logging
+import secrets
 
-# Load environment variables from .env file
+# Load environment variables from .env file (won't override existing env vars)
 load_dotenv()
 
 # ========================
 # APP SETUP
 # ========================
 
-app = FastAPI(title="Ops Management", version="2.0")
+app = FastAPI(title="HA Multimodal Management", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,16 +28,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database
+# Database - handle both local MongoDB and Atlas connections
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "ops_management_v2")
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
 
-# Auth
+# Create MongoDB client with settings that work for both local and Atlas
+try:
+    client = AsyncIOMotorClient(
+        MONGO_URL,
+        serverSelectionTimeoutMS=5000,
+        connectTimeoutMS=10000,
+        socketTimeoutMS=10000,
+    )
+    db = client[DB_NAME]
+    logging.info(f"MongoDB client initialized for database: {DB_NAME}")
+except Exception as e:
+    logging.error(f"Failed to initialize MongoDB client: {e}")
+    raise
+
+# Auth - generate a random key if not provided (for production, should be set via env)
 SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
-    raise ValueError("SECRET_KEY environment variable is required")
+    SECRET_KEY = secrets.token_urlsafe(32)
+    logging.warning("SECRET_KEY not set, using auto-generated key. Set SECRET_KEY env var in production!")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 logging.basicConfig(level=logging.INFO)
