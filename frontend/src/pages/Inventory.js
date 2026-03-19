@@ -19,11 +19,16 @@ import {
 } from '../components/ui/dialog';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
-import { ArrowLeft, Package, Search, Plus, Edit, Trash2, ChevronDown, ChevronRight, ArrowRightLeft, AlertTriangle } from 'lucide-react';
+import { 
+  ArrowLeft, Package, Search, Plus, Edit, Trash2, 
+  ChevronDown, ChevronRight, ArrowRightLeft, AlertTriangle,
+  Warehouse, Box, MapPin, History, Clock
+} from 'lucide-react';
 
 const CATEGORIES = [
   { value: 'ssd', label: 'SSDs' },
   { value: 'camera', label: 'Cameras' },
+  { value: 'imu', label: 'IMUs' },
   { value: 'gloves', label: 'Gloves' },
   { value: 'tools', label: 'Tools' },
   { value: 'general', label: 'General' },
@@ -32,7 +37,14 @@ const CATEGORIES = [
 const LOCATION_TYPES = [
   { prefix: 'kit', label: 'Kit' },
   { prefix: 'bnb', label: 'BnB' },
-  { prefix: 'station', label: 'Station' },
+  { prefix: 'station', label: 'Station/Hub' },
+];
+
+const TABS = [
+  { id: 'hub', label: 'Hub Inventory', icon: Warehouse },
+  { id: 'kits', label: 'Kit-wise', icon: Box },
+  { id: 'bnbs', label: 'BnB-level', icon: MapPin },
+  { id: 'movements', label: 'Movement Log', icon: History },
 ];
 
 export default function Inventory() {
@@ -42,13 +54,15 @@ export default function Inventory() {
   const [items, setItems] = useState([]);
   const [kits, setKits] = useState([]);
   const [bnbs, setBnbs] = useState([]);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState({});
+  const [activeTab, setActiveTab] = useState('hub');
+  const [expandedSections, setExpandedSections] = useState({});
   
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogType, setDialogType] = useState(''); // 'add', 'edit', 'transfer', 'damage'
+  const [dialogType, setDialogType] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   
   // Form data
@@ -60,7 +74,6 @@ export default function Inventory() {
     location_type: 'station',
     location_value: 'Storage',
     quantity: 1,
-    // Transfer fields
     from_type: 'kit',
     from_value: '',
     to_type: 'kit',
@@ -74,19 +87,22 @@ export default function Inventory() {
 
   const fetchData = async () => {
     try {
-      const [itemsRes, kitsRes, bnbsRes] = await Promise.all([
+      const [itemsRes, kitsRes, bnbsRes, eventsRes] = await Promise.all([
         api.get('/items'),
         api.get('/kits'),
-        api.get('/bnbs')
+        api.get('/bnbs'),
+        api.get('/events?event_type=transfer')
       ]);
       setItems(itemsRes.data);
       setKits(kitsRes.data);
       setBnbs(bnbsRes.data);
+      setEvents(eventsRes.data.slice(0, 50)); // Last 50 movements
       
-      // Auto-expand all categories
-      const cats = {};
-      CATEGORIES.forEach(c => { cats[c.value] = true; });
-      setExpandedCategories(cats);
+      // Auto-expand first sections
+      const sections = {};
+      CATEGORIES.forEach(c => { sections[`hub-${c.value}`] = true; });
+      kitsRes.data.forEach(k => { sections[`kit-${k.kit_id}`] = true; });
+      setExpandedSections(sections);
     } catch (error) {
       console.error(error);
     } finally {
@@ -98,13 +114,36 @@ export default function Inventory() {
     item.item_name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const groupedItems = CATEGORIES.reduce((acc, cat) => {
-    acc[cat.value] = filteredItems.filter(item => (item.category || 'general') === cat.value);
-    return acc;
-  }, {});
+  // Group items by location
+  const getHubItems = () => {
+    return filteredItems.filter(item => 
+      item.current_location?.startsWith('station:') || 
+      !item.current_location
+    );
+  };
 
-  const toggleCategory = (cat) => {
-    setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+  const getKitItems = (kitId) => {
+    return filteredItems.filter(item => 
+      item.current_location === `kit:${kitId}`
+    );
+  };
+
+  const getBnbItems = (bnbName) => {
+    return filteredItems.filter(item => 
+      item.current_location === `bnb:${bnbName}`
+    );
+  };
+
+  // Group by category
+  const groupByCategory = (itemList) => {
+    return CATEGORIES.reduce((acc, cat) => {
+      acc[cat.value] = itemList.filter(item => (item.category || 'general') === cat.value);
+      return acc;
+    }, {});
+  };
+
+  const toggleSection = (sectionKey) => {
+    setExpandedSections(prev => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
   };
 
   const getStatusColor = (status) => {
@@ -117,11 +156,19 @@ export default function Inventory() {
     }
   };
 
+  const formatTime = (isoString) => {
+    if (!isoString) return '-';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+    });
+  };
+
   const formatLocation = (location) => {
-    if (!location) return 'Unknown';
+    if (!location) return 'Hub';
     if (location.includes(':')) {
       const [type, value] = location.split(':');
-      return `${type.toUpperCase()}: ${value}`;
+      return `${type.charAt(0).toUpperCase() + type.slice(1)}: ${value}`;
     }
     return location;
   };
@@ -134,7 +181,7 @@ export default function Inventory() {
         return bnbs.map(b => ({ value: b.name, label: b.name }));
       case 'station':
         return [
-          { value: 'Main', label: 'Main Station' },
+          { value: 'Main', label: 'Main Hub' },
           { value: 'Storage', label: 'Storage' },
           { value: 'Office', label: 'Office' },
         ];
@@ -143,7 +190,7 @@ export default function Inventory() {
     }
   };
 
-  // Admin functions
+  // Dialog functions
   const openAddDialog = () => {
     setDialogType('add');
     setEditingItem(null);
@@ -170,7 +217,7 @@ export default function Inventory() {
     
     let locType = 'station';
     let locValue = 'Storage';
-    if (item.current_location && item.current_location.includes(':')) {
+    if (item.current_location?.includes(':')) {
       [locType, locValue] = item.current_location.split(':');
     }
     
@@ -191,14 +238,13 @@ export default function Inventory() {
     setDialogOpen(true);
   };
 
-  // Transfer / Damage (available to both admin and manager)
   const openTransferDialog = (item) => {
     setDialogType('transfer');
     setEditingItem(item);
     
     let fromType = 'station';
     let fromValue = 'Storage';
-    if (item.current_location && item.current_location.includes(':')) {
+    if (item.current_location?.includes(':')) {
       [fromType, fromValue] = item.current_location.split(':');
     }
     
@@ -287,185 +333,83 @@ export default function Inventory() {
     }
   };
 
-  const getDialogTitle = () => {
-    switch (dialogType) {
-      case 'add': return 'Add Item';
-      case 'edit': return 'Edit Item';
-      case 'transfer': return `Transfer: ${editingItem?.item_name}`;
-      case 'damage': return `Report Damage: ${editingItem?.item_name}`;
-      default: return 'Item';
-    }
-  };
+  // Render item row
+  const renderItemRow = (item, showLocation = false) => (
+    <div key={item.item_name} className="px-4 py-2 flex items-center justify-between hover:bg-slate-50" data-testid={`item-${item.item_name}`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="font-medium text-slate-900 text-sm">{item.item_name}</p>
+          {item.tracking_type === 'quantity' && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">×{item.quantity || 1}</span>
+          )}
+          <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusColor(item.status)}`}>
+            {item.status}
+          </span>
+        </div>
+        {showLocation && (
+          <p className="text-xs text-slate-500 mt-0.5">{formatLocation(item.current_location)}</p>
+        )}
+      </div>
+      
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openTransferDialog(item)} title="Transfer">
+          <ArrowRightLeft className="w-3.5 h-3.5 text-blue-500" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openDamageDialog(item)} title="Report Damage">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+        </Button>
+        {isAdmin && (
+          <>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(item)}>
+              <Edit className="w-3.5 h-3.5 text-slate-500" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(item.item_name)}>
+              <Trash2 className="w-3.5 h-3.5 text-red-500" />
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
-  const renderForm = () => {
-    if (dialogType === 'add' || dialogType === 'edit') {
+  // Render category section
+  const renderCategorySection = (items, prefix) => {
+    const grouped = groupByCategory(items);
+    
+    return CATEGORIES.map(cat => {
+      const categoryItems = grouped[cat.value] || [];
+      if (categoryItems.length === 0) return null;
+      
+      const sectionKey = `${prefix}-${cat.value}`;
+      const isExpanded = expandedSections[sectionKey];
+      
       return (
-        <>
-          <div>
-            <Label>Item Name *</Label>
-            <Input
-              value={formData.item_name}
-              onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
-              placeholder="e.g., SSD-01, Camera-02"
-              className="mt-1"
-              disabled={dialogType === 'edit'}
-              required
-              data-testid="item-name-input"
-            />
-          </div>
-          
-          <div>
-            <Label>Category</Label>
-            <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div>
-            <Label>Tracking Type</Label>
-            <Select value={formData.tracking_type} onValueChange={(v) => setFormData({ ...formData, tracking_type: v })}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="individual">Individual (unique items)</SelectItem>
-                <SelectItem value="quantity">Quantity (bulk items)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          {formData.tracking_type === 'quantity' && (
-            <div>
-              <Label>Quantity</Label>
-              <Input
-                type="number"
-                min="1"
-                value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-                className="mt-1"
-              />
+        <div key={sectionKey} className="border-t first:border-t-0">
+          <button
+            onClick={() => toggleSection(sectionKey)}
+            className="w-full px-4 py-2 flex items-center justify-between hover:bg-slate-50 text-sm"
+          >
+            <div className="flex items-center gap-2">
+              {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+              <span className="font-medium text-slate-700">{cat.label}</span>
+              <span className="text-xs bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">{categoryItems.length}</span>
+            </div>
+          </button>
+          {isExpanded && (
+            <div className="bg-white divide-y border-t">
+              {categoryItems.map(item => renderItemRow(item))}
             </div>
           )}
-          
-          <div>
-            <Label>Status</Label>
-            <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="damaged">Damaged</SelectItem>
-                <SelectItem value="lost">Lost</SelectItem>
-                <SelectItem value="repair">In Repair</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Location Type</Label>
-              <Select value={formData.location_type} onValueChange={(v) => setFormData({ ...formData, location_type: v, location_value: '' })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Location</Label>
-              <Select value={formData.location_value} onValueChange={(v) => setFormData({ ...formData, location_value: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  {getLocationOptions(formData.location_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </>
-      );
-    }
-    
-    if (dialogType === 'transfer') {
-      return (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>From Type</Label>
-              <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>From</Label>
-              <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>To Type</Label>
-              <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>To</Label>
-              <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <div>
-            <Label>Notes (optional)</Label>
-            <Textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Add transfer notes"
-              className="mt-1"
-            />
-          </div>
-        </>
-      );
-    }
-    
-    if (dialogType === 'damage') {
-      return (
-        <div>
-          <Label>Damage Description *</Label>
-          <Textarea
-            value={formData.notes}
-            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            placeholder="Describe the damage"
-            className="mt-1"
-            required
-          />
         </div>
       );
-    }
-    
-    return null;
+    });
   };
 
   return (
     <div className="min-h-screen bg-slate-100">
       {/* Header */}
       <header className="bg-white border-b">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <a href="/dashboard">
               <Button variant="ghost" size="icon" data-testid="back-btn">
@@ -474,7 +418,7 @@ export default function Inventory() {
             </a>
             <div>
               <h1 className="text-lg font-bold text-slate-900">Inventory</h1>
-              <p className="text-sm text-slate-600">{items.length} items</p>
+              <p className="text-sm text-slate-600">{items.length} items tracked</p>
             </div>
           </div>
           {isAdmin && (
@@ -486,7 +430,30 @@ export default function Inventory() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-4">
+      {/* Tabs */}
+      <div className="bg-white border-b sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="flex gap-1 overflow-x-auto">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                data-testid={`tab-${tab.id}`}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === tab.id 
+                    ? 'border-blue-500 text-blue-600' 
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-4">
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -499,81 +466,181 @@ export default function Inventory() {
           />
         </div>
 
-        {/* Items grouped by category */}
         {loading ? (
           <div className="text-center py-12 text-slate-500">Loading...</div>
         ) : (
-          <div className="space-y-3">
-            {CATEGORIES.map(cat => {
-              const categoryItems = groupedItems[cat.value] || [];
-              if (categoryItems.length === 0) return null;
-              
-              return (
-                <div key={cat.value} className="bg-white rounded-xl border overflow-hidden">
-                  {/* Category Header - Collapsible */}
-                  <button
-                    onClick={() => toggleCategory(cat.value)}
-                    className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
-                    data-testid={`category-${cat.value}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {expandedCategories[cat.value] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                      <span className="font-medium">{cat.label}</span>
-                      <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{categoryItems.length}</span>
-                    </div>
-                  </button>
-                  
-                  {/* Category Items */}
-                  {expandedCategories[cat.value] && (
-                    <div className="divide-y">
-                      {categoryItems.map(item => (
-                        <div key={item.item_name} className="px-4 py-3 flex items-center justify-between" data-testid={`item-${item.item_name}`}>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium text-slate-900 truncate">{item.item_name}</p>
-                              {item.tracking_type === 'quantity' && (
-                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">×{item.quantity || 1}</span>
+          <>
+            {/* HUB INVENTORY TAB */}
+            {activeTab === 'hub' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Warehouse className="w-5 h-5" />
+                  <h2 className="font-semibold">Hub / Station Inventory</h2>
+                  <span className="text-sm text-slate-500">({getHubItems().length} items)</span>
+                </div>
+                
+                {getHubItems().length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No items at hub/station
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border overflow-hidden">
+                    {renderCategorySection(getHubItems(), 'hub')}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* KIT-WISE INVENTORY TAB */}
+            {activeTab === 'kits' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Box className="w-5 h-5" />
+                  <h2 className="font-semibold">Kit-wise Inventory</h2>
+                </div>
+                
+                {kits.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No kits configured
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {kits.map(kit => {
+                      const kitItems = getKitItems(kit.kit_id);
+                      const sectionKey = `kit-${kit.kit_id}`;
+                      const isExpanded = expandedSections[sectionKey] !== false;
+                      
+                      return (
+                        <div key={kit.kit_id} className="bg-white rounded-xl border overflow-hidden" data-testid={`kit-inventory-${kit.kit_id}`}>
+                          <button
+                            onClick={() => toggleSection(sectionKey)}
+                            className="w-full px-4 py-3 flex items-center justify-between bg-slate-900 text-white hover:bg-slate-800"
+                          >
+                            <div className="flex items-center gap-3">
+                              <Box className="w-5 h-5" />
+                              <span className="font-bold">{kit.kit_id}</span>
+                              <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{kitItems.length} items</span>
+                            </div>
+                            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                          </button>
+                          
+                          {isExpanded && (
+                            <div>
+                              {kitItems.length === 0 ? (
+                                <div className="p-4 text-center text-slate-500 text-sm">No items in this kit</div>
+                              ) : (
+                                <div className="divide-y">
+                                  {kitItems.map(item => renderItemRow(item))}
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                              <span>{formatLocation(item.current_location)}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* BNB-LEVEL INVENTORY TAB */}
+            {activeTab === 'bnbs' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <MapPin className="w-5 h-5" />
+                  <h2 className="font-semibold">BnB-level Inventory</h2>
+                </div>
+                
+                {bnbs.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No BnBs configured
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {bnbs.map(bnb => {
+                      const bnbItems = getBnbItems(bnb.name);
+                      const sectionKey = `bnb-${bnb.name}`;
+                      const isExpanded = expandedSections[sectionKey] !== false;
+                      
+                      return (
+                        <div key={bnb.name} className="bg-white rounded-xl border overflow-hidden" data-testid={`bnb-inventory-${bnb.name}`}>
+                          <button
+                            onClick={() => toggleSection(sectionKey)}
+                            className="w-full px-4 py-3 flex items-center justify-between bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            <div className="flex items-center gap-3">
+                              <MapPin className="w-5 h-5" />
+                              <span className="font-bold">{bnb.name}</span>
+                              <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{bnbItems.length} items</span>
                             </div>
-                          </div>
+                            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                          </button>
                           
-                          <div className="flex items-center gap-2">
-                            <span className={`text-xs px-2 py-1 rounded ${getStatusColor(item.status)}`}>
-                              {item.status}
-                            </span>
-                            
-                            {/* Transfer & Damage - available to all */}
-                            <Button variant="ghost" size="icon" onClick={() => openTransferDialog(item)} title="Transfer" data-testid={`transfer-${item.item_name}`}>
+                          {isExpanded && (
+                            <div>
+                              {bnbItems.length === 0 ? (
+                                <div className="p-4 text-center text-slate-500 text-sm">No items at this BnB</div>
+                              ) : (
+                                <div className="divide-y">
+                                  {bnbItems.map(item => renderItemRow(item))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* MOVEMENT LOG TAB */}
+            {activeTab === 'movements' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <History className="w-5 h-5" />
+                  <h2 className="font-semibold">Recent Movements</h2>
+                  <span className="text-sm text-slate-500">(Last 50 transfers)</span>
+                </div>
+                
+                {events.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No movement history
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border divide-y">
+                    {events.map((evt, idx) => (
+                      <div key={idx} className="px-4 py-3" data-testid={`movement-${idx}`}>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
                               <ArrowRightLeft className="w-4 h-4 text-blue-500" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => openDamageDialog(item)} title="Report Damage" data-testid={`damage-${item.item_name}`}>
-                              <AlertTriangle className="w-4 h-4 text-amber-500" />
-                            </Button>
-                            
-                            {/* Edit & Delete - Admin only */}
-                            {isAdmin && (
-                              <>
-                                <Button variant="ghost" size="icon" onClick={() => openEditDialog(item)} data-testid={`edit-${item.item_name}`}>
-                                  <Edit className="w-4 h-4 text-slate-500" />
-                                </Button>
-                                <Button variant="ghost" size="icon" onClick={() => handleDelete(item.item_name)} data-testid={`delete-${item.item_name}`}>
-                                  <Trash2 className="w-4 h-4 text-red-500" />
-                                </Button>
-                              </>
-                            )}
+                              <span className="font-medium text-slate-900">{evt.item}</span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2 text-sm text-slate-600">
+                              <span className="bg-slate-100 px-2 py-0.5 rounded text-xs">{formatLocation(evt.from_location)}</span>
+                              <span className="text-slate-400">→</span>
+                              <span className="bg-green-100 px-2 py-0.5 rounded text-xs text-green-700">{formatLocation(evt.to_location)}</span>
+                            </div>
+                            {evt.notes && <p className="text-xs text-slate-500 mt-1">{evt.notes}</p>}
+                          </div>
+                          <div className="text-right text-xs text-slate-500">
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {formatTime(evt.timestamp)}
+                            </div>
+                            <p className="mt-0.5">by {evt.user_name}</p>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            
-            {filteredItems.length === 0 && (
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {filteredItems.length === 0 && activeTab !== 'movements' && (
               <div className="bg-white rounded-xl border p-8 text-center">
                 <Package className="w-12 h-12 text-slate-300 mx-auto mb-4" />
                 <p className="text-slate-600">{search ? 'No items found' : 'No items yet'}</p>
@@ -585,7 +652,7 @@ export default function Inventory() {
                 )}
               </div>
             )}
-          </div>
+          </>
         )}
       </main>
 
@@ -593,10 +660,168 @@ export default function Inventory() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{getDialogTitle()}</DialogTitle>
+            <DialogTitle>
+              {dialogType === 'add' ? 'Add Item' : 
+               dialogType === 'edit' ? 'Edit Item' : 
+               dialogType === 'transfer' ? `Transfer: ${editingItem?.item_name}` : 
+               `Report Damage: ${editingItem?.item_name}`}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-            {renderForm()}
+            {(dialogType === 'add' || dialogType === 'edit') && (
+              <>
+                <div>
+                  <Label>Item Name *</Label>
+                  <Input
+                    value={formData.item_name}
+                    onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
+                    placeholder="e.g., SSD-01, Camera-02"
+                    className="mt-1"
+                    disabled={dialogType === 'edit'}
+                    required
+                    data-testid="item-name-input"
+                  />
+                </div>
+                
+                <div>
+                  <Label>Category</Label>
+                  <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <Label>Tracking Type</Label>
+                  <Select value={formData.tracking_type} onValueChange={(v) => setFormData({ ...formData, tracking_type: v })}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="individual">Individual (unique items)</SelectItem>
+                      <SelectItem value="quantity">Quantity (bulk items)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {formData.tracking_type === 'quantity' && (
+                  <div>
+                    <Label>Quantity</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
+                      className="mt-1"
+                    />
+                  </div>
+                )}
+                
+                <div>
+                  <Label>Status</Label>
+                  <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="damaged">Damaged</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                      <SelectItem value="repair">In Repair</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Location Type</Label>
+                    <Select value={formData.location_type} onValueChange={(v) => setFormData({ ...formData, location_type: v, location_value: '' })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Location</Label>
+                    <Select value={formData.location_value} onValueChange={(v) => setFormData({ ...formData, location_value: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        {getLocationOptions(formData.location_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </>
+            )}
+            
+            {dialogType === 'transfer' && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>From Type</Label>
+                    <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>From</Label>
+                    <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>To Type</Label>
+                    <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>To</Label>
+                    <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div>
+                  <Label>Notes (optional)</Label>
+                  <Textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Add transfer notes"
+                    className="mt-1"
+                  />
+                </div>
+              </>
+            )}
+            
+            {dialogType === 'damage' && (
+              <div>
+                <Label>Damage Description *</Label>
+                <Textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="Describe the damage"
+                  className="mt-1"
+                  required
+                />
+              </div>
+            )}
+            
             <div className="flex gap-3 pt-4">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
