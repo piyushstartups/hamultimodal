@@ -984,6 +984,11 @@ async def get_analytics(
 # HEALTH CHECK
 # ========================
 
+@app.get("/health")
+async def health_root():
+    """Health check endpoint for production deployment (without /api prefix)"""
+    return {"status": "ok", "version": "2.0"}
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": "2.0"}
