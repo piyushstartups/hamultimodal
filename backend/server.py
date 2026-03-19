@@ -262,6 +262,34 @@ async def delete_user(user_id: str, user: dict = Depends(get_current_user_dep())
     await get_db().users.delete_one({"id": user_id})
     return {"status": "deleted"}
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    password: Optional[str] = None
+
+@app.put("/api/users/{user_id}")
+async def update_user(user_id: str, data: UserUpdate, user: dict = Depends(get_current_user_dep())):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    existing = await get_db().users.find_one({"id": user_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    update_data = {}
+    if data.name:
+        # Check if name already taken by another user
+        name_taken = await get_db().users.find_one({"name": data.name, "id": {"$ne": user_id}})
+        if name_taken:
+            raise HTTPException(status_code=400, detail="Username already taken")
+        update_data["name"] = data.name
+    if data.password:
+        update_data["password_hash"] = pwd_context.hash(data.password)
+    
+    if update_data:
+        await get_db().users.update_one({"id": user_id}, {"$set": update_data})
+    
+    return {"status": "updated"}
+
 # ========================
 # BNBS
 # ========================
@@ -317,6 +345,49 @@ async def delete_kit(kit_id: str, user: dict = Depends(get_current_user_dep())):
 @app.get("/api/items")
 async def get_items(user: dict = Depends(get_current_user_dep())):
     return await get_db().items.find({}, {"_id": 0}).to_list(500)
+
+@app.get("/api/items/distribution")
+async def get_item_distribution(user: dict = Depends(get_current_user_dep())):
+    """Get item distribution across all locations grouped by category"""
+    items = await get_db().items.find({}, {"_id": 0}).to_list(500)
+    kits = await get_db().kits.find({}, {"_id": 0}).to_list(100)
+    bnbs = await get_db().bnbs.find({}, {"_id": 0}).to_list(100)
+    
+    # Get unique categories
+    categories = list(set(item.get("category", "general") for item in items))
+    
+    # Get all location columns
+    locations = ["Hub"]
+    locations.extend([k["kit_id"] for k in kits])
+    locations.extend([b["name"] for b in bnbs])
+    
+    # Build distribution matrix
+    distribution = {}
+    for cat in categories:
+        distribution[cat] = {loc: 0 for loc in locations}
+    
+    # Count items by category and location
+    for item in items:
+        cat = item.get("category", "general")
+        loc = item.get("current_location", "")
+        qty = item.get("quantity", 1) if item.get("tracking_type") == "quantity" else 1
+        
+        if not loc or loc.startswith("station:"):
+            distribution[cat]["Hub"] += qty
+        elif loc.startswith("kit:"):
+            kit_id = loc.split(":")[1]
+            if kit_id in distribution[cat]:
+                distribution[cat][kit_id] += qty
+        elif loc.startswith("bnb:"):
+            bnb_name = loc.split(":")[1]
+            if bnb_name in distribution[cat]:
+                distribution[cat][bnb_name] += qty
+    
+    return {
+        "categories": categories,
+        "locations": locations,
+        "distribution": distribution
+    }
 
 @app.post("/api/items")
 async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_dep())):

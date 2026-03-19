@@ -243,10 +243,8 @@ export default function Deployments() {
     setSelectedDate(day);
     setExpandedDeployment(null);
     setKitShifts({});
-    // Collapse calendar when date selected (for managers)
-    if (isManager) {
-      setCalendarCollapsed(true);
-    }
+    // Auto-collapse calendar when date selected for all users
+    setCalendarCollapsed(true);
   };
 
   const formatTime = (seconds) => {
@@ -576,19 +574,33 @@ export default function Deployments() {
               </p>
             </div>
           </div>
-          {isManager && calendarCollapsed && (
-            <Button variant="outline" size="sm" onClick={() => setCalendarCollapsed(false)}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Change Date
-            </Button>
-          )}
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-4">
-        {/* Calendar - Collapsible for managers */}
-        {(!calendarCollapsed || isAdmin) && (
-          <div className={`bg-white rounded-xl border p-4 mb-4 ${isManager && selectedDate ? 'border-blue-200' : ''}`}>
+        {/* Calendar - Collapsible, compact when collapsed */}
+        {calendarCollapsed && selectedDate ? (
+          <div className="bg-white rounded-xl border px-4 py-3 mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
+                {selectedDate.getDate()}
+              </div>
+              <div>
+                <p className="font-semibold text-slate-900">
+                  {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {selectedDeployments.length} deployment{selectedDeployments.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => setCalendarCollapsed(false)} data-testid="expand-calendar-btn">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Change Date
+            </Button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border p-4 mb-4">
             <div className="flex items-center justify-between mb-4">
               <Button variant="ghost" size="icon" onClick={() => navigateMonth(-1)}>
                 <ChevronLeft className="w-5 h-5" />
@@ -635,11 +647,9 @@ export default function Deployments() {
               })}
             </div>
             
-            {isManager && selectedDate && (
-              <p className="text-xs text-center text-slate-500 mt-3">
-                Tap a date with a green dot to see your assignments
-              </p>
-            )}
+            <p className="text-xs text-center text-slate-500 mt-3">
+              Tap a date to view deployments
+            </p>
           </div>
         )}
 

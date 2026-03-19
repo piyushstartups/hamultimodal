@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, Package, Search, Plus, Edit, Trash2, 
   ChevronDown, ChevronRight, ArrowRightLeft, AlertTriangle,
-  Warehouse, Box, MapPin, History, Clock
+  Warehouse, Box, MapPin, History, Clock, Grid3X3
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -41,7 +41,8 @@ const LOCATION_TYPES = [
 ];
 
 const TABS = [
-  { id: 'hub', label: 'Hub Inventory', icon: Warehouse },
+  { id: 'distribution', label: 'Distribution', icon: Grid3X3 },
+  { id: 'hub', label: 'Hub', icon: Warehouse },
   { id: 'kits', label: 'Kit-wise', icon: Box },
   { id: 'bnbs', label: 'BnB-level', icon: MapPin },
   { id: 'movements', label: 'Movement Log', icon: History },
@@ -55,9 +56,10 @@ export default function Inventory() {
   const [kits, setKits] = useState([]);
   const [bnbs, setBnbs] = useState([]);
   const [events, setEvents] = useState([]);
+  const [distribution, setDistribution] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState('hub');
+  const [activeTab, setActiveTab] = useState('distribution');
   const [expandedSections, setExpandedSections] = useState({});
   
   // Dialog states
@@ -87,16 +89,18 @@ export default function Inventory() {
 
   const fetchData = async () => {
     try {
-      const [itemsRes, kitsRes, bnbsRes, eventsRes] = await Promise.all([
+      const [itemsRes, kitsRes, bnbsRes, eventsRes, distRes] = await Promise.all([
         api.get('/items'),
         api.get('/kits'),
         api.get('/bnbs'),
-        api.get('/events?event_type=transfer')
+        api.get('/events?event_type=transfer'),
+        api.get('/items/distribution')
       ]);
       setItems(itemsRes.data);
       setKits(kitsRes.data);
       setBnbs(bnbsRes.data);
       setEvents(eventsRes.data.slice(0, 50)); // Last 50 movements
+      setDistribution(distRes.data);
       
       // Auto-expand first sections
       const sections = {};
@@ -470,6 +474,93 @@ export default function Inventory() {
           <div className="text-center py-12 text-slate-500">Loading...</div>
         ) : (
           <>
+            {/* DISTRIBUTION TAB */}
+            {activeTab === 'distribution' && distribution && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Grid3X3 className="w-5 h-5" />
+                  <h2 className="font-semibold">Item Distribution</h2>
+                  <span className="text-sm text-slate-500">(auto-calculated from inventory)</span>
+                </div>
+                
+                {distribution.categories.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No items in inventory
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-xl border overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" data-testid="distribution-table">
+                        <thead>
+                          <tr className="bg-slate-100 border-b">
+                            <th className="text-left px-4 py-3 font-semibold text-slate-700 sticky left-0 bg-slate-100">
+                              Category
+                            </th>
+                            {distribution.locations.map(loc => (
+                              <th key={loc} className="text-center px-3 py-3 font-semibold text-slate-700 min-w-[80px]">
+                                {loc}
+                              </th>
+                            ))}
+                            <th className="text-center px-4 py-3 font-bold text-slate-900 bg-slate-200">
+                              Total
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {distribution.categories.map(cat => {
+                            const catData = distribution.distribution[cat] || {};
+                            const total = Object.values(catData).reduce((sum, val) => sum + val, 0);
+                            const catLabel = CATEGORIES.find(c => c.value === cat)?.label || cat;
+                            
+                            return (
+                              <tr key={cat} className="border-b hover:bg-slate-50" data-testid={`dist-row-${cat}`}>
+                                <td className="px-4 py-3 font-medium text-slate-900 sticky left-0 bg-white">
+                                  {catLabel}
+                                </td>
+                                {distribution.locations.map(loc => {
+                                  const count = catData[loc] || 0;
+                                  return (
+                                    <td key={loc} className={`text-center px-3 py-3 ${count > 0 ? 'font-semibold text-blue-600' : 'text-slate-300'}`}>
+                                      {count}
+                                    </td>
+                                  );
+                                })}
+                                <td className="text-center px-4 py-3 font-bold text-slate-900 bg-slate-50">
+                                  {total}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-slate-100 font-bold">
+                            <td className="px-4 py-3 text-slate-900 sticky left-0 bg-slate-100">Total</td>
+                            {distribution.locations.map(loc => {
+                              const locTotal = distribution.categories.reduce((sum, cat) => {
+                                return sum + (distribution.distribution[cat]?.[loc] || 0);
+                              }, 0);
+                              return (
+                                <td key={loc} className={`text-center px-3 py-3 ${locTotal > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
+                                  {locTotal}
+                                </td>
+                              );
+                            })}
+                            <td className="text-center px-4 py-3 text-slate-900 bg-slate-200">
+                              {items.length}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-xs text-slate-500 text-center">
+                  This view is auto-calculated from item locations. Use transfers to move items between locations.
+                </p>
+              </div>
+            )}
+
             {/* HUB INVENTORY TAB */}
             {activeTab === 'hub' && (
               <div className="space-y-4">

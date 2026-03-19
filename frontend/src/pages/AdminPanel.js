@@ -17,12 +17,13 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Trash2, Users, MapPin, Box } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Users, MapPin, Box, Edit } from 'lucide-react';
 
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('users');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState('');
+  const [editingItem, setEditingItem] = useState(null);
   
   // Data
   const [users, setUsers] = useState([]);
@@ -51,8 +52,9 @@ export default function AdminPanel() {
     }
   };
 
-  const openDialog = (type) => {
+  const openAddDialog = (type) => {
     setDialogType(type);
+    setEditingItem(null);
     setFormData({
       status: 'active',
       role: 'deployment_manager'
@@ -60,25 +62,58 @@ export default function AdminPanel() {
     setDialogOpen(true);
   };
 
+  const openEditDialog = (type, item) => {
+    setDialogType(type);
+    setEditingItem(item);
+    if (type === 'user') {
+      setFormData({
+        name: item.name,
+        role: item.role,
+        password: '' // Leave empty, only update if filled
+      });
+    }
+    setDialogOpen(true);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      switch (dialogType) {
-        case 'user':
-          await api.post('/users', formData);
-          break;
-        case 'bnb':
-          await api.post('/bnbs', formData);
-          break;
-        case 'kit':
-          await api.post('/kits', formData);
-          break;
+      if (editingItem) {
+        // Update existing
+        if (dialogType === 'user') {
+          const updateData = {};
+          if (formData.name && formData.name !== editingItem.name) {
+            updateData.name = formData.name;
+          }
+          if (formData.password) {
+            updateData.password = formData.password;
+          }
+          if (Object.keys(updateData).length > 0) {
+            await api.put(`/users/${editingItem.id}`, updateData);
+            toast.success('User updated');
+          } else {
+            toast.info('No changes made');
+          }
+        }
+      } else {
+        // Create new
+        switch (dialogType) {
+          case 'user':
+            await api.post('/users', formData);
+            break;
+          case 'bnb':
+            await api.post('/bnbs', formData);
+            break;
+          case 'kit':
+            await api.post('/kits', formData);
+            break;
+        }
+        toast.success('Created successfully');
       }
-      toast.success('Created successfully');
       setDialogOpen(false);
       fetchAll();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create');
+      toast.error(error.response?.data?.detail || 'Failed');
     }
   };
 
@@ -93,7 +128,6 @@ export default function AdminPanel() {
     }
   };
 
-  // Admin Panel: Only Users, BnBs, Kits (no Items, no Deployments)
   const tabs = [
     { id: 'users', label: 'Users', icon: Users },
     { id: 'bnbs', label: 'BnBs', icon: MapPin },
@@ -101,21 +135,21 @@ export default function AdminPanel() {
   ];
 
   const renderForm = () => {
-    switch (dialogType) {
-      case 'user':
-        return (
-          <>
-            <div>
-              <Label>Name *</Label>
-              <Input 
-                value={formData.name || ''} 
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
-                className="mt-1" 
-                placeholder="John Doe"
-                required 
-                data-testid="user-name-input"
-              />
-            </div>
+    if (dialogType === 'user') {
+      return (
+        <>
+          <div>
+            <Label>Username *</Label>
+            <Input 
+              value={formData.name || ''} 
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
+              className="mt-1" 
+              placeholder="Enter username"
+              required={!editingItem}
+              data-testid="user-name-input"
+            />
+          </div>
+          {!editingItem && (
             <div>
               <Label>Role *</Label>
               <Select value={formData.role} onValueChange={(v) => setFormData({ ...formData, role: v })}>
@@ -126,74 +160,80 @@ export default function AdminPanel() {
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Password *</Label>
-              <Input 
-                type="password" 
-                value={formData.password || ''} 
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
-                className="mt-1" 
-                required 
-                data-testid="user-password-input"
-              />
-            </div>
-          </>
-        );
-      case 'bnb':
-        return (
-          <>
-            <div>
-              <Label>Name *</Label>
-              <Input 
-                value={formData.name || ''} 
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
-                className="mt-1" 
-                placeholder="BnB-01" 
-                required 
-                data-testid="bnb-name-input"
-              />
-            </div>
-            <div>
-              <Label>Status</Label>
-              <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
-                <SelectTrigger className="mt-1" data-testid="bnb-status-select"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </>
-        );
-      case 'kit':
-        return (
-          <>
-            <div>
-              <Label>Kit ID *</Label>
-              <Input 
-                value={formData.kit_id || ''} 
-                onChange={(e) => setFormData({ ...formData, kit_id: e.target.value })} 
-                className="mt-1" 
-                placeholder="KIT-01" 
-                required 
-                data-testid="kit-id-input"
-              />
-            </div>
-            <div>
-              <Label>Status</Label>
-              <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
-                <SelectTrigger className="mt-1" data-testid="kit-status-select"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </>
-        );
-      default:
-        return null;
+          )}
+          <div>
+            <Label>{editingItem ? 'New Password (leave empty to keep current)' : 'Password *'}</Label>
+            <Input 
+              type="password" 
+              value={formData.password || ''} 
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
+              className="mt-1" 
+              placeholder={editingItem ? 'Enter new password' : 'Enter password'}
+              required={!editingItem}
+              data-testid="user-password-input"
+            />
+          </div>
+        </>
+      );
     }
+    
+    if (dialogType === 'bnb') {
+      return (
+        <>
+          <div>
+            <Label>Name *</Label>
+            <Input 
+              value={formData.name || ''} 
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })} 
+              className="mt-1" 
+              placeholder="BnB-01" 
+              required 
+              data-testid="bnb-name-input"
+            />
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+              <SelectTrigger className="mt-1" data-testid="bnb-status-select"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      );
+    }
+    
+    if (dialogType === 'kit') {
+      return (
+        <>
+          <div>
+            <Label>Kit ID *</Label>
+            <Input 
+              value={formData.kit_id || ''} 
+              onChange={(e) => setFormData({ ...formData, kit_id: e.target.value })} 
+              className="mt-1" 
+              placeholder="KIT-01" 
+              required 
+              data-testid="kit-id-input"
+            />
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+              <SelectTrigger className="mt-1" data-testid="kit-status-select"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="maintenance">Maintenance</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      );
+    }
+    
+    return null;
   };
 
   return (
@@ -235,7 +275,7 @@ export default function AdminPanel() {
           {/* Header */}
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <h2 className="font-semibold capitalize">{activeTab}</h2>
-            <Button size="sm" onClick={() => openDialog(activeTab.slice(0, -1))} data-testid={`add-${activeTab.slice(0, -1)}-btn`}>
+            <Button size="sm" onClick={() => openAddDialog(activeTab.slice(0, -1))} data-testid={`add-${activeTab.slice(0, -1)}-btn`}>
               <Plus className="w-4 h-4 mr-1" />
               Add
             </Button>
@@ -249,11 +289,14 @@ export default function AdminPanel() {
                   <p className="font-medium">{u.name}</p>
                   <p className="text-xs text-slate-500">{u.role}</p>
                 </div>
-                {u.role !== 'admin' && (
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => openEditDialog('user', u)} data-testid={`edit-user-${u.id}`}>
+                    <Edit className="w-4 h-4 text-blue-500" />
+                  </Button>
                   <Button variant="ghost" size="icon" onClick={() => handleDelete('users', u.id)} data-testid={`delete-user-${u.id}`}>
                     <Trash2 className="w-4 h-4 text-red-500" />
                   </Button>
-                )}
+                </div>
               </div>
             ))}
 
@@ -292,7 +335,7 @@ export default function AdminPanel() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add {dialogType}</DialogTitle>
+            <DialogTitle>{editingItem ? 'Edit' : 'Add'} {dialogType}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-4">
             {renderForm()}
@@ -301,7 +344,7 @@ export default function AdminPanel() {
                 Cancel
               </Button>
               <Button type="submit" className="flex-1" data-testid="submit-dialog-btn">
-                Create
+                {editingItem ? 'Update' : 'Create'}
               </Button>
             </div>
           </form>
