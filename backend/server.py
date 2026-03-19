@@ -464,6 +464,112 @@ async def delete_deployment(deployment_id: str, user: dict = Depends(get_current
     return {"status": "deleted"}
 
 # ========================
+# BNB DAY VIEW - Complete operational history
+# ========================
+
+@app.get("/api/deployments/{deployment_id}/day-view")
+async def get_bnb_day_view(deployment_id: str, user: dict = Depends(get_current_user_dep())):
+    """Get complete operational history for a deployment (BnB on a specific date)"""
+    
+    # Get deployment info
+    deployment = await get_db().deployments.find_one({"id": deployment_id}, {"_id": 0})
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    
+    date = deployment.get("date")
+    bnb = deployment.get("bnb")
+    
+    # Get all shifts for this deployment
+    shifts = await get_db().shifts.find(
+        {"deployment_id": deployment_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Get user details for managers
+    manager_ids = deployment.get("deployment_managers", [])
+    managers = []
+    for mid in manager_ids:
+        mgr = await get_db().users.find_one({"id": mid}, {"_id": 0, "password_hash": 0})
+        if mgr:
+            managers.append(mgr)
+    
+    # Build shift logs with user-kit mapping
+    shift_logs = []
+    ssd_usage = {}
+    users_worked = {}
+    
+    for shift in shifts:
+        shift_logs.append({
+            "kit": shift.get("kit"),
+            "user": shift.get("user"),
+            "user_name": shift.get("user_name"),
+            "activity_type": shift.get("activity_type"),
+            "ssd_used": shift.get("ssd_used"),
+            "status": shift.get("status"),
+            "start_time": shift.get("start_time"),
+            "end_time": shift.get("end_time"),
+            "total_duration_hours": shift.get("total_duration_hours")
+        })
+        
+        # Track SSD usage
+        ssd = shift.get("ssd_used")
+        if ssd:
+            if ssd not in ssd_usage:
+                ssd_usage[ssd] = []
+            ssd_usage[ssd].append(shift.get("kit"))
+        
+        # Track users who worked
+        uid = shift.get("user")
+        if uid and uid not in users_worked:
+            users_worked[uid] = {
+                "user_id": uid,
+                "user_name": shift.get("user_name"),
+                "kits_worked": []
+            }
+        if uid:
+            kit = shift.get("kit")
+            if kit and kit not in users_worked[uid]["kits_worked"]:
+                users_worked[uid]["kits_worked"].append(kit)
+    
+    # Get events for this BnB on this date
+    events = await get_db().events.find(
+        {"timestamp": {"$regex": f"^{date}"}},
+        {"_id": 0}
+    ).sort("timestamp", -1).to_list(100)
+    
+    # Filter events related to this BnB or its kits
+    assigned_kits = deployment.get("assigned_kits", [])
+    relevant_events = []
+    for evt in events:
+        from_loc = evt.get("from_location", "") or ""
+        to_loc = evt.get("to_location", "") or ""
+        if (bnb in from_loc or bnb in to_loc or 
+            any(kit in from_loc or kit in to_loc for kit in assigned_kits)):
+            relevant_events.append(evt)
+    
+    # Get handovers for this deployment
+    handovers = await get_db().handovers.find(
+        {"deployment_id": deployment_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    
+    return {
+        "deployment": {
+            "id": deployment.get("id"),
+            "bnb": bnb,
+            "date": date,
+            "shift": deployment.get("shift"),
+            "assigned_kits": assigned_kits,
+            "deployment_managers": managers
+        },
+        "people": list(users_worked.values()),
+        "shift_logs": shift_logs,
+        "ssd_usage": [{"ssd": ssd, "kits": kits} for ssd, kits in ssd_usage.items()],
+        "events": relevant_events,
+        "handovers": handovers
+    }
+
+# ========================
 # EVENTS (CORE)
 # ========================
 

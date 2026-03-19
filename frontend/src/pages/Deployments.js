@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -22,7 +23,7 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, ChevronLeft, ChevronRight, Plus, Edit, Trash2, 
   MapPin, Package, Users, Play, Pause, Square, Timer, 
-  ChevronDown, ChevronUp, RefreshCw, ClipboardCheck, AlertCircle
+  ChevronDown, ChevronUp, RefreshCw, ClipboardCheck, AlertCircle, Eye
 } from 'lucide-react';
 
 const ACTIVITY_TYPES = [
@@ -55,6 +56,7 @@ const BNB_CHECKLIST_ITEMS = [
 
 export default function Deployments() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'deployment_manager';
   
@@ -706,7 +708,19 @@ export default function Deployments() {
                       <Users className="w-4 h-4" />
                       <span>{getManagerNames(dep)}</span>
                     </div>
-                    <span className="text-xs text-slate-400">{dep.assigned_kits?.length || 0} kits</span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/deployments/${dep.id}/day-view`); }}
+                        data-testid={`view-history-${dep.id}`}
+                      >
+                        <Eye className="w-3 h-3 mr-1" />
+                        View History
+                      </Button>
+                      <span className="text-xs text-slate-400">{dep.assigned_kits?.length || 0} kits</span>
+                    </div>
                   </div>
                   
                   {/* Expanded: Kit Cards + Handover */}
