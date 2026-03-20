@@ -174,6 +174,8 @@ class EventCreate(BaseModel):
     to_location: Optional[str] = None  # e.g., "kit:KIT-02" or "bnb:BnB-02" or "station:Storage"
     quantity: int = 1
     notes: Optional[str] = None
+    deployment_id: Optional[str] = None  # Optional - links event to a deployment
+    deployment_date: Optional[str] = None  # Optional - YYYY-MM-DD, will be derived from deployment if not provided
 
 class RequestCreate(BaseModel):
     item: str
@@ -739,9 +741,12 @@ async def get_bnb_day_view(deployment_id: str, user: dict = Depends(get_current_
             if kit and kit not in users_worked[uid]["kits_worked"]:
                 users_worked[uid]["kits_worked"].append(kit)
     
-    # Get events for this BnB on this date
+    # Get events for this BnB on this date - USE deployment_date
     events = await get_db().events.find(
-        {"timestamp": {"$regex": f"^{date}"}},
+        {"$or": [
+            {"deployment_date": date},
+            {"deployment_date": {"$exists": False}, "timestamp": {"$regex": f"^{date}"}}
+        ]},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(100)
     
@@ -791,20 +796,41 @@ async def get_events(
     if event_type:
         query["event_type"] = event_type
     if date:
-        query["timestamp"] = {"$regex": f"^{date}"}
+        # CRITICAL: Filter by deployment_date first, fall back to timestamp for legacy events
+        query["$or"] = [
+            {"deployment_date": date},
+            {"deployment_date": {"$exists": False}, "timestamp": {"$regex": f"^{date}"}}
+        ]
     
     return await get_db().events.find(query, {"_id": 0}).sort("timestamp", -1).to_list(500)
 
 @app.get("/api/events/today")
 async def get_today_events(user: dict = Depends(get_current_user_dep())):
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Use operational date, not UTC date
+    operational_date = get_operational_date()
     return await get_db().events.find(
-        {"timestamp": {"$regex": f"^{today}"}},
+        {"$or": [
+            {"deployment_date": operational_date},
+            {"deployment_date": {"$exists": False}, "timestamp": {"$regex": f"^{operational_date}"}}
+        ]},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(500)
 
 @app.post("/api/events")
 async def create_event(data: EventCreate, user: dict = Depends(get_current_user_dep())):
+    # Determine deployment_date
+    deployment_date = data.deployment_date
+    
+    # If deployment_id provided, get the date from deployment
+    if data.deployment_id and not deployment_date:
+        deployment = await get_db().deployments.find_one({"id": data.deployment_id})
+        if deployment:
+            deployment_date = deployment.get("date")
+    
+    # If still no deployment_date, use current operational date
+    if not deployment_date:
+        deployment_date = get_operational_date()
+    
     doc = {
         "id": f"evt-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')[:18]}",
         "event_type": data.event_type,
@@ -815,6 +841,8 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
         "to_location": data.to_location,
         "quantity": data.quantity,
         "notes": data.notes,
+        "deployment_id": data.deployment_id,
+        "deployment_date": deployment_date,  # SINGLE SOURCE OF TRUTH
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
@@ -1274,9 +1302,12 @@ async def get_live_dashboard(
         completed_records = [r for r in all_records if r.get("status") == "completed"]
         active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
     
-    # Get events for damage and lost reports
+    # Get events for damage and lost reports - USE deployment_date, fall back to timestamp for legacy
     events = await get_db().events.find(
-        {"timestamp": {"$regex": f"^{target_date}"}},
+        {"$or": [
+            {"deployment_date": target_date},
+            {"deployment_date": {"$exists": False}, "timestamp": {"$regex": f"^{target_date}"}}
+        ]},
         {"_id": 0}
     ).to_list(200)
     
