@@ -239,6 +239,12 @@ Deployments → Date → BnB → Handover buttons
 - [x] **Fix Deployment Visibility Bug** - Deployment managers can now see their deployments:
   - Calendar indicator checks morning_managers OR evening_managers
   - Both morning and night shift users see green indicator for their deployments
+- [x] **Explicit Shift Completion Flow** - End Shift requires all collections stopped:
+  - Added "End Morning Shift" / "End Evening Shift" buttons in each shift tab
+  - Click triggers check: if any kit has active/paused collection → show error toast
+  - If all collections stopped → opens handover popup automatically
+  - Collection records now include shift_type (morning/evening) for proper aggregation
+  - Handover NOT required to start collection, only at shift end
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)

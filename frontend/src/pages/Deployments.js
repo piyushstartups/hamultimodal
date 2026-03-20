@@ -501,19 +501,24 @@ export default function Deployments() {
       return;
     }
     
+    // Determine the shift type from the active tab
+    const currentShiftTab = activeShiftTab[selectedDeploymentForShift?.id] || 'morning';
+    const shiftType = currentShiftTab === 'evening' ? 'evening' : 'morning';
+    
     setShiftLoading(true);
     try {
       await api.post('/shifts/start', {
         deployment_id: selectedDeploymentForShift.id,
         kit: selectedKit,
         ssd_used: shiftFormData.ssd_used,
-        activity_type: shiftFormData.activity_type
+        activity_type: shiftFormData.activity_type,
+        shift: shiftType  // Include shift type for proper aggregation
       });
-      toast.success('Shift started!');
+      toast.success('Collection started!');
       setShiftDialogOpen(false);
       fetchKitShifts(selectedDeploymentForShift.id);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to start shift');
+      toast.error(error.response?.data?.detail || 'Failed to start collection');
     } finally {
       setShiftLoading(false);
     }
@@ -622,6 +627,27 @@ export default function Deployments() {
     setMissingItems([]);
     setHandoverNotes('');
     setHandoverDialogOpen(true);
+  };
+
+  // NEW: End Shift handler - checks for active collections first
+  const handleEndShift = (dep, shiftType) => {
+    // Check if any kit has active collection
+    const activeKits = (dep.assigned_kits || []).filter(kit => {
+      const kitData = kitShifts[kit];
+      // kitData is { active_record: {...}, records: [...] }
+      if (!kitData) return false;
+      // Check if there's an active_record with status active or paused
+      const activeRecord = kitData.active_record;
+      return activeRecord && (activeRecord.status === 'active' || activeRecord.status === 'paused');
+    });
+    
+    if (activeKits.length > 0) {
+      toast.error(`Please stop all active collections before ending shift. Active kits: ${activeKits.join(', ')}`);
+      return;
+    }
+    
+    // All collections stopped - open handover dialog
+    openHandoverDialog(dep, 'outgoing', shiftType);
   };
 
   const updateKitChecklist = (kit, key, value) => {
@@ -1094,8 +1120,8 @@ export default function Deployments() {
                         return null;
                       })()}
                       
-                      {/* Handover Buttons - Independent tracking, no restrictions */}
-                      {isManager && (() => {
+                      {/* Shift Actions - End Shift triggers handover */}
+                      {(isAdmin || isManager) && (() => {
                         const currentTab = getActiveTab(dep);
                         const access = getUserShiftAccess(dep);
                         const status = handoverStatus[dep.id];
@@ -1103,44 +1129,32 @@ export default function Deployments() {
                         
                         if (!hasAccess) return null;
                         
+                        const shiftCompleted = currentTab === 'morning' 
+                          ? status?.morning_outgoing_complete 
+                          : status?.night_outgoing_complete;
+                        
                         return (
                           <div className="flex gap-2 mb-2">
-                            {currentTab === 'morning' && (
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className={`flex-1 ${status?.morning_outgoing_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
-                                onClick={() => openHandoverDialog(dep, 'outgoing', 'morning')}
-                                data-testid="morning-end-handover-btn"
-                              >
-                                <ClipboardCheck className="w-4 h-4 mr-2" />
-                                {status?.morning_outgoing_complete ? '✓ Morning Handover Done' : 'End Morning Shift'}
-                              </Button>
-                            )}
-                            {currentTab === 'evening' && (
-                              <>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className={`flex-1 ${status?.night_incoming_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
-                                  onClick={() => openHandoverDialog(dep, 'incoming', 'evening')}
-                                  data-testid="night-start-handover-btn"
-                                >
-                                  <ClipboardCheck className="w-4 h-4 mr-2" />
-                                  {status?.night_incoming_complete ? '✓ Received' : 'Receive Handover'}
-                                </Button>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  className={`flex-1 ${status?.night_outgoing_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
-                                  onClick={() => openHandoverDialog(dep, 'outgoing', 'evening')}
-                                  data-testid="night-end-handover-btn"
-                                >
-                                  <ClipboardCheck className="w-4 h-4 mr-2" />
-                                  {status?.night_outgoing_complete ? '✓ Night Handover Done' : 'End Night Shift'}
-                                </Button>
-                              </>
-                            )}
+                            {/* End Shift Button - checks active collections, then opens handover */}
+                            <Button 
+                              variant={shiftCompleted ? "outline" : "default"}
+                              size="sm" 
+                              className={`flex-1 ${
+                                shiftCompleted 
+                                  ? 'bg-green-50 border-green-300 text-green-700' 
+                                  : currentTab === 'morning' 
+                                    ? 'bg-amber-500 hover:bg-amber-600 text-white' 
+                                    : 'bg-indigo-500 hover:bg-indigo-600 text-white'
+                              }`}
+                              onClick={() => handleEndShift(dep, currentTab === 'morning' ? 'morning' : 'evening')}
+                              data-testid={`end-${currentTab}-shift-btn`}
+                              disabled={shiftCompleted}
+                            >
+                              <ClipboardCheck className="w-4 h-4 mr-2" />
+                              {shiftCompleted 
+                                ? `✓ ${currentTab === 'morning' ? 'Morning' : 'Evening'} Shift Completed` 
+                                : `End ${currentTab === 'morning' ? 'Morning' : 'Evening'} Shift`}
+                            </Button>
                           </div>
                         );
                       })()}
