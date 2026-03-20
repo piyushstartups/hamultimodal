@@ -502,149 +502,151 @@ export default function DeploymentPlanning() {
 
       {/* Assignment Dialog */}
       <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>{editingAssignment ? 'Edit Assignment' : 'New Assignment'}</DialogTitle>
             <DialogDescription>
               {formatDate(selectedDate)} - Assign BnB, kits, and workers
             </DialogDescription>
           </DialogHeader>
           
-          <form onSubmit={handleSaveAssignment} className="space-y-6 mt-4">
-            {/* BnB Selection */}
-            <div>
-              <Label>BnB Location *</Label>
-              <Select 
-                value={formData.bnb_id} 
-                onValueChange={(val) => setFormData({ ...formData, bnb_id: val })}
-                disabled={!!editingAssignment}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Select BnB" />
-                </SelectTrigger>
-                <SelectContent>
-                  {bnbs.map(bnb => {
-                    const isAssigned = assignedKitIds.length > 0 && summary?.assignments?.some(a => a.bnb_id === bnb.kit_id && a.id !== editingAssignment?.id);
+          <form onSubmit={handleSaveAssignment} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              {/* BnB Selection */}
+              <div>
+                <Label>BnB Location *</Label>
+                <Select 
+                  value={formData.bnb_id} 
+                  onValueChange={(val) => setFormData({ ...formData, bnb_id: val })}
+                  disabled={!!editingAssignment}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select BnB" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bnbs.map(bnb => {
+                      const isAssigned = assignedKitIds.length > 0 && summary?.assignments?.some(a => a.bnb_id === bnb.kit_id && a.id !== editingAssignment?.id);
+                      return (
+                        <SelectItem key={bnb.kit_id} value={bnb.kit_id} disabled={isAssigned}>
+                          {bnb.kit_id} {isAssigned && '(already assigned)'}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Kit Selection */}
+              <div>
+                <Label>Kits to Deploy</Label>
+                <p className="text-xs text-slate-500 mb-1">Click to select/deselect kits</p>
+                <div className="grid grid-cols-4 gap-2 max-h-24 overflow-y-auto p-2 bg-slate-50 rounded-lg">
+                  {kits.map(kit => {
+                    const isSelected = formData.kit_ids.includes(kit.kit_id);
+                    const isAssignedElsewhere = assignedKitIds.includes(kit.kit_id) && !formData.kit_ids.includes(kit.kit_id);
                     return (
-                      <SelectItem key={bnb.kit_id} value={bnb.kit_id} disabled={isAssigned}>
-                        {bnb.kit_id} {isAssigned && '(already assigned)'}
-                      </SelectItem>
+                      <button
+                        key={kit.kit_id}
+                        type="button"
+                        disabled={isAssignedElsewhere}
+                        onClick={() => setFormData({ 
+                          ...formData, 
+                          kit_ids: toggleArrayItem(formData.kit_ids, kit.kit_id) 
+                        })}
+                        className={`px-2 py-1.5 text-xs rounded border transition-all ${
+                          isSelected 
+                            ? 'bg-amber-500 text-white border-amber-500' 
+                            : isAssignedElsewhere
+                            ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-amber-300'
+                        }`}
+                      >
+                        {kit.kit_id}
+                      </button>
                     );
                   })}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Kit Selection */}
-            <div>
-              <Label>Kits to Deploy</Label>
-              <p className="text-xs text-slate-500 mb-2">Click to select/deselect kits</p>
-              <div className="grid grid-cols-4 gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-lg">
-                {kits.map(kit => {
-                  const isSelected = formData.kit_ids.includes(kit.kit_id);
-                  const isAssignedElsewhere = assignedKitIds.includes(kit.kit_id) && !formData.kit_ids.includes(kit.kit_id);
-                  return (
-                    <button
-                      key={kit.kit_id}
-                      type="button"
-                      disabled={isAssignedElsewhere}
-                      onClick={() => setFormData({ 
-                        ...formData, 
-                        kit_ids: toggleArrayItem(formData.kit_ids, kit.kit_id) 
-                      })}
-                      className={`px-3 py-2 text-sm rounded-lg border transition-all ${
-                        isSelected 
-                          ? 'bg-amber-500 text-white border-amber-500' 
-                          : isAssignedElsewhere
-                          ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-amber-300'
-                      }`}
-                    >
-                      {kit.kit_id}
-                    </button>
-                  );
-                })}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">{formData.kit_ids.length} kit(s) selected</p>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{formData.kit_ids.length} kit(s) selected</p>
-            </div>
 
-            {/* Morning Team */}
-            <div>
-              <Label>Morning Shift Team</Label>
-              <p className="text-xs text-slate-500 mb-2">Select workers for morning shift</p>
-              <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 bg-blue-50 rounded-lg">
-                {workers.map(worker => {
-                  const isSelected = formData.morning_team.includes(worker.id);
-                  const isInNightTeam = formData.night_team.includes(worker.id);
-                  const isAssignedElsewhere = assignedWorkerIds.includes(worker.id) && 
-                    !formData.morning_team.includes(worker.id) && 
-                    !formData.night_team.includes(worker.id);
-                  return (
-                    <button
-                      key={worker.id}
-                      type="button"
-                      disabled={isInNightTeam || isAssignedElsewhere}
-                      onClick={() => setFormData({ 
-                        ...formData, 
-                        morning_team: toggleArrayItem(formData.morning_team, worker.id) 
-                      })}
-                      className={`px-3 py-2 text-sm rounded-lg border transition-all text-left ${
-                        isSelected 
-                          ? 'bg-blue-500 text-white border-blue-500' 
-                          : isInNightTeam
-                          ? 'bg-purple-100 text-purple-400 border-purple-200 cursor-not-allowed'
-                          : isAssignedElsewhere
-                          ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300'
-                      }`}
-                    >
-                      {worker.name}
-                    </button>
-                  );
-                })}
+              {/* Morning Team */}
+              <div>
+                <Label>Morning Shift Team</Label>
+                <p className="text-xs text-slate-500 mb-1">Select workers for morning shift</p>
+                <div className="grid grid-cols-2 gap-2 max-h-24 overflow-y-auto p-2 bg-blue-50 rounded-lg">
+                  {workers.map(worker => {
+                    const isSelected = formData.morning_team.includes(worker.id);
+                    const isInNightTeam = formData.night_team.includes(worker.id);
+                    const isAssignedElsewhere = assignedWorkerIds.includes(worker.id) && 
+                      !formData.morning_team.includes(worker.id) && 
+                      !formData.night_team.includes(worker.id);
+                    return (
+                      <button
+                        key={worker.id}
+                        type="button"
+                        disabled={isInNightTeam || isAssignedElsewhere}
+                        onClick={() => setFormData({ 
+                          ...formData, 
+                          morning_team: toggleArrayItem(formData.morning_team, worker.id) 
+                        })}
+                        className={`px-2 py-1.5 text-xs rounded border transition-all text-left ${
+                          isSelected 
+                            ? 'bg-blue-500 text-white border-blue-500' 
+                            : isInNightTeam
+                            ? 'bg-purple-100 text-purple-400 border-purple-200 cursor-not-allowed'
+                            : isAssignedElsewhere
+                            ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300'
+                        }`}
+                      >
+                        {worker.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">{formData.morning_team.length} worker(s)</p>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{formData.morning_team.length} worker(s) selected</p>
-            </div>
 
-            {/* Night Team */}
-            <div>
-              <Label>Night Shift Team</Label>
-              <p className="text-xs text-slate-500 mb-2">Select workers for night shift</p>
-              <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 bg-purple-50 rounded-lg">
-                {workers.map(worker => {
-                  const isSelected = formData.night_team.includes(worker.id);
-                  const isInMorningTeam = formData.morning_team.includes(worker.id);
-                  const isAssignedElsewhere = assignedWorkerIds.includes(worker.id) && 
-                    !formData.morning_team.includes(worker.id) && 
-                    !formData.night_team.includes(worker.id);
-                  return (
-                    <button
-                      key={worker.id}
-                      type="button"
-                      disabled={isInMorningTeam || isAssignedElsewhere}
-                      onClick={() => setFormData({ 
-                        ...formData, 
-                        night_team: toggleArrayItem(formData.night_team, worker.id) 
-                      })}
-                      className={`px-3 py-2 text-sm rounded-lg border transition-all text-left ${
-                        isSelected 
-                          ? 'bg-purple-500 text-white border-purple-500' 
-                          : isInMorningTeam
-                          ? 'bg-blue-100 text-blue-400 border-blue-200 cursor-not-allowed'
-                          : isAssignedElsewhere
-                          ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed'
-                          : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300'
-                      }`}
-                    >
-                      {worker.name}
-                    </button>
-                  );
-                })}
+              {/* Night Team */}
+              <div>
+                <Label>Night Shift Team</Label>
+                <p className="text-xs text-slate-500 mb-1">Select workers for night shift</p>
+                <div className="grid grid-cols-2 gap-2 max-h-24 overflow-y-auto p-2 bg-purple-50 rounded-lg">
+                  {workers.map(worker => {
+                    const isSelected = formData.night_team.includes(worker.id);
+                    const isInMorningTeam = formData.morning_team.includes(worker.id);
+                    const isAssignedElsewhere = assignedWorkerIds.includes(worker.id) && 
+                      !formData.morning_team.includes(worker.id) && 
+                      !formData.night_team.includes(worker.id);
+                    return (
+                      <button
+                        key={worker.id}
+                        type="button"
+                        disabled={isInMorningTeam || isAssignedElsewhere}
+                        onClick={() => setFormData({ 
+                          ...formData, 
+                          night_team: toggleArrayItem(formData.night_team, worker.id) 
+                        })}
+                        className={`px-2 py-1.5 text-xs rounded border transition-all text-left ${
+                          isSelected 
+                            ? 'bg-purple-500 text-white border-purple-500' 
+                            : isInMorningTeam
+                            ? 'bg-blue-100 text-blue-400 border-blue-200 cursor-not-allowed'
+                            : isAssignedElsewhere
+                            ? 'bg-slate-200 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300'
+                        }`}
+                      >
+                        {worker.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">{formData.night_team.length} worker(s)</p>
               </div>
-              <p className="text-xs text-slate-500 mt-1">{formData.night_team.length} worker(s) selected</p>
             </div>
 
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button 
                 type="button" 
                 variant="outline" 
@@ -663,44 +665,46 @@ export default function DeploymentPlanning() {
 
       {/* Add BnB Dialog */}
       <Dialog open={bnbDialogOpen} onOpenChange={setBnbDialogOpen}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[400px] max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>Add New BnB Location</DialogTitle>
             <DialogDescription>
               Create a new BnB location for deployment
             </DialogDescription>
           </DialogHeader>
           
-          <form onSubmit={handleCreateBnb} className="space-y-4 mt-4">
-            <div>
-              <Label>BnB ID *</Label>
-              <Input
-                value={bnbFormData.kit_id}
-                onChange={(e) => setBnbFormData({ ...bnbFormData, kit_id: e.target.value.toUpperCase() })}
-                placeholder="e.g., BNB-05"
-                className="mt-2"
-                required
-              />
-              <p className="text-xs text-slate-500 mt-1">Unique identifier for this location</p>
+          <form onSubmit={handleCreateBnb} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              <div>
+                <Label>BnB ID *</Label>
+                <Input
+                  value={bnbFormData.kit_id}
+                  onChange={(e) => setBnbFormData({ ...bnbFormData, kit_id: e.target.value.toUpperCase() })}
+                  placeholder="e.g., BNB-05"
+                  className="mt-1"
+                  required
+                />
+                <p className="text-xs text-slate-500 mt-1">Unique identifier for this location</p>
+              </div>
+
+              <div>
+                <Label>Status</Label>
+                <Select 
+                  value={bnbFormData.status} 
+                  onValueChange={(val) => setBnbFormData({ ...bnbFormData, status: val })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div>
-              <Label>Status</Label>
-              <Select 
-                value={bnbFormData.status} 
-                onValueChange={(val) => setBnbFormData({ ...bnbFormData, status: val })}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button 
                 type="button" 
                 variant="outline" 

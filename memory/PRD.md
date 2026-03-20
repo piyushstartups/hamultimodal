@@ -220,6 +220,14 @@ Deployments → Date → BnB → Handover buttons
   - Handover status tracking with visual indicators
   - Morning must complete "End Shift Handover" before Night can start collection
   - Collection records display shift badge (AM/PM) for clarity
+- [x] **Hardware Upload Popup Fix** - Compact 3-column layout with sticky footer
+- [x] **CRITICAL: toISOString() Date Bug** - Fixed timezone issue where `toISOString()` was converting local dates to UTC, causing date mismatch. Replaced with local date formatting in Deployments.js, LiveDashboard.js, Analytics.js, AdminAnalytics.js, DeploymentPlanning.js
+- [x] **All Popup/Modal UI Fix** - Applied consistent styling across all dialogs:
+  - max-h-[85vh] with flex layout
+  - Scrollable content area (overflow-y-auto)
+  - Sticky footer with action buttons always visible
+  - Compact spacing and smaller form elements
+  - Files fixed: Actions.js, AdminPanel.js, DeploymentPlanning.js, Deployments.js, Incidents.js, Inventory.js
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)

@@ -763,9 +763,9 @@ export default function Inventory() {
 
       {/* Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
+            <DialogTitle className="text-base">
               {dialogType === 'add' ? 'Add Item' : 
                dialogType === 'edit' ? 'Edit Item' : 
                dialogType === 'transfer' ? `Transfer: ${editingItem?.item_name}` : 
@@ -773,16 +773,17 @@ export default function Inventory() {
                `Report Damage: ${editingItem?.item_name}`}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
             {(dialogType === 'add' || dialogType === 'edit') && (
               <>
                 <div>
-                  <Label>Item Name *</Label>
+                  <Label className="text-xs">Item Name *</Label>
                   <Input
                     value={formData.item_name}
                     onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
                     placeholder="e.g., SSD-01, Camera-02"
-                    className="mt-1"
+                    className="mt-1 h-9"
                     disabled={dialogType === 'edit'}
                     required
                     data-testid="item-name-input"
@@ -790,9 +791,9 @@ export default function Inventory() {
                 </div>
                 
                 <div>
-                  <Label>Category</Label>
+                  <Label className="text-xs">Category</Label>
                   <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                     </SelectContent>
@@ -800,33 +801,33 @@ export default function Inventory() {
                 </div>
                 
                 <div>
-                  <Label>Tracking Type</Label>
+                  <Label className="text-xs">Tracking Type</Label>
                   <Select value={formData.tracking_type} onValueChange={(v) => setFormData({ ...formData, tracking_type: v })}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="individual">Individual (unique items)</SelectItem>
-                      <SelectItem value="quantity">Quantity (bulk items)</SelectItem>
+                      <SelectItem value="individual">Individual (unique)</SelectItem>
+                      <SelectItem value="quantity">Quantity (bulk)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
                 {formData.tracking_type === 'quantity' && (
                   <div>
-                    <Label>Quantity</Label>
+                    <Label className="text-xs">Quantity</Label>
                     <Input
                       type="number"
                       min="1"
                       value={formData.quantity}
                       onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-                      className="mt-1"
+                      className="mt-1 h-9"
                     />
                   </div>
                 )}
                 
                 <div>
-                  <Label>Status</Label>
+                  <Label className="text-xs">Status</Label>
                   <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="active">Active</SelectItem>
                       <SelectItem value="damaged">Damaged</SelectItem>
@@ -836,20 +837,20 @@ export default function Inventory() {
                   </Select>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label>Location Type</Label>
+                    <Label className="text-xs">Location Type</Label>
                     <Select value={formData.location_type} onValueChange={(v) => setFormData({ ...formData, location_type: v, location_value: '' })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>Location</Label>
+                    <Label className="text-xs">Location</Label>
                     <Select value={formData.location_value} onValueChange={(v) => setFormData({ ...formData, location_value: v })}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {getLocationOptions(formData.location_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
@@ -861,20 +862,20 @@ export default function Inventory() {
             
             {dialogType === 'transfer' && (
               <>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label>From Type</Label>
+                    <Label className="text-xs">From Type</Label>
                     <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>From</Label>
+                    <Label className="text-xs">From</Label>
                     <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
@@ -882,20 +883,20 @@ export default function Inventory() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label>To Type</Label>
+                    <Label className="text-xs">To Type</Label>
                     <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>To</Label>
+                    <Label className="text-xs">To</Label>
                     <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
@@ -904,12 +905,12 @@ export default function Inventory() {
                 </div>
                 
                 <div>
-                  <Label>Notes (optional)</Label>
+                  <Label className="text-xs">Notes (optional)</Label>
                   <Textarea
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="Add transfer notes"
-                    className="mt-1"
+                    className="mt-1 h-16 resize-none text-sm"
                   />
                 </div>
               </>
@@ -919,29 +920,29 @@ export default function Inventory() {
             {dialogType === 'bulk-transfer' && (
               <>
                 <div>
-                  <Label>Select Item *</Label>
+                  <Label className="text-xs">Select Item *</Label>
                   <Select value={formData.item_name} onValueChange={(v) => setFormData({ ...formData, item_name: v })}>
-                    <SelectTrigger className="mt-1" data-testid="bulk-transfer-item-select"><SelectValue placeholder="Select an item" /></SelectTrigger>
+                    <SelectTrigger className="mt-1 h-9" data-testid="bulk-transfer-item-select"><SelectValue placeholder="Select an item" /></SelectTrigger>
                     <SelectContent>
                       {items.map((item, idx) => <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>{item.item_name} ({item.current_location})</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label>From Type</Label>
+                    <Label className="text-xs">From Type</Label>
                     <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>From</Label>
+                    <Label className="text-xs">From</Label>
                     <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
@@ -949,20 +950,20 @@ export default function Inventory() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label>To Type</Label>
+                    <Label className="text-xs">To Type</Label>
                     <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>To</Label>
+                    <Label className="text-xs">To</Label>
                     <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>
                         {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
@@ -971,12 +972,12 @@ export default function Inventory() {
                 </div>
                 
                 <div>
-                  <Label>Notes (optional)</Label>
+                  <Label className="text-xs">Notes (optional)</Label>
                   <Textarea
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="Add transfer notes"
-                    className="mt-1"
+                    className="mt-1 h-16 resize-none text-sm"
                     data-testid="bulk-transfer-notes"
                   />
                 </div>
@@ -985,18 +986,19 @@ export default function Inventory() {
             
             {dialogType === 'damage' && (
               <div>
-                <Label>Damage Description *</Label>
+                <Label className="text-xs">Damage Description *</Label>
                 <Textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   placeholder="Describe the damage"
-                  className="mt-1"
+                  className="mt-1 h-20 resize-none text-sm"
                   required
                 />
               </div>
             )}
+            </div>
             
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>

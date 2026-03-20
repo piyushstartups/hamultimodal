@@ -428,13 +428,15 @@ export default function QuickActions() {
 
       {/* Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>{getDialogTitle()}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-            {renderForm()}
-            <div className="flex gap-3 pt-4">
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              {renderForm()}
+            </div>
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>

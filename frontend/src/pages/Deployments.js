@@ -1354,35 +1354,37 @@ export default function Deployments() {
 
       {/* Start Shift Dialog */}
       <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>Start Collection - {selectedKit}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleStartShift} className="space-y-4 mt-4">
-            <div>
-              <Label>SSD *</Label>
-              <Select value={shiftFormData.ssd_used} onValueChange={(v) => setShiftFormData({ ...shiftFormData, ssd_used: v })}>
-                <SelectTrigger className="mt-1" data-testid="ssd-select"><SelectValue placeholder="Select SSD" /></SelectTrigger>
-                <SelectContent>
-                  {ssdItems.length > 0 
-                    ? ssdItems.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)
-                    : items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)
-                  }
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <Label>Activity Type *</Label>
-              <Select value={shiftFormData.activity_type} onValueChange={(v) => setShiftFormData({ ...shiftFormData, activity_type: v })}>
-                <SelectTrigger className="mt-1" data-testid="activity-select"><SelectValue placeholder="Select activity" /></SelectTrigger>
-                <SelectContent>
-                  {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+          <form onSubmit={handleStartShift} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              <div>
+                <Label>SSD *</Label>
+                <Select value={shiftFormData.ssd_used} onValueChange={(v) => setShiftFormData({ ...shiftFormData, ssd_used: v })}>
+                  <SelectTrigger className="mt-1" data-testid="ssd-select"><SelectValue placeholder="Select SSD" /></SelectTrigger>
+                  <SelectContent>
+                    {ssdItems.length > 0 
+                      ? ssdItems.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)
+                      : items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)
+                    }
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label>Activity Type *</Label>
+                <Select value={shiftFormData.activity_type} onValueChange={(v) => setShiftFormData({ ...shiftFormData, activity_type: v })}>
+                  <SelectTrigger className="mt-1" data-testid="activity-select"><SelectValue placeholder="Select activity" /></SelectTrigger>
+                  <SelectContent>
+                    {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button type="button" variant="outline" onClick={() => setShiftDialogOpen(false)} className="flex-1">Cancel</Button>
               <Button type="submit" className="flex-1 bg-green-500 hover:bg-green-600" disabled={shiftLoading} data-testid="start-shift-btn">
                 {shiftLoading ? 'Starting...' : 'Start'}
@@ -1394,23 +1396,23 @@ export default function Deployments() {
 
       {/* Handover Dialog */}
       <Dialog open={handoverDialogOpen} onOpenChange={setHandoverDialogOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {handoverShiftType === 'morning' ? <Sun className="w-5 h-5 text-amber-500" /> : <Moon className="w-5 h-5 text-indigo-500" />}
-              {handoverShiftType === 'morning' ? 'Morning' : 'Night'} Shift - {handoverType === 'outgoing' ? 'End Handover' : 'Receive Handover'} - {handoverDeployment?.bnb}
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              {handoverShiftType === 'morning' ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-indigo-500" />}
+              {handoverShiftType === 'morning' ? 'Morning' : 'Night'} - {handoverType === 'outgoing' ? 'End Handover' : 'Receive'} - {handoverDeployment?.bnb}
             </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6 mt-4">
-            {/* Kit-level checklists */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+            {/* Kit-level checklists - Compact */}
             {handoverDeployment?.assigned_kits?.map(kit => (
-              <div key={kit} className="border rounded-lg p-4">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <Package className="w-4 h-4" />
+              <div key={kit} className="border rounded-lg p-3">
+                <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                  <Package className="w-3 h-3" />
                   {kit}
                 </h4>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   {KIT_CHECKLIST_ITEMS.map(item => (
                     <div key={item.key}>
                       <Label className="text-xs">{item.label}</Label>
@@ -1419,7 +1421,7 @@ export default function Deployments() {
                         min="0"
                         value={kitChecklists[kit]?.[item.key] || 0}
                         onChange={(e) => updateKitChecklist(kit, item.key, e.target.value)}
-                        className="mt-1 h-9"
+                        className="mt-0.5 h-8 text-sm"
                         data-testid={`kit-${kit}-${item.key}`}
                       />
                     </div>
@@ -1428,13 +1430,13 @@ export default function Deployments() {
               </div>
             ))}
             
-            {/* BnB-level checklist */}
-            <div className="border rounded-lg p-4 bg-slate-50">
-              <h4 className="font-semibold mb-3 flex items-center gap-2">
-                <MapPin className="w-4 h-4" />
+            {/* BnB-level checklist - Compact */}
+            <div className="border rounded-lg p-3 bg-slate-50">
+              <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                <MapPin className="w-3 h-3" />
                 Shared BnB Items
               </h4>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2">
                 {BNB_CHECKLIST_ITEMS.map(item => (
                   <div key={item.key}>
                     <Label className="text-xs">{item.label}</Label>
@@ -1443,7 +1445,7 @@ export default function Deployments() {
                       min="0"
                       value={bnbChecklist[item.key] || 0}
                       onChange={(e) => updateBnbChecklist(item.key, e.target.value)}
-                      className="mt-1 h-9"
+                      className="mt-0.5 h-8 text-sm"
                       data-testid={`bnb-${item.key}`}
                     />
                   </div>
@@ -1451,27 +1453,27 @@ export default function Deployments() {
               </div>
             </div>
             
-            {/* Missing items */}
-            <div className="border rounded-lg p-4 border-amber-200 bg-amber-50">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600" />
+            {/* Missing items - Compact */}
+            <div className="border rounded-lg p-3 border-amber-200 bg-amber-50">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-semibold text-sm flex items-center gap-2">
+                  <AlertCircle className="w-3 h-3 text-amber-600" />
                   Missing Items
                 </h4>
-                <Button variant="outline" size="sm" onClick={addMissingItem}>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addMissingItem}>
                   <Plus className="w-3 h-3 mr-1" />
                   Add
                 </Button>
               </div>
               
               {missingItems.length === 0 ? (
-                <p className="text-sm text-slate-500">No missing items reported</p>
+                <p className="text-xs text-slate-500">No missing items</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5 max-h-24 overflow-y-auto">
                   {missingItems.map((mi, idx) => (
-                    <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded border">
+                    <div key={idx} className="flex items-center gap-1.5 bg-white p-1.5 rounded border text-xs">
                       <Select value={mi.item} onValueChange={(v) => updateMissingItem(idx, 'item', v)}>
-                        <SelectTrigger className="flex-1 h-9"><SelectValue placeholder="Item" /></SelectTrigger>
+                        <SelectTrigger className="flex-1 h-7 text-xs"><SelectValue placeholder="Item" /></SelectTrigger>
                         <SelectContent>
                           {items.map(i => <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>)}
                         </SelectContent>
@@ -1481,11 +1483,11 @@ export default function Deployments() {
                         min="1"
                         value={mi.quantity}
                         onChange={(e) => updateMissingItem(idx, 'quantity', parseInt(e.target.value) || 1)}
-                        className="w-16 h-9"
+                        className="w-12 h-7 text-xs"
                         placeholder="Qty"
                       />
                       <Select value={mi.kit_id || 'bnb'} onValueChange={(v) => updateMissingItem(idx, 'kit_id', v === 'bnb' ? '' : v)}>
-                        <SelectTrigger className="w-28 h-9"><SelectValue placeholder="Kit" /></SelectTrigger>
+                        <SelectTrigger className="w-20 h-7 text-xs"><SelectValue placeholder="Kit" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="bnb">BnB</SelectItem>
                           {handoverDeployment?.assigned_kits?.map(k => <SelectItem key={k} value={k}>{k}</SelectItem>)}
@@ -1497,10 +1499,10 @@ export default function Deployments() {
                           checked={mi.report_as_lost}
                           onChange={(e) => updateMissingItem(idx, 'report_as_lost', e.target.checked)}
                         />
-                        Lost?
+                        Lost
                       </label>
-                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => removeMissingItem(idx)}>
-                        <Trash2 className="w-4 h-4 text-red-500" />
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeMissingItem(idx)}>
+                        <Trash2 className="w-3 h-3 text-red-500" />
                       </Button>
                     </div>
                   ))}
@@ -1508,94 +1510,96 @@ export default function Deployments() {
               )}
             </div>
             
-            {/* Notes */}
+            {/* Notes - Compact */}
             <div>
-              <Label>Notes (optional)</Label>
+              <Label className="text-xs">Notes (optional)</Label>
               <Textarea
                 value={handoverNotes}
                 onChange={(e) => setHandoverNotes(e.target.value)}
                 placeholder="Any additional notes..."
-                className="mt-1"
+                className="mt-1 h-16 text-sm resize-none"
               />
             </div>
+          </div>
 
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setHandoverDialogOpen(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button onClick={handleSubmitHandover} className="flex-1" data-testid="submit-handover-btn">
-                Submit Handover
-              </Button>
-            </div>
+          <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
+            <Button type="button" variant="outline" onClick={() => setHandoverDialogOpen(false)} className="flex-1">
+              Cancel
+            </Button>
+            <Button onClick={handleSubmitHandover} className="flex-1" data-testid="submit-handover-btn">
+              Submit Handover
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Admin: Add/Edit Deployment Dialog - NEW STRUCTURE */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>{editingDeployment ? 'Edit Deployment' : 'Add Deployment'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-            <div>
-              <Label>BnB *</Label>
-              <Select value={formData.bnb} onValueChange={(v) => setFormData({ ...formData, bnb: v })}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Select BnB" /></SelectTrigger>
-                <SelectContent>
-                  {bnbs.map(b => <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* Morning Team */}
-            <div>
-              <Label className="flex items-center gap-2">
-                <Sun className="w-4 h-4 text-amber-500" />
-                Morning Team
-              </Label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {managers.map(m => (
-                  <button key={`morning-${m.id}`} type="button" onClick={() => toggleMorningManager(m.id)}
-                    className={`px-3 py-1.5 text-sm rounded border transition-all ${
-                      formData.morning_managers?.includes(m.id) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-700 border-slate-200'
-                    }`}
-                  >{m.name}</button>
-                ))}
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              <div>
+                <Label>BnB *</Label>
+                <Select value={formData.bnb} onValueChange={(v) => setFormData({ ...formData, bnb: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Select BnB" /></SelectTrigger>
+                  <SelectContent>
+                    {bnbs.map(b => <SelectItem key={b.name} value={b.name}>{b.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-            
-            {/* Evening Team */}
-            <div>
-              <Label className="flex items-center gap-2">
-                <Moon className="w-4 h-4 text-indigo-500" />
-                Evening Team
-              </Label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {managers.map(m => (
-                  <button key={`evening-${m.id}`} type="button" onClick={() => toggleEveningManager(m.id)}
-                    className={`px-3 py-1.5 text-sm rounded border transition-all ${
-                      formData.evening_managers?.includes(m.id) ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200'
-                    }`}
-                  >{m.name}</button>
-                ))}
+              
+              {/* Morning Team */}
+              <div>
+                <Label className="flex items-center gap-2 text-sm">
+                  <Sun className="w-3 h-3 text-amber-500" />
+                  Morning Team
+                </Label>
+                <div className="flex flex-wrap gap-1.5 mt-1 max-h-20 overflow-y-auto p-1 bg-slate-50 rounded">
+                  {managers.map(m => (
+                    <button key={`morning-${m.id}`} type="button" onClick={() => toggleMorningManager(m.id)}
+                      className={`px-2 py-1 text-xs rounded border transition-all ${
+                        formData.morning_managers?.includes(m.id) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >{m.name}</button>
+                  ))}
+                </div>
               </div>
-            </div>
-            
-            <div>
-              <Label>Kits</Label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {kits.map(k => (
-                  <button key={k.kit_id} type="button" onClick={() => toggleKit(k.kit_id)}
-                    className={`px-3 py-1 text-sm rounded border transition-all ${
-                      formData.assigned_kits?.includes(k.kit_id) ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-700 border-slate-200'
-                    }`}
-                  >{k.kit_id}</button>
-                ))}
+              
+              {/* Evening Team */}
+              <div>
+                <Label className="flex items-center gap-2 text-sm">
+                  <Moon className="w-3 h-3 text-indigo-500" />
+                  Evening Team
+                </Label>
+                <div className="flex flex-wrap gap-1.5 mt-1 max-h-20 overflow-y-auto p-1 bg-slate-50 rounded">
+                  {managers.map(m => (
+                    <button key={`evening-${m.id}`} type="button" onClick={() => toggleEveningManager(m.id)}
+                      className={`px-2 py-1 text-xs rounded border transition-all ${
+                        formData.evening_managers?.includes(m.id) ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >{m.name}</button>
+                  ))}
+                </div>
+              </div>
+              
+              <div>
+                <Label>Kits</Label>
+                <div className="flex flex-wrap gap-1.5 mt-1 max-h-20 overflow-y-auto p-1 bg-slate-50 rounded">
+                  {kits.map(k => (
+                    <button key={k.kit_id} type="button" onClick={() => toggleKit(k.kit_id)}
+                      className={`px-2 py-1 text-xs rounded border transition-all ${
+                        formData.assigned_kits?.includes(k.kit_id) ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >{k.kit_id}</button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">Cancel</Button>
               <Button type="submit" className="flex-1">{editingDeployment ? 'Update' : 'Create'}</Button>
             </div>

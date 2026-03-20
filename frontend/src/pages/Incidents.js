@@ -380,125 +380,126 @@ export default function Incidents() {
 
       {/* Create Incident Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>Report Incident</DialogTitle>
-            <DialogDescription>Record damage, loss, or misuse with accountability</DialogDescription>
+            <DialogDescription>Record damage, loss, or misuse</DialogDescription>
           </DialogHeader>
           
-          <form onSubmit={handleCreateIncident} className="space-y-4 mt-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Incident Type *</Label>
-                <Select value={formData.incident_type} onValueChange={(val) => setFormData({ ...formData, incident_type: val })}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {INCIDENT_TYPES.map(t => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          <form onSubmit={handleCreateIncident} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Incident Type *</Label>
+                  <Select value={formData.incident_type} onValueChange={(val) => setFormData({ ...formData, incident_type: val })}>
+                    <SelectTrigger className="mt-1 h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INCIDENT_TYPES.map(t => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Severity *</Label>
+                  <Select value={formData.severity} onValueChange={(val) => setFormData({ ...formData, severity: val })}>
+                    <SelectTrigger className="mt-1 h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SEVERITY_LEVELS.map(s => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div>
-                <Label>Severity *</Label>
-                <Select value={formData.severity} onValueChange={(val) => setFormData({ ...formData, severity: val })}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SEVERITY_LEVELS.map(s => (
-                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
-            <div>
-              <Label>Worker Responsible *</Label>
-              <Select value={formData.user_id} onValueChange={(val) => setFormData({ ...formData, user_id: val })}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select worker" />
-                </SelectTrigger>
-                <SelectContent>
-                  {workers.map(w => (
-                    <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Item (if applicable)</Label>
-                <Select value={formData.item_id} onValueChange={(val) => setFormData({ ...formData, item_id: val })}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select item" />
+                <Label className="text-xs">Worker Responsible *</Label>
+                <Select value={formData.user_id} onValueChange={(val) => setFormData({ ...formData, user_id: val })}>
+                  <SelectTrigger className="mt-1 h-9">
+                    <SelectValue placeholder="Select worker" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    {items.map(i => (
-                      <SelectItem key={i.item_id} value={i.item_id}>{i.item_id} - {i.item_name}</SelectItem>
+                    {workers.map(w => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>Kit (if applicable)</Label>
-                <Select value={formData.kit_id} onValueChange={(val) => setFormData({ ...formData, kit_id: val })}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select kit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    {kits.filter(k => k.type === 'kit').map(k => (
-                      <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Item</Label>
+                  <Select value={formData.item_id} onValueChange={(val) => setFormData({ ...formData, item_id: val })}>
+                    <SelectTrigger className="mt-1 h-9">
+                      <SelectValue placeholder="Select item" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {items.map(i => (
+                        <SelectItem key={i.item_id} value={i.item_id}>{i.item_id} - {i.item_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Kit</Label>
+                  <Select value={formData.kit_id} onValueChange={(val) => setFormData({ ...formData, kit_id: val })}>
+                    <SelectTrigger className="mt-1 h-9">
+                      <SelectValue placeholder="Select kit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {kits.filter(k => k.type === 'kit').map(k => (
+                        <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Shift Date *</Label>
+                  <Input
+                    type="date"
+                    value={formData.shift_date}
+                    onChange={(e) => setFormData({ ...formData, shift_date: e.target.value })}
+                    className="mt-1 h-9"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Penalty ($)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.penalty_amount}
+                    onChange={(e) => setFormData({ ...formData, penalty_amount: e.target.value })}
+                    placeholder="0.00"
+                    className="mt-1 h-9"
+                  />
+                </div>
+              </div>
+
               <div>
-                <Label>Shift Date *</Label>
-                <Input
-                  type="date"
-                  value={formData.shift_date}
-                  onChange={(e) => setFormData({ ...formData, shift_date: e.target.value })}
-                  className="mt-1"
+                <Label className="text-xs">Description *</Label>
+                <Textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Describe what happened..."
+                  className="mt-1 h-16 resize-none text-sm"
                   required
                 />
               </div>
-              <div>
-                <Label>Penalty Amount ($)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.penalty_amount}
-                  onChange={(e) => setFormData({ ...formData, penalty_amount: e.target.value })}
-                  placeholder="0.00"
-                  className="mt-1"
-                />
-              </div>
             </div>
 
-            <div>
-              <Label>Description *</Label>
-              <Textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Describe what happened..."
-                className="mt-1"
-                rows={3}
-                required
-              />
-            </div>
-
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
               <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)} className="flex-1">
                 Cancel
               </Button>
@@ -512,13 +513,13 @@ export default function Incidents() {
 
       {/* Incident Detail Dialog */}
       <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[500px] max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>Incident Details</DialogTitle>
           </DialogHeader>
           
           {selectedIncident && (
-            <div className="space-y-4 mt-4">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-lg font-bold">{selectedIncident.id}</span>
                 <span className={`text-sm px-3 py-1 rounded-full ${getStatusStyle(selectedIncident.status)}`}>
@@ -597,35 +598,35 @@ export default function Incidents() {
 
       {/* Worker History Dialog */}
       <Dialog open={workerHistoryOpen} onOpenChange={setWorkerHistoryOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b flex-shrink-0">
             <DialogTitle>Worker History</DialogTitle>
           </DialogHeader>
           
           {workerHistory && (
-            <div className="space-y-4 mt-4">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center">
-                  <User className="w-6 h-6 text-slate-600" />
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center">
+                  <User className="w-5 h-5 text-slate-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold">{workerHistory.worker.name}</h3>
-                  <p className="text-sm text-slate-600">{workerHistory.worker.role}</p>
+                  <h3 className="font-bold">{workerHistory.worker.name}</h3>
+                  <p className="text-xs text-slate-600">{workerHistory.worker.role}</p>
                 </div>
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-blue-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-900">{workerHistory.stats.total_shifts}</p>
-                  <p className="text-xs text-blue-700">Total Shifts</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-blue-50 rounded-lg p-2 text-center">
+                  <p className="text-xl font-bold text-blue-900">{workerHistory.stats.total_shifts}</p>
+                  <p className="text-xs text-blue-700">Shifts</p>
                 </div>
-                <div className="bg-green-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-green-900">{workerHistory.stats.total_hours}</p>
-                  <p className="text-xs text-green-700">Hours Worked</p>
+                <div className="bg-green-50 rounded-lg p-2 text-center">
+                  <p className="text-xl font-bold text-green-900">{workerHistory.stats.total_hours}</p>
+                  <p className="text-xs text-green-700">Hours</p>
                 </div>
-                <div className="bg-red-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-red-900">{workerHistory.stats.total_incidents}</p>
+                <div className="bg-red-50 rounded-lg p-2 text-center">
+                  <p className="text-xl font-bold text-red-900">{workerHistory.stats.total_incidents}</p>
                   <p className="text-xs text-red-700">Incidents</p>
                 </div>
               </div>
@@ -633,17 +634,17 @@ export default function Incidents() {
               {/* Incidents */}
               {workerHistory.incidents.length > 0 && (
                 <div>
-                  <h4 className="font-semibold text-slate-900 mb-2">Incident History</h4>
-                  <div className="space-y-2">
+                  <h4 className="font-semibold text-slate-900 text-sm mb-2">Incident History</h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
                     {workerHistory.incidents.map(inc => (
-                      <div key={inc.id} className="bg-slate-50 rounded-lg p-3 text-sm">
+                      <div key={inc.id} className="bg-slate-50 rounded-lg p-2 text-sm">
                         <div className="flex justify-between items-start">
-                          <span className="font-medium">{inc.incident_type} - {inc.description.slice(0, 50)}...</span>
+                          <span className="font-medium text-xs">{inc.incident_type} - {inc.description.slice(0, 40)}...</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusStyle(inc.status)}`}>
                             {inc.status}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">{inc.shift_date}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{inc.shift_date}</p>
                       </div>
                     ))}
                   </div>
@@ -652,10 +653,10 @@ export default function Incidents() {
 
               {/* Penalties Total */}
               {workerHistory.stats.total_penalties > 0 && (
-                <div className="bg-red-50 rounded-lg p-4">
+                <div className="bg-red-50 rounded-lg p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-red-700">Total Penalties</span>
-                    <span className="text-2xl font-bold text-red-900">${workerHistory.stats.total_penalties}</span>
+                    <span className="text-red-700 text-sm">Total Penalties</span>
+                    <span className="text-xl font-bold text-red-900">${workerHistory.stats.total_penalties}</span>
                   </div>
                 </div>
               )}
