@@ -3,7 +3,11 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { ArrowLeft, RefreshCw, Clock, CheckCircle, Timer, Play, ChevronLeft, ChevronRight } from 'lucide-react';
+import { 
+  ArrowLeft, RefreshCw, Clock, ChevronLeft, ChevronRight, 
+  ChevronDown, ChevronUp, MapPin, Package, AlertTriangle, 
+  XCircle, Sun, Moon
+} from 'lucide-react';
 
 export default function LiveDashboard() {
   const { user } = useAuth();
@@ -13,6 +17,7 @@ export default function LiveDashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [expandedBnbs, setExpandedBnbs] = useState({});
 
   useEffect(() => {
     fetchData();
@@ -22,10 +27,16 @@ export default function LiveDashboard() {
 
   const fetchData = async () => {
     try {
-      const params = isAdmin ? `?date=${selectedDate}` : '';
-      const response = await api.get(`/dashboard/live${params}`);
+      const response = await api.get(`/dashboard/live?date=${selectedDate}`);
       setData(response.data);
       setLastUpdate(new Date());
+      
+      // Auto-expand all BnBs on first load
+      if (response.data.bnbs) {
+        const expanded = {};
+        response.data.bnbs.forEach(bnb => { expanded[bnb.bnb] = true; });
+        setExpandedBnbs(expanded);
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -47,179 +58,238 @@ export default function LiveDashboard() {
     setLoading(true);
   };
 
+  const toggleBnb = (bnb) => {
+    setExpandedBnbs(prev => ({ ...prev, [bnb]: !prev[bnb] }));
+  };
+
   const isToday = selectedDate === new Date().toISOString().split('T')[0];
   const displayDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
-    weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' 
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   });
 
   return (
     <div className="min-h-screen bg-slate-100">
       {/* Header */}
-      <header className="bg-white border-b">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+      <header className="bg-slate-900 text-white">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <a href="/dashboard">
-              <Button variant="ghost" size="icon" data-testid="back-btn">
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/20" data-testid="back-btn">
                 <ArrowLeft className="w-5 h-5" />
               </Button>
             </a>
             <div>
-              <h1 className="text-lg font-bold text-slate-900">Live Dashboard</h1>
-              <p className="text-sm text-slate-600">{isToday ? 'Today' : displayDate}</p>
+              <h1 className="text-lg font-bold">Live Dashboard</h1>
+              <p className="text-sm text-white/70">{displayDate}</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchData} data-testid="refresh-btn">
+          <Button variant="outline" size="sm" onClick={fetchData} className="border-white/30 text-white hover:bg-white/20" data-testid="refresh-btn">
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        {/* Date Selector - Admin only for historical view */}
-        {isAdmin && (
-          <div className="bg-white rounded-xl border p-4">
-            <div className="flex items-center justify-between">
-              <Button variant="ghost" size="icon" onClick={() => changeDate(-1)} data-testid="prev-date">
-                <ChevronLeft className="w-5 h-5" />
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {/* Date Selector */}
+        <div className="bg-white rounded-xl border p-3 flex items-center justify-between">
+          <Button variant="ghost" size="icon" onClick={() => changeDate(-1)} data-testid="prev-date">
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex items-center gap-3">
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => { setSelectedDate(e.target.value); setLoading(true); }}
+              className="w-44"
+              data-testid="date-picker"
+            />
+            {!isToday && (
+              <Button variant="outline" size="sm" onClick={() => { setSelectedDate(new Date().toISOString().split('T')[0]); setLoading(true); }}>
+                Today
               </Button>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => { setSelectedDate(e.target.value); setLoading(true); }}
-                  className="w-44"
-                  data-testid="date-picker"
-                />
-                {!isToday && (
-                  <Button variant="outline" size="sm" onClick={() => { setSelectedDate(new Date().toISOString().split('T')[0]); setLoading(true); }}>
-                    Today
-                  </Button>
-                )}
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => changeDate(1)} disabled={isToday} data-testid="next-date">
-                <ChevronRight className="w-5 h-5" />
-              </Button>
-            </div>
+            )}
           </div>
-        )}
-
-        {/* Auto-note */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700">
-          <Timer className="w-4 h-4 inline mr-2" />
-          All durations are <strong>automatically calculated</strong> from shift logs
+          <Button variant="ghost" size="icon" onClick={() => changeDate(1)} disabled={isToday} data-testid="next-date">
+            <ChevronRight className="w-5 h-5" />
+          </Button>
         </div>
 
         {loading ? (
           <div className="text-center py-12 text-slate-500">Loading...</div>
         ) : data ? (
           <>
-            {/* Overall Stats */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-white rounded-xl border p-5" data-testid="total-hours-card">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                    <Clock className="w-6 h-6 text-green-600" />
-                  </div>
+            {/* TOP LEVEL SUMMARY */}
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <div className="bg-green-500 text-white px-6 py-4">
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-slate-500">Total Hours</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="total-hours-value">
-                      {formatDuration(data.total_hours)}
-                    </p>
+                    <p className="text-green-100 text-sm">Total Hours Collected</p>
+                    <p className="text-4xl font-bold" data-testid="total-hours-value">{formatDuration(data.total_hours)}</p>
                   </div>
+                  {data.active_count > 0 && (
+                    <div className="bg-white/20 px-4 py-2 rounded-lg text-center">
+                      <p className="text-2xl font-bold">{data.active_count}</p>
+                      <p className="text-xs text-green-100">Active Now</p>
+                    </div>
+                  )}
                 </div>
               </div>
               
-              <div className="bg-white rounded-xl border p-5" data-testid="completed-shifts-card">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                    <CheckCircle className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500">Completed</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="completed-value">
-                      {data.total_shifts_completed || 0}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-xl border p-5" data-testid="active-shifts-card">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
-                    <Play className="w-6 h-6 text-amber-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm text-slate-500">Active Now</p>
-                    <p className="text-2xl font-bold text-slate-900" data-testid="active-value">
-                      {data.total_shifts_active || 0}
-                    </p>
+              {/* Category-wise breakdown */}
+              {data.category_hours && Object.keys(data.category_hours).length > 0 && (
+                <div className="px-6 py-4 border-t">
+                  <p className="text-xs font-medium text-slate-500 uppercase mb-3">Hours by Category</p>
+                  <div className="flex flex-wrap gap-3">
+                    {Object.entries(data.category_hours).sort((a, b) => b[1] - a[1]).map(([category, hours]) => (
+                      <div key={category} className="bg-slate-100 px-4 py-2 rounded-lg" data-testid={`category-${category}`}>
+                        <p className="text-lg font-bold text-slate-800">{formatDuration(hours)}</p>
+                        <p className="text-xs text-slate-500">{category}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Per BnB */}
+            {/* BNB LEVEL VIEW */}
             <div>
-              <h2 className="text-lg font-semibold text-slate-900 mb-3">Hours per BnB</h2>
-              {(!data.per_bnb || data.per_bnb.length === 0) ? (
-                <div className="bg-white rounded-xl border p-6 text-center text-slate-500">
-                  No data for this date
+              <h2 className="text-lg font-semibold text-slate-900 mb-3">BnB Breakdown</h2>
+              {(!data.bnbs || data.bnbs.length === 0) ? (
+                <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                  No deployments for this date
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {data.per_bnb.map((bnb) => (
+                <div className="space-y-4">
+                  {data.bnbs.map((bnb) => (
                     <div key={bnb.bnb} className="bg-white rounded-xl border overflow-hidden" data-testid={`bnb-card-${bnb.bnb}`}>
-                      <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
-                        <span className="font-semibold">{bnb.bnb}</span>
-                        <div className="flex items-center gap-2">
-                          {bnb.active_shifts > 0 && (
+                      {/* BnB Header */}
+                      <button
+                        onClick={() => toggleBnb(bnb.bnb)}
+                        className="w-full bg-slate-900 text-white px-4 py-3 flex items-center justify-between hover:bg-slate-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <MapPin className="w-5 h-5" />
+                          <span className="font-bold text-lg">{bnb.bnb}</span>
+                          {bnb.active_count > 0 && (
                             <span className="text-xs bg-green-500 px-2 py-0.5 rounded-full animate-pulse">
-                              {bnb.active_shifts} active
+                              {bnb.active_count} active
                             </span>
                           )}
-                          <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{bnb.shift}</span>
                         </div>
-                      </div>
-                      <div className="p-4 text-center">
-                        <p className="text-3xl font-bold text-green-600">{formatDuration(bnb.hours_logged)}</p>
-                        <p className="text-sm text-slate-500 mt-1">logged</p>
-                      </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xl font-bold text-green-400">{formatDuration(bnb.total_hours)}</span>
+                          {expandedBnbs[bnb.bnb] ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                        </div>
+                      </button>
+                      
+                      {expandedBnbs[bnb.bnb] && (
+                        <div className="p-4 space-y-4">
+                          {/* Shift Split */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3">
+                              <Sun className="w-6 h-6 text-amber-500" />
+                              <div>
+                                <p className="text-lg font-bold text-amber-700">{formatDuration(bnb.morning_hours)}</p>
+                                <p className="text-xs text-amber-600">Morning Shift</p>
+                              </div>
+                            </div>
+                            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center gap-3">
+                              <Moon className="w-6 h-6 text-indigo-500" />
+                              <div>
+                                <p className="text-lg font-bold text-indigo-700">{formatDuration(bnb.night_hours)}</p>
+                                <p className="text-xs text-indigo-600">Night Shift</p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Category breakdown for this BnB */}
+                          {Object.keys(bnb.category_hours || {}).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-slate-500 uppercase mb-2">Category Breakdown</p>
+                              <div className="flex flex-wrap gap-2">
+                                {Object.entries(bnb.category_hours).sort((a, b) => b[1] - a[1]).map(([cat, hrs]) => (
+                                  <span key={cat} className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-sm">
+                                    {cat}: <strong>{formatDuration(hrs)}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Kit Level View */}
+                          {bnb.kits && bnb.kits.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-slate-500 uppercase mb-2">Kit Breakdown</p>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                {bnb.kits.map(kit => (
+                                  <div key={kit.kit_id} className="border rounded-lg p-3 bg-slate-50" data-testid={`kit-${kit.kit_id}`}>
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <Package className="w-4 h-4 text-slate-400" />
+                                      <span className="font-medium text-slate-800 text-sm">{kit.kit_id}</span>
+                                    </div>
+                                    <p className="text-lg font-bold text-green-600">{formatDuration(kit.total_hours)}</p>
+                                    {Object.keys(kit.category_hours || {}).length > 0 && (
+                                      <div className="mt-1 text-xs text-slate-500">
+                                        {Object.entries(kit.category_hours).map(([c, h]) => (
+                                          <span key={c} className="mr-2">{c}: {formatDuration(h)}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Damage & Lost Reports */}
+                          {(bnb.damage_reports?.length > 0 || bnb.lost_reports?.length > 0) && (
+                            <div className="border-t pt-4">
+                              <p className="text-xs font-medium text-slate-500 uppercase mb-2">Issues Reported</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {/* Damage Reports */}
+                                {bnb.damage_reports?.length > 0 && (
+                                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                                      <span className="font-medium text-amber-800 text-sm">Damage Reports ({bnb.damage_reports.length})</span>
+                                    </div>
+                                    <ul className="space-y-1">
+                                      {bnb.damage_reports.map((report, idx) => (
+                                        <li key={idx} className="text-xs text-amber-700">
+                                          <strong>{report.item}</strong> - {report.notes || 'No details'}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                
+                                {/* Lost Reports */}
+                                {bnb.lost_reports?.length > 0 && (
+                                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <XCircle className="w-4 h-4 text-red-600" />
+                                      <span className="font-medium text-red-800 text-sm">Lost Items ({bnb.lost_reports.length})</span>
+                                    </div>
+                                    <ul className="space-y-1">
+                                      {bnb.lost_reports.map((report, idx) => (
+                                        <li key={idx} className="text-xs text-red-700">
+                                          <strong>{report.item}</strong> - {report.notes || 'No details'}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
-
-            {/* Recent Completed Shifts */}
-            {data.recent_shifts && data.recent_shifts.length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 mb-3">Recent Completed Shifts</h2>
-                <div className="bg-white rounded-xl border divide-y">
-                  {data.recent_shifts.map((shift) => (
-                    <div key={shift.id} className="px-4 py-3 flex items-center justify-between" data-testid={`shift-${shift.id}`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                          <CheckCircle className="w-5 h-5 text-green-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-900">{shift.user_name}</p>
-                          <p className="text-xs text-slate-500">{shift.kit} • {shift.activity_type}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-green-600">{formatDuration(shift.total_duration_hours)}</p>
-                        {shift.end_time && (
-                          <p className="text-xs text-slate-400">
-                            {new Date(shift.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Last Update */}
             {lastUpdate && (

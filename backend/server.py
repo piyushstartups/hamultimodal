@@ -1049,68 +1049,155 @@ async def get_live_dashboard(
     date: Optional[str] = None,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get dashboard data for a specific date (defaults to today)"""
+    """Get operational dashboard data for a specific date (defaults to today)"""
     target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
-    # Get shifts for the target date
-    completed_shifts = await get_db().shifts.find(
-        {"date": target_date, "status": "completed"},
+    # Get all collection records for the target date
+    all_records = await get_db().shifts.find(
+        {"date": target_date},
         {"_id": 0}
     ).to_list(500)
     
-    active_shifts = await get_db().shifts.find(
-        {"date": target_date, "status": {"$in": ["active", "paused"]}},
-        {"_id": 0}
-    ).to_list(50)
+    completed_records = [r for r in all_records if r.get("status") == "completed"]
+    active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
     
     deployments = await get_db().deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
     
-    total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in completed_shifts)
-    
-    # Map kits to BnBs
-    kit_to_bnb = {}
-    for dep in deployments:
-        for kit in dep.get("assigned_kits", []):
-            kit_to_bnb[kit] = dep["bnb"]
-    
-    # Per BnB stats
-    bnb_stats = {}
-    for dep in deployments:
-        bnb = dep["bnb"]
-        if bnb not in bnb_stats:
-            bnb_stats[bnb] = {
-                "bnb": bnb,
-                "shift": dep["shift"],
-                "hours_logged": 0,
-                "active_shifts": 0
-            }
-    
-    for shift in completed_shifts:
-        bnb = shift.get("bnb") or kit_to_bnb.get(shift.get("kit"))
-        if bnb and bnb in bnb_stats:
-            bnb_stats[bnb]["hours_logged"] += shift.get("total_duration_hours", 0) or 0
-    
-    for shift in active_shifts:
-        bnb = shift.get("bnb") or kit_to_bnb.get(shift.get("kit"))
-        if bnb and bnb in bnb_stats:
-            bnb_stats[bnb]["active_shifts"] += 1
-    
-    for bnb in bnb_stats:
-        bnb_stats[bnb]["hours_logged"] = round(bnb_stats[bnb]["hours_logged"], 2)
-    
+    # Get events for damage and lost reports
     events = await get_db().events.find(
         {"timestamp": {"$regex": f"^{target_date}"}},
         {"_id": 0}
-    ).sort("timestamp", -1).to_list(10)
+    ).to_list(200)
+    
+    # --- TOP LEVEL METRICS ---
+    total_hours = sum(r.get("total_duration_hours", 0) or 0 for r in completed_records)
+    
+    # Category-wise hours (all BnBs combined)
+    category_hours = {}
+    for record in completed_records:
+        activity = record.get("activity_type", "Other")
+        category_hours[activity] = category_hours.get(activity, 0) + (record.get("total_duration_hours", 0) or 0)
+    
+    # Round category hours
+    category_hours = {k: round(v, 2) for k, v in category_hours.items()}
+    
+    # --- PER BNB METRICS ---
+    bnb_data = {}
+    
+    # Initialize BnB data from deployments
+    for dep in deployments:
+        bnb = dep["bnb"]
+        shift_type = dep.get("shift", "morning")
+        
+        if bnb not in bnb_data:
+            bnb_data[bnb] = {
+                "bnb": bnb,
+                "total_hours": 0,
+                "morning_hours": 0,
+                "night_hours": 0,
+                "category_hours": {},
+                "kits": {},
+                "active_count": 0,
+                "damage_reports": [],
+                "lost_reports": []
+            }
+        
+        # Add kits from this deployment
+        for kit in dep.get("assigned_kits", []):
+            if kit not in bnb_data[bnb]["kits"]:
+                bnb_data[bnb]["kits"][kit] = {
+                    "kit_id": kit,
+                    "total_hours": 0,
+                    "category_hours": {},
+                    "shift": shift_type
+                }
+    
+    # Process completed records
+    for record in completed_records:
+        bnb = record.get("bnb")
+        kit = record.get("kit")
+        hours = record.get("total_duration_hours", 0) or 0
+        activity = record.get("activity_type", "Other")
+        
+        if bnb and bnb in bnb_data:
+            # Total hours
+            bnb_data[bnb]["total_hours"] += hours
+            
+            # Category hours for BnB
+            bnb_data[bnb]["category_hours"][activity] = bnb_data[bnb]["category_hours"].get(activity, 0) + hours
+            
+            # Kit-level data
+            if kit and kit in bnb_data[bnb]["kits"]:
+                bnb_data[bnb]["kits"][kit]["total_hours"] += hours
+                bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
+                    bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + hours
+                
+                # Shift split based on kit's deployment shift
+                kit_shift = bnb_data[bnb]["kits"][kit].get("shift", "morning")
+                if kit_shift == "morning":
+                    bnb_data[bnb]["morning_hours"] += hours
+                else:
+                    bnb_data[bnb]["night_hours"] += hours
+    
+    # Process active records
+    for record in active_records:
+        bnb = record.get("bnb")
+        if bnb and bnb in bnb_data:
+            bnb_data[bnb]["active_count"] += 1
+    
+    # Process damage and lost events
+    for event in events:
+        event_type = event.get("event_type")
+        # Try to determine BnB from event locations
+        from_loc = event.get("from_location", "") or ""
+        to_loc = event.get("to_location", "") or ""
+        
+        # Find matching BnB
+        for bnb in bnb_data:
+            if bnb in from_loc or bnb in to_loc:
+                if event_type == "damage":
+                    bnb_data[bnb]["damage_reports"].append({
+                        "item": event.get("item"),
+                        "notes": event.get("notes"),
+                        "user": event.get("user_name"),
+                        "time": event.get("timestamp")
+                    })
+                elif event_type == "lost":
+                    bnb_data[bnb]["lost_reports"].append({
+                        "item": event.get("item"),
+                        "notes": event.get("notes"),
+                        "user": event.get("user_name"),
+                        "time": event.get("timestamp")
+                    })
+                break
+    
+    # Finalize BnB data
+    bnb_list = []
+    for bnb, data in bnb_data.items():
+        data["total_hours"] = round(data["total_hours"], 2)
+        data["morning_hours"] = round(data["morning_hours"], 2)
+        data["night_hours"] = round(data["night_hours"], 2)
+        data["category_hours"] = {k: round(v, 2) for k, v in data["category_hours"].items()}
+        
+        # Convert kits dict to list
+        kit_list = []
+        for kit_id, kit_data in data["kits"].items():
+            kit_data["total_hours"] = round(kit_data["total_hours"], 2)
+            kit_data["category_hours"] = {k: round(v, 2) for k, v in kit_data["category_hours"].items()}
+            kit_list.append(kit_data)
+        data["kits"] = sorted(kit_list, key=lambda x: x["kit_id"])
+        
+        bnb_list.append(data)
+    
+    # Sort by BnB name
+    bnb_list.sort(key=lambda x: x["bnb"])
     
     return {
         "date": target_date,
         "total_hours": round(total_hours, 2),
-        "total_shifts_completed": len(completed_shifts),
-        "total_shifts_active": len(active_shifts),
-        "per_bnb": list(bnb_stats.values()),
-        "recent_shifts": completed_shifts[:5],
-        "recent_events": events
+        "category_hours": category_hours,
+        "active_count": len(active_records),
+        "bnbs": bnb_list
     }
 
 # ========================
