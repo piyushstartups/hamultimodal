@@ -126,6 +126,15 @@ class RequestCreate(BaseModel):
     quantity: int = 1
     notes: Optional[str] = None
 
+# Hardware Health Check models
+class HardwareCheckCreate(BaseModel):
+    deployment_id: str
+    kit: str
+    left_glove_image: str  # Base64 or URL
+    right_glove_image: str
+    head_camera_image: str
+    notes: Optional[str] = None
+
 # Handover models
 class KitChecklist(BaseModel):
     kit_id: str
@@ -1049,8 +1058,11 @@ async def get_live_dashboard(
     date: Optional[str] = None,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get operational dashboard data for a specific date (defaults to today)"""
+    """Get operational dashboard data for a specific date (defaults to today). Data baseline: 2026-03-20"""
     target_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Analytics baseline - Live Dashboard still shows data but analytics ignores old data
+    ANALYTICS_BASELINE = "2026-03-20"
     
     # Get all collection records for the target date
     all_records = await get_db().shifts.find(
@@ -1058,8 +1070,13 @@ async def get_live_dashboard(
         {"_id": 0}
     ).to_list(500)
     
-    completed_records = [r for r in all_records if r.get("status") == "completed"]
-    active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
+    # For dates before baseline, filter out old completed records from calculations
+    if target_date < ANALYTICS_BASELINE:
+        completed_records = []  # Don't show old data in totals
+        active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
+    else:
+        completed_records = [r for r in all_records if r.get("status") == "completed"]
+        active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
     
     deployments = await get_db().deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
     
@@ -1201,6 +1218,81 @@ async def get_live_dashboard(
     }
 
 # ========================
+# HARDWARE HEALTH CHECKS
+# ========================
+
+@app.post("/api/hardware-checks")
+async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(get_current_user_dep())):
+    """Create a hardware health check for a kit (required before first collection of the day)"""
+    deployment = await get_db().deployments.find_one({"id": data.deployment_id})
+    if not deployment:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    
+    # Check if already submitted today for this kit
+    existing = await get_db().hardware_checks.find_one({
+        "deployment_id": data.deployment_id,
+        "kit": data.kit,
+        "date": deployment["date"]
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Hardware check already completed for this kit today")
+    
+    now = datetime.now(timezone.utc)
+    check = {
+        "id": f"hw-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "deployment_id": data.deployment_id,
+        "date": deployment["date"],
+        "bnb": deployment["bnb"],
+        "kit": data.kit,
+        "user": user["id"],
+        "user_name": user["name"],
+        "left_glove_image": data.left_glove_image,
+        "right_glove_image": data.right_glove_image,
+        "head_camera_image": data.head_camera_image,
+        "notes": data.notes,
+        "created_at": now.isoformat()
+    }
+    
+    await get_db().hardware_checks.insert_one(check)
+    check.pop("_id", None)
+    return check
+
+@app.get("/api/hardware-checks/status/{deployment_id}/{kit}")
+async def get_hardware_check_status(deployment_id: str, kit: str, user: dict = Depends(get_current_user_dep())):
+    """Check if hardware check has been completed for a kit today"""
+    deployment = await get_db().deployments.find_one({"id": deployment_id})
+    if not deployment:
+        return {"completed": False}
+    
+    existing = await get_db().hardware_checks.find_one({
+        "deployment_id": deployment_id,
+        "kit": kit,
+        "date": deployment["date"]
+    }, {"_id": 0})
+    
+    return {"completed": existing is not None, "check": existing}
+
+@app.get("/api/hardware-checks")
+async def get_hardware_checks(
+    date: Optional[str] = None,
+    bnb: Optional[str] = None,
+    kit: Optional[str] = None,
+    user: dict = Depends(get_current_user_dep())
+):
+    """Get hardware checks with optional filters (for hardware dashboard)"""
+    query = {}
+    
+    if date:
+        query["date"] = date
+    if bnb:
+        query["bnb"] = bnb
+    if kit:
+        query["kit"] = kit
+    
+    checks = await get_db().hardware_checks.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return checks
+
+# ========================
 # ANALYTICS DASHBOARD - DATE RANGE SUPPORT
 # ========================
 
@@ -1210,13 +1302,32 @@ async def get_analytics(
     end_date: Optional[str] = None,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get analytics for a date range (defaults to last 7 days)"""
+    """Get analytics for a date range (defaults to last 7 days). Data baseline: 2026-03-20"""
     today = datetime.now(timezone.utc)
+    
+    # Analytics baseline date - ignore all data before this
+    ANALYTICS_BASELINE = "2026-03-20"
     
     if not end_date:
         end_date = today.strftime("%Y-%m-%d")
     if not start_date:
         start_date = (today - timedelta(days=6)).strftime("%Y-%m-%d")
+    
+    # Ensure start_date is not before baseline
+    if start_date < ANALYTICS_BASELINE:
+        start_date = ANALYTICS_BASELINE
+    
+    # If end_date is before baseline, return empty data
+    if end_date < ANALYTICS_BASELINE:
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_hours": 0,
+            "total_shifts": 0,
+            "hours_per_bnb": [],
+            "hours_per_activity": [],
+            "daily_hours": []
+        }
     
     # Get all completed shifts in date range
     shifts = await get_db().shifts.find(

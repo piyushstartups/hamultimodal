@@ -8,7 +8,8 @@ import {
   FileText,
   Settings,
   LogOut,
-  TrendingUp
+  TrendingUp,
+  Cpu
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -16,8 +17,8 @@ export default function Dashboard() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'deployment_manager';
 
-  // Admin sees: Deployments (calendar), Live Dashboard, Analytics, Inventory, Requests, Admin Panel
-  // Manager sees: Deployments (calendar), Actions, Live Dashboard, Analytics, Inventory, Requests
+  // Admin sees: Deployments (calendar), Live Dashboard, Analytics, Inventory, Hardware, Requests, Admin Panel
+  // Manager sees: Deployments (calendar), Actions, Live Dashboard, Analytics, Inventory, Hardware, Requests
 
   const navItems = [];
 
@@ -37,6 +38,9 @@ export default function Dashboard() {
 
   // Inventory - for everyone
   navItems.push({ href: '/inventory', icon: Package, label: 'Inventory', desc: 'View items & status', color: 'bg-amber-500' });
+
+  // Hardware Dashboard - for everyone
+  navItems.push({ href: '/hardware', icon: Cpu, label: 'Hardware', desc: 'Equipment health', color: 'bg-teal-500' });
 
   // Requests - for everyone
   navItems.push({ href: '/requests', icon: FileText, label: 'Requests', desc: 'Item requests', color: 'bg-cyan-500' });

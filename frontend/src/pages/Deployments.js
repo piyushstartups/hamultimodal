@@ -23,7 +23,8 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, ChevronLeft, ChevronRight, Plus, Edit, Trash2, 
   MapPin, Package, Users, Play, Pause, Square, Timer, 
-  ChevronDown, ChevronUp, RefreshCw, ClipboardCheck, AlertCircle, Eye
+  ChevronDown, ChevronUp, RefreshCw, ClipboardCheck, AlertCircle, Eye,
+  Camera, Hand, CheckCircle, Cpu
 } from 'lucide-react';
 
 const ACTIVITY_TYPES = [
@@ -86,6 +87,19 @@ export default function Deployments() {
   
   // Timer state
   const [elapsedTimes, setElapsedTimes] = useState({});
+  
+  // Hardware check state
+  const [hardwareCheckDialog, setHardwareCheckDialog] = useState(false);
+  const [hardwareCheckKit, setHardwareCheckKit] = useState(null);
+  const [hardwareCheckDeployment, setHardwareCheckDeployment] = useState(null);
+  const [hardwareCheckStatus, setHardwareCheckStatus] = useState({}); // {kit: true/false}
+  const [hardwareImages, setHardwareImages] = useState({
+    leftGlove: '',
+    rightGlove: '',
+    headCamera: ''
+  });
+  const [hardwareNotes, setHardwareNotes] = useState('');
+  const [hardwareLoading, setHardwareLoading] = useState(false);
   
   // Options
   const [bnbs, setBnbs] = useState([]);
@@ -190,8 +204,84 @@ export default function Deployments() {
     try {
       const response = await api.get(`/shifts/by-deployment/${deploymentId}`);
       setKitShifts(response.data);
+      
+      // Also fetch hardware check status for all kits
+      const deployment = deployments.find(d => d.id === deploymentId);
+      if (deployment?.assigned_kits) {
+        const statusPromises = deployment.assigned_kits.map(kit =>
+          api.get(`/hardware-checks/status/${deploymentId}/${kit}`)
+            .then(res => ({ kit, completed: res.data.completed }))
+            .catch(() => ({ kit, completed: false }))
+        );
+        const statuses = await Promise.all(statusPromises);
+        const statusMap = {};
+        statuses.forEach(s => { statusMap[s.kit] = s.completed; });
+        setHardwareCheckStatus(statusMap);
+      }
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  // Hardware check functions
+  const checkHardwareRequired = async (deployment, kit) => {
+    try {
+      const response = await api.get(`/hardware-checks/status/${deployment.id}/${kit}`);
+      return !response.data.completed;
+    } catch {
+      return true;
+    }
+  };
+
+  const openHardwareCheckDialog = (deployment, kit) => {
+    setHardwareCheckDeployment(deployment);
+    setHardwareCheckKit(kit);
+    setHardwareImages({ leftGlove: '', rightGlove: '', headCamera: '' });
+    setHardwareNotes('');
+    setHardwareCheckDialog(true);
+  };
+
+  const handleImageUpload = (field, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Convert to base64 for storage
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setHardwareImages(prev => ({ ...prev, [field]: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const submitHardwareCheck = async () => {
+    if (!hardwareImages.leftGlove || !hardwareImages.rightGlove || !hardwareImages.headCamera) {
+      toast.error('Please upload all three images (left glove, right glove, head camera)');
+      return;
+    }
+    
+    setHardwareLoading(true);
+    try {
+      await api.post('/hardware-checks', {
+        deployment_id: hardwareCheckDeployment.id,
+        kit: hardwareCheckKit,
+        left_glove_image: hardwareImages.leftGlove,
+        right_glove_image: hardwareImages.rightGlove,
+        head_camera_image: hardwareImages.headCamera,
+        notes: hardwareNotes || null
+      });
+      
+      toast.success('Hardware check completed!');
+      setHardwareCheckDialog(false);
+      
+      // Update status
+      setHardwareCheckStatus(prev => ({ ...prev, [hardwareCheckKit]: true }));
+      
+      // Now open the shift start dialog
+      openStartShift(hardwareCheckDeployment, hardwareCheckKit);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to submit hardware check');
+    } finally {
+      setHardwareLoading(false);
     }
   };
 
@@ -264,7 +354,17 @@ export default function Deployments() {
   };
 
   // Shift control functions
-  const openStartShift = (dep, kit) => {
+  const openStartShift = async (dep, kit) => {
+    // Check if hardware check is required (first collection of the day for this kit)
+    const completedRecords = getCompletedRecords(kit);
+    const hasHardwareCheck = hardwareCheckStatus[kit];
+    
+    // If no completed records yet and no hardware check, require hardware check first
+    if (completedRecords.length === 0 && !hasHardwareCheck) {
+      openHardwareCheckDialog(dep, kit);
+      return;
+    }
+    
     setSelectedDeploymentForShift(dep);
     setSelectedKit(kit);
     setShiftFormData({ ssd_used: '', activity_type: '' });
@@ -825,6 +925,14 @@ export default function Deployments() {
                                     </span>
                                   </div>
                                   
+                                  {/* Hardware Check Status */}
+                                  {hardwareCheckStatus[kit] && (
+                                    <div className="px-4 py-1 bg-teal-50 border-b border-teal-100 flex items-center gap-2 text-xs text-teal-700">
+                                      <CheckCircle className="w-3 h-3" />
+                                      Hardware check completed
+                                    </div>
+                                  )}
+                                  
                                   {/* Timer for active/paused */}
                                   {(status === 'active' || status === 'paused') && activeRecord && (
                                     <div className="px-4 py-3 text-center">
@@ -1173,6 +1281,141 @@ export default function Deployments() {
               <Button type="submit" className="flex-1">{editingDeployment ? 'Update' : 'Create'}</Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hardware Check Dialog */}
+      <Dialog open={hardwareCheckDialog} onOpenChange={setHardwareCheckDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-teal-500" />
+              Hardware Health Check - {hardwareCheckKit}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-slate-600">
+              Before starting your first collection, please upload photos of the equipment for quality tracking.
+            </p>
+            
+            {/* Left Glove */}
+            <div>
+              <Label className="flex items-center gap-2">
+                <Hand className="w-4 h-4" />
+                Left Glove Photo *
+              </Label>
+              <div className="mt-2">
+                {hardwareImages.leftGlove ? (
+                  <div className="relative">
+                    <img src={hardwareImages.leftGlove} alt="Left Glove" className="w-full h-32 object-cover rounded-lg border" />
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="absolute top-2 right-2"
+                      onClick={() => setHardwareImages(prev => ({ ...prev, leftGlove: '' }))}
+                    >
+                      Change
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="block w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
+                    <div className="text-center">
+                      <Camera className="w-8 h-8 text-slate-400 mx-auto" />
+                      <p className="text-sm text-slate-500 mt-1">Tap to upload</p>
+                    </div>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload('leftGlove', e)} />
+                  </label>
+                )}
+              </div>
+            </div>
+            
+            {/* Right Glove */}
+            <div>
+              <Label className="flex items-center gap-2">
+                <Hand className="w-4 h-4 transform scale-x-[-1]" />
+                Right Glove Photo *
+              </Label>
+              <div className="mt-2">
+                {hardwareImages.rightGlove ? (
+                  <div className="relative">
+                    <img src={hardwareImages.rightGlove} alt="Right Glove" className="w-full h-32 object-cover rounded-lg border" />
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="absolute top-2 right-2"
+                      onClick={() => setHardwareImages(prev => ({ ...prev, rightGlove: '' }))}
+                    >
+                      Change
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="block w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
+                    <div className="text-center">
+                      <Camera className="w-8 h-8 text-slate-400 mx-auto" />
+                      <p className="text-sm text-slate-500 mt-1">Tap to upload</p>
+                    </div>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload('rightGlove', e)} />
+                  </label>
+                )}
+              </div>
+            </div>
+            
+            {/* Head Camera */}
+            <div>
+              <Label className="flex items-center gap-2">
+                <Camera className="w-4 h-4" />
+                Head Camera Photo *
+              </Label>
+              <div className="mt-2">
+                {hardwareImages.headCamera ? (
+                  <div className="relative">
+                    <img src={hardwareImages.headCamera} alt="Head Camera" className="w-full h-32 object-cover rounded-lg border" />
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="absolute top-2 right-2"
+                      onClick={() => setHardwareImages(prev => ({ ...prev, headCamera: '' }))}
+                    >
+                      Change
+                    </Button>
+                  </div>
+                ) : (
+                  <label className="block w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
+                    <div className="text-center">
+                      <Camera className="w-8 h-8 text-slate-400 mx-auto" />
+                      <p className="text-sm text-slate-500 mt-1">Tap to upload</p>
+                    </div>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload('headCamera', e)} />
+                  </label>
+                )}
+              </div>
+            </div>
+            
+            {/* Notes */}
+            <div>
+              <Label>Notes (optional)</Label>
+              <Textarea
+                value={hardwareNotes}
+                onChange={(e) => setHardwareNotes(e.target.value)}
+                placeholder="Any issues or observations about the equipment..."
+                className="mt-1"
+              />
+            </div>
+            
+            <div className="flex gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={() => setHardwareCheckDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button 
+                onClick={submitHardwareCheck} 
+                className="flex-1 bg-teal-500 hover:bg-teal-600" 
+                disabled={hardwareLoading}
+                data-testid="submit-hardware-check"
+              >
+                {hardwareLoading ? 'Submitting...' : 'Submit & Start Collection'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
