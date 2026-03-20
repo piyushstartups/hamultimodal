@@ -1077,6 +1077,36 @@ async def update_request(request_id: str, status: str, user: dict = Depends(get_
 # LIVE DASHBOARD - WITH DATE RANGE SUPPORT
 # ========================
 
+def calculate_live_duration_hours(record):
+    """Calculate live duration for an active/paused record in hours"""
+    if not record or not record.get("start_time"):
+        return 0
+    
+    try:
+        start_time = datetime.fromisoformat(record["start_time"].replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        
+        # Calculate total paused time
+        total_paused_seconds = 0
+        pauses = record.get("pauses", [])
+        
+        for pause in pauses:
+            pause_time = datetime.fromisoformat(pause["pause_time"].replace("Z", "+00:00"))
+            if pause.get("resume_time"):
+                resume_time = datetime.fromisoformat(pause["resume_time"].replace("Z", "+00:00"))
+                total_paused_seconds += (resume_time - pause_time).total_seconds()
+            else:
+                # Currently paused - count time from pause to now
+                total_paused_seconds += (now - pause_time).total_seconds()
+        
+        # Calculate active duration
+        total_elapsed_seconds = (now - start_time).total_seconds()
+        active_seconds = total_elapsed_seconds - total_paused_seconds
+        
+        return max(0, active_seconds / 3600)  # Convert to hours
+    except Exception:
+        return 0
+
 @app.get("/api/dashboard/live")
 async def get_live_dashboard(
     date: Optional[str] = None,
@@ -1088,21 +1118,25 @@ async def get_live_dashboard(
     # Analytics baseline - Live Dashboard still shows data but analytics ignores old data
     ANALYTICS_BASELINE = "2026-03-20"
     
-    # Get all collection records for the target date
-    all_records = await get_db().shifts.find(
-        {"date": target_date},
-        {"_id": 0}
-    ).to_list(500)
+    # Get deployments for this date FIRST - this is the source of truth for date
+    deployments = await get_db().deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
+    deployment_ids = [d["id"] for d in deployments]
     
-    # For dates before baseline, filter out old completed records from calculations
+    # Get all collection records by deployment_id (NOT by date field to avoid timezone issues)
+    all_records = []
+    if deployment_ids:
+        all_records = await get_db().shifts.find(
+            {"deployment_id": {"$in": deployment_ids}},
+            {"_id": 0}
+        ).to_list(500)
+    
+    # Separate completed and active records
     if target_date < ANALYTICS_BASELINE:
         completed_records = []  # Don't show old data in totals
         active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
     else:
         completed_records = [r for r in all_records if r.get("status") == "completed"]
         active_records = [r for r in all_records if r.get("status") in ["active", "paused"]]
-    
-    deployments = await get_db().deployments.find({"date": target_date}, {"_id": 0}).to_list(50)
     
     # Get events for damage and lost reports
     events = await get_db().events.find(
@@ -1111,13 +1145,19 @@ async def get_live_dashboard(
     ).to_list(200)
     
     # --- TOP LEVEL METRICS ---
-    total_hours = sum(r.get("total_duration_hours", 0) or 0 for r in completed_records)
+    # Include BOTH completed hours AND live hours from active records
+    completed_hours = sum(r.get("total_duration_hours", 0) or 0 for r in completed_records)
+    active_hours = sum(calculate_live_duration_hours(r) for r in active_records)
+    total_hours = completed_hours + active_hours
     
-    # Category-wise hours (all BnBs combined)
+    # Category-wise hours (all BnBs combined) - include active records
     category_hours = {}
     for record in completed_records:
         activity = record.get("activity_type", "Other")
         category_hours[activity] = category_hours.get(activity, 0) + (record.get("total_duration_hours", 0) or 0)
+    for record in active_records:
+        activity = record.get("activity_type", "Other")
+        category_hours[activity] = category_hours.get(activity, 0) + calculate_live_duration_hours(record)
     
     # Round category hours
     category_hours = {k: round(v, 2) for k, v in category_hours.items()}
@@ -1196,11 +1236,33 @@ async def get_live_dashboard(
                 else:
                     bnb_data[bnb]["night_hours"] += hours
     
-    # Process active records
+    # Process active records - ADD live hours to totals
     for record in active_records:
         bnb = record.get("bnb")
+        kit = record.get("kit")
+        live_hours = calculate_live_duration_hours(record)
+        activity = record.get("activity_type", "Other")
+        
         if bnb and bnb in bnb_data:
             bnb_data[bnb]["active_count"] += 1
+            
+            # Add live hours to totals
+            bnb_data[bnb]["total_hours"] += live_hours
+            bnb_data[bnb]["category_hours"][activity] = bnb_data[bnb]["category_hours"].get(activity, 0) + live_hours
+            
+            # Kit-level live hours
+            if kit and kit in bnb_data[bnb]["kits"]:
+                bnb_data[bnb]["kits"][kit]["total_hours"] += live_hours
+                bnb_data[bnb]["kits"][kit]["live_hours"] = live_hours  # Separate field for live hours
+                bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
+                    bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + live_hours
+                
+                # Shift split for active records too
+                kit_shift = bnb_data[bnb]["kits"][kit].get("shift", "morning")
+                if kit_shift == "morning":
+                    bnb_data[bnb]["morning_hours"] += live_hours
+                else:
+                    bnb_data[bnb]["night_hours"] += live_hours
     
     # Process damage and lost events
     for event in events:
