@@ -278,7 +278,7 @@ export default function LiveDashboard() {
                             </div>
                           </div>
                           
-                          {/* Kit Level View - COMPACT */}
+                          {/* Kit Level View - COMPACT - Shows TOTAL hours for the day */}
                           {bnb.kits && bnb.kits.length > 0 && (
                             <div>
                               <p className="text-xs font-medium text-slate-500 uppercase mb-1">Kits</p>
@@ -286,7 +286,10 @@ export default function LiveDashboard() {
                                 {bnb.kits.map(kit => {
                                   const activeRecord = kit.active_record;
                                   const statusBadge = getStatusBadge(activeRecord);
-                                  const elapsedSeconds = activeRecord ? calculateElapsedTime(activeRecord) : 0;
+                                  const currentSessionSeconds = activeRecord ? calculateElapsedTime(activeRecord) : 0;
+                                  
+                                  // TOTAL hours for the day = completed + active (already calculated by backend)
+                                  const totalHours = kit.total_hours || 0;
                                   
                                   return (
                                     <div 
@@ -308,25 +311,36 @@ export default function LiveDashboard() {
                                         </span>
                                       </div>
                                       
-                                      {/* Timer or Hours */}
-                                      {activeRecord ? (
-                                        <div className="text-center">
-                                          <p 
-                                            className={`text-lg font-mono font-bold ${
-                                              activeRecord.status === 'active' ? 'text-green-600' : 'text-amber-600'
-                                            }`}
-                                            data-testid={`timer-${kit.kit_id}`}
-                                          >
-                                            {formatTimer(elapsedSeconds)}
-                                          </p>
-                                          <p className="text-xs text-slate-500 truncate">{activeRecord.activity_type}</p>
-                                        </div>
-                                      ) : (
-                                        <div className="text-center">
-                                          <p className="text-sm font-bold text-slate-700">{formatDuration(kit.total_hours)}</p>
-                                          <p className="text-xs text-slate-400">completed</p>
-                                        </div>
-                                      )}
+                                      {/* TOTAL Hours - Always shown (completed + active) */}
+                                      <div className="text-center">
+                                        <p 
+                                          className={`text-lg font-bold ${
+                                            activeRecord?.status === 'active' ? 'text-green-700' : 
+                                            activeRecord?.status === 'paused' ? 'text-amber-700' : 
+                                            'text-slate-700'
+                                          }`}
+                                          data-testid={`total-hours-${kit.kit_id}`}
+                                        >
+                                          {formatDuration(totalHours)}
+                                        </p>
+                                        <p className="text-xs text-slate-500">total today</p>
+                                        
+                                        {/* Live indicator when active - shows current session timer */}
+                                        {activeRecord && (
+                                          <div className={`mt-1 flex items-center justify-center gap-1 text-xs ${
+                                            activeRecord.status === 'active' ? 'text-green-600' : 'text-amber-600'
+                                          }`}>
+                                            {activeRecord.status === 'active' ? (
+                                              <Play className="w-3 h-3 animate-pulse" />
+                                            ) : (
+                                              <Pause className="w-3 h-3" />
+                                            )}
+                                            <span className="font-mono" data-testid={`session-timer-${kit.kit_id}`}>
+                                              {formatTimer(currentSessionSeconds)}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })}
