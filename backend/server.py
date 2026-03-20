@@ -10,10 +10,47 @@ import jwt
 import os
 import logging
 import secrets
+import pytz
 
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file (won't override existing env vars)
+load_dotenv()
+
+# ========================
+# TIMEZONE & OPERATIONAL DAY CONFIG
+# ========================
+IST = pytz.timezone('Asia/Kolkata')
+
+def get_ist_now():
+    """Get current time in IST"""
+    return datetime.now(IST)
+
+def get_operational_date(timestamp=None):
+    """
+    Get operational date for a given timestamp (or now).
+    Operational day: 11:00 AM (Day 1) to 5:00 AM (Day 2) = Day 1
+    
+    Example: March 21, 2026 at 2:00 AM IST → belongs to March 20 operational day
+    """
+    if timestamp is None:
+        timestamp = get_ist_now()
+    elif isinstance(timestamp, str):
+        # Parse ISO string and convert to IST
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        timestamp = dt.astimezone(IST)
+    elif timestamp.tzinfo is None:
+        timestamp = IST.localize(timestamp)
+    else:
+        timestamp = timestamp.astimezone(IST)
+    
+    # If time is before 5:00 AM, it belongs to previous day's operational period
+    if timestamp.hour < 5:
+        timestamp = timestamp - timedelta(days=1)
+    
+    return timestamp.strftime("%Y-%m-%d")
 
 # Load environment variables from .env file (won't override existing env vars)
 load_dotenv()
@@ -185,7 +222,7 @@ async def get_current_user(authorization: str = None):
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except:
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def get_current_user_dep():
@@ -481,8 +518,9 @@ async def get_deployments(
 
 @app.get("/api/deployments/today")
 async def get_today_deployments(user: dict = Depends(get_current_user_dep())):
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    query = {"date": today}
+    # Use operational date (11 AM - 5 AM next day)
+    operational_date = get_operational_date()
+    query = {"date": operational_date}
     
     if user["role"] == "deployment_manager":
         query["deployment_managers"] = user["id"]
@@ -542,6 +580,39 @@ async def delete_deployment(deployment_id: str, user: dict = Depends(get_current
         raise HTTPException(status_code=403, detail="Admin only")
     await get_db().deployments.delete_one({"id": deployment_id})
     return {"status": "deleted"}
+
+@app.get("/api/deployments/grouped/{date}")
+async def get_grouped_deployments(date: str, user: dict = Depends(get_current_user_dep())):
+    """
+    Get deployments grouped by BnB for a given date.
+    Returns structure: { bnbs: [ { bnb: "BnB 1", morning: {...}, evening: {...} } ] }
+    """
+    query = {"date": date}
+    
+    # Deployment managers only see their deployments
+    if user["role"] == "deployment_manager":
+        query["deployment_managers"] = user["id"]
+    
+    deployments = await get_db().deployments.find(query, {"_id": 0}).to_list(50)
+    
+    # Group by BnB
+    bnb_groups = {}
+    for dep in deployments:
+        bnb = dep["bnb"]
+        shift = dep.get("shift", "morning")
+        
+        if bnb not in bnb_groups:
+            bnb_groups[bnb] = {
+                "bnb": bnb,
+                "morning": None,
+                "evening": None
+            }
+        
+        bnb_groups[bnb][shift] = dep
+    
+    # Convert to list and sort by BnB name
+    result = sorted(bnb_groups.values(), key=lambda x: x["bnb"])
+    return {"bnbs": result, "date": date}
 
 # ========================
 # BNB DAY VIEW - Complete operational history
@@ -808,10 +879,12 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
         raise HTTPException(status_code=404, detail="Deployment not found")
     
     now = datetime.now(timezone.utc)
+    # Use deployment.date as the canonical date (NOT derived from timestamp)
     record = {
         "id": f"rec-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
         "deployment_id": data.deployment_id,
-        "date": deployment["date"],
+        "date": deployment["date"],  # ALWAYS use deployment date
+        "shift": deployment.get("shift", "morning"),  # Store shift assignment from deployment
         "bnb": deployment["bnb"],
         "user": user["id"],
         "user_name": user["name"],
@@ -1215,6 +1288,8 @@ async def get_live_dashboard(
         kit = record.get("kit")
         hours = record.get("total_duration_hours", 0) or 0
         activity = record.get("activity_type", "Other")
+        # Use shift from the record itself (set at creation from deployment)
+        record_shift = record.get("shift", "morning")
         
         if bnb and bnb in bnb_data:
             # Total hours
@@ -1228,13 +1303,12 @@ async def get_live_dashboard(
                 bnb_data[bnb]["kits"][kit]["total_hours"] += hours
                 bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
                     bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + hours
-                
-                # Shift split based on kit's deployment shift
-                kit_shift = bnb_data[bnb]["kits"][kit].get("shift", "morning")
-                if kit_shift == "morning":
-                    bnb_data[bnb]["morning_hours"] += hours
-                else:
-                    bnb_data[bnb]["night_hours"] += hours
+            
+            # Shift split based on RECORD's shift assignment (not inferred from time)
+            if record_shift == "morning":
+                bnb_data[bnb]["morning_hours"] += hours
+            else:
+                bnb_data[bnb]["night_hours"] += hours
     
     # Process active records - ADD live hours to totals
     for record in active_records:
@@ -1242,6 +1316,8 @@ async def get_live_dashboard(
         kit = record.get("kit")
         live_hours = calculate_live_duration_hours(record)
         activity = record.get("activity_type", "Other")
+        # Use shift from the record itself (set at creation from deployment)
+        record_shift = record.get("shift", "morning")
         
         if bnb and bnb in bnb_data:
             bnb_data[bnb]["active_count"] += 1
@@ -1256,13 +1332,12 @@ async def get_live_dashboard(
                 bnb_data[bnb]["kits"][kit]["live_hours"] = live_hours  # Separate field for live hours
                 bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
                     bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + live_hours
-                
-                # Shift split for active records too
-                kit_shift = bnb_data[bnb]["kits"][kit].get("shift", "morning")
-                if kit_shift == "morning":
-                    bnb_data[bnb]["morning_hours"] += live_hours
-                else:
-                    bnb_data[bnb]["night_hours"] += live_hours
+            
+            # Shift split based on RECORD's shift assignment (not inferred)
+            if record_shift == "morning":
+                bnb_data[bnb]["morning_hours"] += live_hours
+            else:
+                bnb_data[bnb]["night_hours"] += live_hours
     
     # Process damage and lost events
     for event in events:

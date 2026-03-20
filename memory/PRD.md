@@ -13,6 +13,20 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 5. **Clear separation of responsibilities between pages**
 6. **All time tracking is automatic - NO manual input**
 7. **Collection records are the primary unit** - No shift dependency
+8. **Operational Day**: 11:00 AM (Day 1) to 5:00 AM (Day 2) = Day 1
+9. **Single Timezone**: All times in IST (Asia/Kolkata)
+
+## Operational Day Rules
+- **Start**: 11:00 AM IST
+- **End**: 5:00 AM IST (next calendar day)
+- All data created during this window belongs to the STARTING day's deployment
+- Example: March 21, 2026 at 2:00 AM IST → belongs to March 20 operational day
+
+## Shift Classification
+- **DO NOT infer shift from time**
+- **USE**: `deployment.shift` assignment (stored on collection record at creation)
+- If kit is assigned to morning deployment → all its data = morning
+- If assigned to evening deployment → all its data = evening
 
 ## User Roles
 
@@ -187,6 +201,10 @@ Deployments → Date → BnB → Handover buttons
 - [x] **CRITICAL: Live Counters Fix** - Total hours now include BOTH completed AND active collection records
 - [x] **CRITICAL: Pause/Resume Logic Fix** - Paused time correctly excluded from duration calculation
 - [x] **UI: Compact Kit Cards** - Kit cards reduced from full-width to 2-4 per row grid layout
+- [x] **Operational Day Logic** - System now uses 11 AM - 5 AM operational day (IST timezone)
+- [x] **Shift Classification Fix** - Shift is stored on collection record from deployment.shift, NOT inferred from time
+- [x] **Grouped Deployments API** - New endpoint `/api/deployments/grouped/{date}` returns deployments grouped by BnB
+- [x] **Inventory Transfer** - Transfer button already available for all users (admins and managers)
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
