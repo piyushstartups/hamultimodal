@@ -9,13 +9,32 @@ import {
   XCircle, Sun, Moon, Play, Pause
 } from 'lucide-react';
 
+// Get today's date in YYYY-MM-DD format (IST timezone - operational day)
+const getTodayDateString = () => {
+  const now = new Date();
+  const istOffset = 5.5 * 60; // IST is UTC+5:30
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  
+  // Calculate IST date
+  let istDate = new Date(now);
+  istDate.setUTCMinutes(now.getUTCMinutes() + istOffset);
+  
+  // If IST hour is before 5 AM, it belongs to previous operational day
+  const istHour = Math.floor((utcMinutes + istOffset) / 60) % 24;
+  if (istHour < 5) {
+    istDate.setUTCDate(istDate.getUTCDate() - 1);
+  }
+  
+  return istDate.toISOString().split('T')[0];
+};
+
 export default function LiveDashboard() {
   const { user } = useAuth();
   
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getTodayDateString());
   const [expandedBnbs, setExpandedBnbs] = useState({});
   const [currentTime, setCurrentTime] = useState(Date.now());
 
@@ -107,7 +126,7 @@ export default function LiveDashboard() {
     setExpandedBnbs(prev => ({ ...prev, [bnb]: !prev[bnb] }));
   };
 
-  const isToday = selectedDate === new Date().toISOString().split('T')[0];
+  const isToday = selectedDate === getTodayDateString();
   const displayDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   });
@@ -164,7 +183,7 @@ export default function LiveDashboard() {
               data-testid="date-picker"
             />
             {!isToday && (
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { setSelectedDate(new Date().toISOString().split('T')[0]); setLoading(true); }}>
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { setSelectedDate(getTodayDateString()); setLoading(true); }}>
                 Today
               </Button>
             )}

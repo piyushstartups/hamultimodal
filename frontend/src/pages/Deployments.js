@@ -35,6 +35,34 @@ const ACTIVITY_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+// Get today's date in YYYY-MM-DD format (IST timezone - operational day)
+// Operational day: 11 AM to 5 AM next day
+const getTodayIST = () => {
+  // Get current time in IST
+  const now = new Date();
+  const istOffset = 5.5 * 60; // IST is UTC+5:30
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const istMinutes = utcMinutes + istOffset;
+  
+  // Calculate IST date
+  let istDate = new Date(now);
+  istDate.setUTCMinutes(now.getUTCMinutes() + istOffset);
+  
+  // If IST hour is before 5 AM, it belongs to previous operational day
+  const istHour = Math.floor(istMinutes / 60) % 24;
+  if (istHour < 5) {
+    istDate.setUTCDate(istDate.getUTCDate() - 1);
+  }
+  
+  return istDate;
+};
+
+// Create a date object for a specific YYYY-MM-DD string (noon to avoid timezone issues)
+const createDateFromString = (dateStr) => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0);
+};
+
 // Handover checklist items for each kit
 const KIT_CHECKLIST_ITEMS = [
   { key: 'gloves', label: 'Gloves' },
@@ -61,8 +89,8 @@ export default function Deployments() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'deployment_manager';
   
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(() => new Date()); // Default to today
+  const [currentMonth, setCurrentMonth] = useState(() => getTodayIST());
+  const [selectedDate, setSelectedDate] = useState(() => getTodayIST()); // Default to today (IST)
   const [calendarCollapsed, setCalendarCollapsed] = useState(false);
   const [deployments, setDeployments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -676,7 +704,7 @@ export default function Deployments() {
 
   const days = getDaysInMonth(currentMonth);
   const monthName = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const today = formatDateKey(new Date());
+  const today = formatDateKey(getTodayIST()); // Use IST date for "today" highlight
   const selectedDeployments = selectedDate ? getDeploymentsForDate(selectedDate) : [];
   const ssdItems = items.filter(i => i.category === 'ssd' || i.item_name.toLowerCase().includes('ssd'));
 
