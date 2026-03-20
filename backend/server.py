@@ -1332,6 +1332,10 @@ async def get_live_dashboard(
     # --- PER BNB METRICS ---
     bnb_data = {}
     
+    # Get all users for manager name resolution
+    all_users = await get_db().users.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    user_map = {u["id"]: u["name"] for u in all_users}
+    
     # Initialize BnB data from deployments
     for dep in deployments:
         bnb = dep["bnb"]
@@ -1343,6 +1347,8 @@ async def get_live_dashboard(
                 "total_hours": 0,
                 "morning_hours": 0,
                 "night_hours": 0,
+                "morning_managers": [],
+                "night_managers": [],
                 "category_hours": {},
                 "kits": {},
                 "active_count": 0,
@@ -1350,12 +1356,37 @@ async def get_live_dashboard(
                 "lost_reports": []
             }
         
+        # Add managers from deployment (new structure: morning_managers, evening_managers)
+        morning_mgrs = dep.get("morning_managers", [])
+        evening_mgrs = dep.get("evening_managers", [])
+        
+        # Also support legacy single deployment_manager field
+        legacy_mgr = dep.get("deployment_manager")
+        if legacy_mgr and not morning_mgrs and not evening_mgrs:
+            if shift_type == "morning":
+                morning_mgrs = [legacy_mgr]
+            else:
+                evening_mgrs = [legacy_mgr]
+        
+        # Add manager names (avoid duplicates)
+        for mgr_id in morning_mgrs:
+            mgr_name = user_map.get(mgr_id, mgr_id)
+            if mgr_name not in bnb_data[bnb]["morning_managers"]:
+                bnb_data[bnb]["morning_managers"].append(mgr_name)
+        
+        for mgr_id in evening_mgrs:
+            mgr_name = user_map.get(mgr_id, mgr_id)
+            if mgr_name not in bnb_data[bnb]["night_managers"]:
+                bnb_data[bnb]["night_managers"].append(mgr_name)
+        
         # Add kits from this deployment
         for kit in dep.get("assigned_kits", []):
             if kit not in bnb_data[bnb]["kits"]:
                 bnb_data[bnb]["kits"][kit] = {
                     "kit_id": kit,
                     "total_hours": 0,
+                    "morning_hours": 0,  # NEW: shift-wise kit hours
+                    "night_hours": 0,    # NEW: shift-wise kit hours
                     "category_hours": {},
                     "shift": shift_type,
                     "active_record": None  # Will be populated if kit has active collection
@@ -1365,6 +1396,7 @@ async def get_live_dashboard(
     for record in active_records:
         bnb = record.get("bnb")
         kit = record.get("kit")
+        record_shift = record.get("shift", "morning")
         if bnb and bnb in bnb_data and kit and kit in bnb_data[bnb]["kits"]:
             bnb_data[bnb]["kits"][kit]["active_record"] = {
                 "id": record.get("id"),
@@ -1373,7 +1405,8 @@ async def get_live_dashboard(
                 "pauses": record.get("pauses", []),
                 "activity_type": record.get("activity_type"),
                 "user_name": record.get("user_name"),
-                "ssd_used": record.get("ssd_used")
+                "ssd_used": record.get("ssd_used"),
+                "shift": record_shift  # Include shift info in active record
             }
     
     # Process completed records
@@ -1392,11 +1425,17 @@ async def get_live_dashboard(
             # Category hours for BnB
             bnb_data[bnb]["category_hours"][activity] = bnb_data[bnb]["category_hours"].get(activity, 0) + hours
             
-            # Kit-level data
+            # Kit-level data (total + shift-wise)
             if kit and kit in bnb_data[bnb]["kits"]:
                 bnb_data[bnb]["kits"][kit]["total_hours"] += hours
                 bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
                     bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + hours
+                
+                # NEW: Add to kit's shift-wise hours
+                if record_shift == "morning":
+                    bnb_data[bnb]["kits"][kit]["morning_hours"] += hours
+                else:
+                    bnb_data[bnb]["kits"][kit]["night_hours"] += hours
             
             # Shift split based on RECORD's shift assignment (not inferred from time)
             if record_shift == "morning":
@@ -1420,12 +1459,18 @@ async def get_live_dashboard(
             bnb_data[bnb]["total_hours"] += live_hours
             bnb_data[bnb]["category_hours"][activity] = bnb_data[bnb]["category_hours"].get(activity, 0) + live_hours
             
-            # Kit-level live hours
+            # Kit-level live hours (total + shift-wise)
             if kit and kit in bnb_data[bnb]["kits"]:
                 bnb_data[bnb]["kits"][kit]["total_hours"] += live_hours
                 bnb_data[bnb]["kits"][kit]["live_hours"] = live_hours  # Separate field for live hours
                 bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
                     bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + live_hours
+                
+                # NEW: Add to kit's shift-wise hours
+                if record_shift == "morning":
+                    bnb_data[bnb]["kits"][kit]["morning_hours"] += live_hours
+                else:
+                    bnb_data[bnb]["kits"][kit]["night_hours"] += live_hours
             
             # Shift split based on RECORD's shift assignment (not inferred)
             if record_shift == "morning":
@@ -1471,6 +1516,8 @@ async def get_live_dashboard(
         kit_list = []
         for kit_id, kit_data in data["kits"].items():
             kit_data["total_hours"] = round(kit_data["total_hours"], 2)
+            kit_data["morning_hours"] = round(kit_data.get("morning_hours", 0), 2)  # NEW
+            kit_data["night_hours"] = round(kit_data.get("night_hours", 0), 2)      # NEW
             kit_data["category_hours"] = {k: round(v, 2) for k, v in kit_data["category_hours"].items()}
             kit_list.append(kit_data)
         data["kits"] = sorted(kit_list, key=lambda x: x["kit_id"])

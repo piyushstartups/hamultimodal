@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { 
   ArrowLeft, RefreshCw, Clock, ChevronLeft, ChevronRight, 
   ChevronDown, ChevronUp, MapPin, Package, AlertTriangle, 
-  XCircle, Sun, Moon, Play, Pause
+  XCircle, Sun, Moon, Play, Pause, Users
 } from 'lucide-react';
 
 export default function LiveDashboard() {
@@ -259,94 +259,163 @@ export default function LiveDashboard() {
                       </button>
                       
                       {expandedBnbs[bnb.bnb] && (
-                        <div className="p-3 space-y-3">
-                          {/* Shift Split - Compact */}
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-amber-50 border border-amber-200 rounded p-2 flex items-center gap-2">
-                              <Sun className="w-4 h-4 text-amber-500" />
-                              <div>
-                                <p className="text-sm font-bold text-amber-700">{formatDuration(bnb.morning_hours)}</p>
-                                <p className="text-xs text-amber-600">Morning</p>
+                        <div className="p-3 space-y-4">
+                          {/* MORNING SHIFT SECTION */}
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
+                            <div className="bg-amber-100 px-3 py-2 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Sun className="w-4 h-4 text-amber-600" />
+                                <span className="font-semibold text-amber-800">Morning Shift</span>
                               </div>
+                              <span className="text-sm font-bold text-amber-700">{formatDuration(bnb.morning_hours)}</span>
                             </div>
-                            <div className="bg-indigo-50 border border-indigo-200 rounded p-2 flex items-center gap-2">
-                              <Moon className="w-4 h-4 text-indigo-500" />
-                              <div>
-                                <p className="text-sm font-bold text-indigo-700">{formatDuration(bnb.night_hours)}</p>
-                                <p className="text-xs text-indigo-600">Night</p>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Kit Level View - COMPACT - Shows TOTAL hours for the day */}
-                          {bnb.kits && bnb.kits.length > 0 && (
-                            <div>
-                              <p className="text-xs font-medium text-slate-500 uppercase mb-1">Kits</p>
+                            <div className="p-3 space-y-2">
+                              {/* Morning Managers */}
+                              {bnb.morning_managers && bnb.morning_managers.length > 0 && (
+                                <div className="flex items-center gap-2 text-xs text-amber-700">
+                                  <Users className="w-3 h-3" />
+                                  <span>Manager: {bnb.morning_managers.join(', ')}</span>
+                                </div>
+                              )}
+                              {/* Morning Kit Hours */}
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                 {bnb.kits.map(kit => {
                                   const activeRecord = kit.active_record;
-                                  const statusBadge = getStatusBadge(activeRecord);
-                                  const currentSessionSeconds = activeRecord ? calculateElapsedTime(activeRecord) : 0;
-                                  
-                                  // TOTAL hours for the day = completed + active (already calculated by backend)
-                                  const totalHours = kit.total_hours || 0;
+                                  const isActiveInMorning = activeRecord && activeRecord.shift === 'morning';
+                                  const currentSessionSeconds = isActiveInMorning ? calculateElapsedTime(activeRecord) : 0;
+                                  const morningHours = kit.morning_hours || 0;
                                   
                                   return (
                                     <div 
-                                      key={kit.kit_id} 
-                                      className={`border rounded-lg p-2 ${
-                                        activeRecord?.status === 'active' 
-                                          ? 'border-green-400 bg-green-50' 
-                                          : activeRecord?.status === 'paused'
-                                          ? 'border-amber-400 bg-amber-50'
-                                          : 'border-slate-200 bg-white'
+                                      key={`morning-${kit.kit_id}`}
+                                      className={`bg-white border rounded p-2 ${
+                                        isActiveInMorning 
+                                          ? activeRecord.status === 'active' 
+                                            ? 'border-green-400' 
+                                            : 'border-amber-400'
+                                          : 'border-amber-200'
                                       }`}
-                                      data-testid={`kit-${kit.kit_id}`}
                                     >
-                                      {/* Kit Header - Compact */}
                                       <div className="flex items-center justify-between mb-1">
-                                        <span className="font-semibold text-sm text-slate-800">{kit.kit_id}</span>
-                                        <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadge.color} ${statusBadge.textColor}`}>
-                                          {statusBadge.label}
-                                        </span>
-                                      </div>
-                                      
-                                      {/* TOTAL Hours - Always shown (completed + active) */}
-                                      <div className="text-center">
-                                        <p 
-                                          className={`text-lg font-bold ${
-                                            activeRecord?.status === 'active' ? 'text-green-700' : 
-                                            activeRecord?.status === 'paused' ? 'text-amber-700' : 
-                                            'text-slate-700'
-                                          }`}
-                                          data-testid={`total-hours-${kit.kit_id}`}
-                                        >
-                                          {formatDuration(totalHours)}
-                                        </p>
-                                        <p className="text-xs text-slate-500">total today</p>
-                                        
-                                        {/* Live indicator when active - shows current session timer */}
-                                        {activeRecord && (
-                                          <div className={`mt-1 flex items-center justify-center gap-1 text-xs ${
-                                            activeRecord.status === 'active' ? 'text-green-600' : 'text-amber-600'
+                                        <span className="font-medium text-xs text-slate-700">{kit.kit_id}</span>
+                                        {isActiveInMorning && (
+                                          <span className={`text-xs px-1 py-0.5 rounded ${
+                                            activeRecord.status === 'active' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
                                           }`}>
-                                            {activeRecord.status === 'active' ? (
-                                              <Play className="w-3 h-3 animate-pulse" />
-                                            ) : (
-                                              <Pause className="w-3 h-3" />
-                                            )}
-                                            <span className="font-mono" data-testid={`session-timer-${kit.kit_id}`}>
-                                              {formatTimer(currentSessionSeconds)}
-                                            </span>
-                                          </div>
+                                            {activeRecord.status === 'active' ? 'Active' : 'Paused'}
+                                          </span>
                                         )}
                                       </div>
+                                      <p className={`text-sm font-bold text-center ${
+                                        isActiveInMorning 
+                                          ? activeRecord.status === 'active' ? 'text-green-700' : 'text-amber-700'
+                                          : 'text-amber-800'
+                                      }`}>
+                                        {formatDuration(morningHours)}
+                                      </p>
+                                      {/* Live indicator for morning active session */}
+                                      {isActiveInMorning && (
+                                        <div className={`mt-1 flex items-center justify-center gap-1 text-xs ${
+                                          activeRecord.status === 'active' ? 'text-green-600' : 'text-amber-600'
+                                        }`}>
+                                          {activeRecord.status === 'active' ? (
+                                            <Play className="w-2 h-2 animate-pulse" />
+                                          ) : (
+                                            <Pause className="w-2 h-2" />
+                                          )}
+                                          <span className="font-mono text-xs">{formatTimer(currentSessionSeconds)}</span>
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })}
                               </div>
                             </div>
-                          )}
+                          </div>
+                          
+                          {/* NIGHT SHIFT SECTION */}
+                          <div className="bg-indigo-50 border border-indigo-200 rounded-lg overflow-hidden">
+                            <div className="bg-indigo-100 px-3 py-2 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Moon className="w-4 h-4 text-indigo-600" />
+                                <span className="font-semibold text-indigo-800">Night Shift</span>
+                              </div>
+                              <span className="text-sm font-bold text-indigo-700">{formatDuration(bnb.night_hours)}</span>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {/* Night Managers */}
+                              {bnb.night_managers && bnb.night_managers.length > 0 && (
+                                <div className="flex items-center gap-2 text-xs text-indigo-700">
+                                  <Users className="w-3 h-3" />
+                                  <span>Manager: {bnb.night_managers.join(', ')}</span>
+                                </div>
+                              )}
+                              {/* Night Kit Hours */}
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                                {bnb.kits.map(kit => {
+                                  const activeRecord = kit.active_record;
+                                  const isActiveInNight = activeRecord && activeRecord.shift !== 'morning';
+                                  const currentSessionSeconds = isActiveInNight ? calculateElapsedTime(activeRecord) : 0;
+                                  const nightHours = kit.night_hours || 0;
+                                  
+                                  return (
+                                    <div 
+                                      key={`night-${kit.kit_id}`}
+                                      className={`bg-white border rounded p-2 ${
+                                        isActiveInNight 
+                                          ? activeRecord.status === 'active' 
+                                            ? 'border-green-400' 
+                                            : 'border-amber-400'
+                                          : 'border-indigo-200'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="font-medium text-xs text-slate-700">{kit.kit_id}</span>
+                                        {isActiveInNight && (
+                                          <span className={`text-xs px-1 py-0.5 rounded ${
+                                            activeRecord.status === 'active' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
+                                          }`}>
+                                            {activeRecord.status === 'active' ? 'Active' : 'Paused'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className={`text-sm font-bold text-center ${
+                                        isActiveInNight 
+                                          ? activeRecord.status === 'active' ? 'text-green-700' : 'text-amber-700'
+                                          : 'text-indigo-800'
+                                      }`}>
+                                        {formatDuration(nightHours)}
+                                      </p>
+                                      {/* Live indicator for night active session */}
+                                      {isActiveInNight && (
+                                        <div className={`mt-1 flex items-center justify-center gap-1 text-xs ${
+                                          activeRecord.status === 'active' ? 'text-green-600' : 'text-amber-600'
+                                        }`}>
+                                          {activeRecord.status === 'active' ? (
+                                            <Play className="w-2 h-2 animate-pulse" />
+                                          ) : (
+                                            <Pause className="w-2 h-2" />
+                                          )}
+                                          <span className="font-mono text-xs">{formatTimer(currentSessionSeconds)}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* TOTAL BNB - Combined hours */}
+                          <div className="bg-slate-100 border border-slate-300 rounded-lg p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-slate-600" />
+                                <span className="font-semibold text-slate-700">Total BnB Output</span>
+                              </div>
+                              <span className="text-lg font-bold text-slate-800">{formatDuration(bnb.total_hours)}</span>
+                            </div>
+                          </div>
                           
                           {/* Damage & Lost Reports - Compact */}
                           {(bnb.damage_reports?.length > 0 || bnb.lost_reports?.length > 0) && (

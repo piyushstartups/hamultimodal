@@ -212,6 +212,7 @@ Deployments → Date → BnB → Handover buttons
 - [x] **CRITICAL: Frontend Date Fix (Complete)** - ALL frontend pages now fetch operational date from backend `/api/system/operational-date` endpoint instead of using browser's `new Date()`. Verified pages: Incidents, Analytics, HardwareDashboard, MyDeployments, DeploymentPlanning, AdminAnalytics, Handover, LiveDashboard, Deployments. This ensures production date handling is correct regardless of server/browser timezone.
 - [x] **CRITICAL: No new Date() Fallbacks** - Removed all `new Date()` fallbacks for operational date. Deployments page now uses retry logic (3 attempts) and shows error state if fetch fails, ensuring no incorrect dates are ever displayed.
 - [x] **Live Dashboard Kit Cards Fix** - Kit cards now show TOTAL collection hours for the day (completed + active) instead of only current session timer. When active, shows a small live indicator with current session timer below the total.
+- [x] **Live Dashboard Shift-Wise Breakdown** - BnB view now shows separate Morning Shift and Night Shift sections, each displaying assigned managers and kit-wise hours for that shift. Same kits appear in both sections with shift-filtered data. Total BnB output shown at bottom.
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
