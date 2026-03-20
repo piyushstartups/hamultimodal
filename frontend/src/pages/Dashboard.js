@@ -42,9 +42,6 @@ export default function Dashboard() {
   // Hardware Dashboard - for everyone
   navItems.push({ href: '/hardware', icon: Cpu, label: 'Hardware', desc: 'Equipment health', color: 'bg-teal-500' });
 
-  // Requests - for everyone
-  navItems.push({ href: '/requests', icon: FileText, label: 'Requests', desc: 'Item requests', color: 'bg-cyan-500' });
-
   // Admin Panel - only for admin
   if (isAdmin) {
     navItems.push({ href: '/admin', icon: Settings, label: 'Admin Panel', desc: 'Users & Settings', color: 'bg-slate-700' });

@@ -847,12 +847,20 @@ async def delete_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
 
 @app.post("/api/shifts/{shift_id}/pause")
 async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
-    """Pause an active shift - captures pause_time automatically"""
-    shift = await get_db().shifts.find_one({"id": shift_id, "user": user["id"]})
+    """Pause an active collection record - any manager on deployment or admin can pause"""
+    # First find the record
+    shift = await get_db().shifts.find_one({"id": shift_id})
     if not shift:
-        raise HTTPException(status_code=404, detail="Shift not found")
+        raise HTTPException(status_code=404, detail="Collection record not found")
+    
+    # Check authorization: admin can do anything, or user must be manager on the deployment
+    if user["role"] != "admin":
+        deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
+        if not deployment or user["id"] not in deployment.get("deployment_managers", []):
+            raise HTTPException(status_code=403, detail="Not authorized to control this collection")
+    
     if shift["status"] != "active":
-        raise HTTPException(status_code=400, detail="Shift is not active")
+        raise HTTPException(status_code=400, detail="Collection is not active")
     
     now = datetime.now(timezone.utc)
     await get_db().shifts.update_one(
@@ -868,12 +876,20 @@ async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep()
 
 @app.post("/api/shifts/{shift_id}/resume")
 async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
-    """Resume a paused shift - captures resume_time automatically"""
-    shift = await get_db().shifts.find_one({"id": shift_id, "user": user["id"]})
+    """Resume a paused collection record - any manager on deployment or admin can resume"""
+    # First find the record
+    shift = await get_db().shifts.find_one({"id": shift_id})
     if not shift:
-        raise HTTPException(status_code=404, detail="Shift not found")
+        raise HTTPException(status_code=404, detail="Collection record not found")
+    
+    # Check authorization: admin can do anything, or user must be manager on the deployment
+    if user["role"] != "admin":
+        deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
+        if not deployment or user["id"] not in deployment.get("deployment_managers", []):
+            raise HTTPException(status_code=403, detail="Not authorized to control this collection")
+    
     if shift["status"] != "paused":
-        raise HTTPException(status_code=400, detail="Shift is not paused")
+        raise HTTPException(status_code=400, detail="Collection is not paused")
     
     now = datetime.now(timezone.utc)
     
@@ -892,12 +908,20 @@ async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
 
 @app.post("/api/shifts/{shift_id}/stop")
 async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
-    """Stop a shift - captures end_time and calculates total duration automatically"""
-    shift = await get_db().shifts.find_one({"id": shift_id, "user": user["id"]})
+    """Stop a collection record - any manager on deployment or admin can stop"""
+    # First find the record
+    shift = await get_db().shifts.find_one({"id": shift_id})
     if not shift:
-        raise HTTPException(status_code=404, detail="Shift not found")
+        raise HTTPException(status_code=404, detail="Collection record not found")
+    
+    # Check authorization: admin can do anything, or user must be manager on the deployment
+    if user["role"] != "admin":
+        deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
+        if not deployment or user["id"] not in deployment.get("deployment_managers", []):
+            raise HTTPException(status_code=403, detail="Not authorized to control this collection")
+    
     if shift["status"] == "completed":
-        raise HTTPException(status_code=400, detail="Shift is already completed")
+        raise HTTPException(status_code=400, detail="Collection is already completed")
     
     now = datetime.now(timezone.utc)
     start_time = datetime.fromisoformat(shift["start_time"].replace("Z", "+00:00"))
@@ -1126,8 +1150,24 @@ async def get_live_dashboard(
                     "kit_id": kit,
                     "total_hours": 0,
                     "category_hours": {},
-                    "shift": shift_type
+                    "shift": shift_type,
+                    "active_record": None  # Will be populated if kit has active collection
                 }
+    
+    # Map active records to kits
+    for record in active_records:
+        bnb = record.get("bnb")
+        kit = record.get("kit")
+        if bnb and bnb in bnb_data and kit and kit in bnb_data[bnb]["kits"]:
+            bnb_data[bnb]["kits"][kit]["active_record"] = {
+                "id": record.get("id"),
+                "status": record.get("status"),
+                "start_time": record.get("start_time"),
+                "pauses": record.get("pauses", []),
+                "activity_type": record.get("activity_type"),
+                "user_name": record.get("user_name"),
+                "ssd_used": record.get("ssd_used")
+            }
     
     # Process completed records
     for record in completed_records:
@@ -1323,10 +1363,10 @@ async def get_analytics(
             "start_date": start_date,
             "end_date": end_date,
             "total_hours": 0,
-            "total_shifts": 0,
-            "hours_per_bnb": [],
+            "total_collection_records": 0,
+            "total_deployments": 0,
             "hours_per_activity": [],
-            "daily_hours": []
+            "daily_trend": []
         }
     
     # Get all completed shifts in date range
@@ -1338,16 +1378,13 @@ async def get_analytics(
         {"_id": 0}
     ).to_list(2000)
     
+    # Get total deployments in date range
+    total_deployments = await get_db().deployments.count_documents({
+        "date": {"$gte": start_date, "$lte": end_date}
+    })
+    
     # Total hours
     total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in shifts)
-    
-    # Hours per BnB
-    hours_per_bnb = {}
-    for shift in shifts:
-        bnb = shift.get("bnb", "Unknown")
-        if bnb not in hours_per_bnb:
-            hours_per_bnb[bnb] = 0
-        hours_per_bnb[bnb] += shift.get("total_duration_hours", 0) or 0
     
     # Hours per activity type
     hours_per_activity = {}
@@ -1371,11 +1408,6 @@ async def get_analytics(
         for day, hours in sorted(daily_hours.items())
     ]
     
-    bnb_breakdown = [
-        {"bnb": bnb, "hours": round(hours, 2)}
-        for bnb, hours in sorted(hours_per_bnb.items(), key=lambda x: -x[1])
-    ]
-    
     activity_breakdown = [
         {"activity": act, "hours": round(hours, 2)}
         for act, hours in sorted(hours_per_activity.items(), key=lambda x: -x[1])
@@ -1385,8 +1417,8 @@ async def get_analytics(
         "start_date": start_date,
         "end_date": end_date,
         "total_hours": round(total_hours, 2),
-        "total_shifts": len(shifts),
-        "hours_per_bnb": bnb_breakdown,
+        "total_collection_records": len(shifts),
+        "total_deployments": total_deployments,
         "hours_per_activity": activity_breakdown,
         "daily_trend": daily_trend
     }

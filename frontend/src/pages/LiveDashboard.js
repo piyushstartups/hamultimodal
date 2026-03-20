@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { 
   ArrowLeft, RefreshCw, Clock, ChevronLeft, ChevronRight, 
   ChevronDown, ChevronUp, MapPin, Package, AlertTriangle, 
-  XCircle, Sun, Moon
+  XCircle, Sun, Moon, Play, Pause
 } from 'lucide-react';
 
 export default function LiveDashboard() {
@@ -18,12 +18,21 @@ export default function LiveDashboard() {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [expandedBnbs, setExpandedBnbs] = useState({});
+  const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [selectedDate]);
+
+  // Real-time timer update - runs every second
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timerInterval);
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -51,6 +60,41 @@ export default function LiveDashboard() {
     return `${h}h ${m}m`;
   };
 
+  // Format seconds into HH:MM:SS
+  const formatTimer = (seconds) => {
+    if (seconds < 0) seconds = 0;
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Calculate elapsed time for active record
+  const calculateElapsedTime = useCallback((activeRecord) => {
+    if (!activeRecord) return 0;
+    
+    const startTime = new Date(activeRecord.start_time).getTime();
+    const now = currentTime;
+    
+    // Calculate total paused time
+    let totalPausedMs = 0;
+    const pauses = activeRecord.pauses || [];
+    
+    for (const pause of pauses) {
+      const pauseTime = new Date(pause.pause_time).getTime();
+      if (pause.resume_time) {
+        const resumeTime = new Date(pause.resume_time).getTime();
+        totalPausedMs += (resumeTime - pauseTime);
+      } else {
+        // Currently paused - count time from pause to now
+        totalPausedMs += (now - pauseTime);
+      }
+    }
+    
+    const elapsedMs = now - startTime - totalPausedMs;
+    return Math.floor(elapsedMs / 1000);
+  }, [currentTime]);
+
   const changeDate = (days) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + days);
@@ -66,6 +110,20 @@ export default function LiveDashboard() {
   const displayDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   });
+
+  // Get status badge color and label
+  const getStatusBadge = (activeRecord) => {
+    if (!activeRecord) {
+      return { color: 'bg-slate-300', label: 'Idle' };
+    }
+    if (activeRecord.status === 'active') {
+      return { color: 'bg-green-500 animate-pulse', label: 'Active' };
+    }
+    if (activeRecord.status === 'paused') {
+      return { color: 'bg-amber-500', label: 'Paused' };
+    }
+    return { color: 'bg-slate-300', label: 'Idle' };
+  };
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -217,27 +275,78 @@ export default function LiveDashboard() {
                             </div>
                           )}
                           
-                          {/* Kit Level View */}
+                          {/* Kit Level View with Real-Time Tracking */}
                           {bnb.kits && bnb.kits.length > 0 && (
                             <div>
-                              <p className="text-xs font-medium text-slate-500 uppercase mb-2">Kit Breakdown</p>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                {bnb.kits.map(kit => (
-                                  <div key={kit.kit_id} className="border rounded-lg p-3 bg-slate-50" data-testid={`kit-${kit.kit_id}`}>
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <Package className="w-4 h-4 text-slate-400" />
-                                      <span className="font-medium text-slate-800 text-sm">{kit.kit_id}</span>
-                                    </div>
-                                    <p className="text-lg font-bold text-green-600">{formatDuration(kit.total_hours)}</p>
-                                    {Object.keys(kit.category_hours || {}).length > 0 && (
-                                      <div className="mt-1 text-xs text-slate-500">
-                                        {Object.entries(kit.category_hours).map(([c, h]) => (
-                                          <span key={c} className="mr-2">{c}: {formatDuration(h)}</span>
-                                        ))}
+                              <p className="text-xs font-medium text-slate-500 uppercase mb-2">Kit Status</p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {bnb.kits.map(kit => {
+                                  const activeRecord = kit.active_record;
+                                  const statusBadge = getStatusBadge(activeRecord);
+                                  const elapsedSeconds = activeRecord ? calculateElapsedTime(activeRecord) : 0;
+                                  
+                                  return (
+                                    <div 
+                                      key={kit.kit_id} 
+                                      className={`border-2 rounded-xl p-4 transition-all ${
+                                        activeRecord?.status === 'active' 
+                                          ? 'border-green-400 bg-green-50' 
+                                          : activeRecord?.status === 'paused'
+                                          ? 'border-amber-400 bg-amber-50'
+                                          : 'border-slate-200 bg-slate-50'
+                                      }`}
+                                      data-testid={`kit-${kit.kit_id}`}
+                                    >
+                                      {/* Kit Header */}
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                          <Package className="w-5 h-5 text-slate-600" />
+                                          <span className="font-bold text-lg text-slate-800">{kit.kit_id}</span>
+                                        </div>
+                                        <span className={`text-xs px-3 py-1 rounded-full text-white font-medium ${statusBadge.color}`}>
+                                          {activeRecord?.status === 'active' && <Play className="w-3 h-3 inline mr-1" />}
+                                          {activeRecord?.status === 'paused' && <Pause className="w-3 h-3 inline mr-1" />}
+                                          {statusBadge.label}
+                                        </span>
                                       </div>
-                                    )}
-                                  </div>
-                                ))}
+                                      
+                                      {/* Real-Time Timer for Active/Paused */}
+                                      {activeRecord && (
+                                        <div className="mb-3 text-center">
+                                          <p 
+                                            className={`text-3xl font-mono font-bold ${
+                                              activeRecord.status === 'active' ? 'text-green-600' : 'text-amber-600'
+                                            }`}
+                                            data-testid={`timer-${kit.kit_id}`}
+                                          >
+                                            {formatTimer(elapsedSeconds)}
+                                          </p>
+                                          <p className="text-xs text-slate-500 mt-1">
+                                            {activeRecord.activity_type} • {activeRecord.ssd_used}
+                                          </p>
+                                          <p className="text-xs text-slate-400">
+                                            by {activeRecord.user_name}
+                                          </p>
+                                        </div>
+                                      )}
+                                      
+                                      {/* Completed Hours Summary */}
+                                      <div className="border-t pt-3 mt-2">
+                                        <div className="flex items-center justify-between text-sm">
+                                          <span className="text-slate-500">Completed Today</span>
+                                          <span className="font-bold text-slate-800">{formatDuration(kit.total_hours)}</span>
+                                        </div>
+                                        {Object.keys(kit.category_hours || {}).length > 0 && (
+                                          <div className="mt-1 text-xs text-slate-400">
+                                            {Object.entries(kit.category_hours).map(([c, h]) => (
+                                              <span key={c} className="mr-2">{c}: {formatDuration(h)}</span>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
@@ -294,7 +403,7 @@ export default function LiveDashboard() {
             {/* Last Update */}
             {lastUpdate && (
               <p className="text-xs text-slate-400 text-center">
-                Auto-refreshes every 30 seconds • Last: {lastUpdate.toLocaleTimeString()}
+                Auto-refreshes every 30 seconds • Timers update in real-time • Last API: {lastUpdate.toLocaleTimeString()}
               </p>
             )}
           </>

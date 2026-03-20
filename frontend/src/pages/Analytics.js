@@ -3,7 +3,7 @@ import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { ArrowLeft, RefreshCw, Clock, BarChart3, MapPin, Activity, TrendingUp } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Clock, BarChart3, Activity, TrendingUp, Calendar } from 'lucide-react';
 
 export default function Analytics() {
   const [data, setData] = useState(null);
@@ -50,9 +50,6 @@ export default function Analytics() {
   };
 
   // Calculate max for bar widths
-  const maxBnbHours = data?.hours_per_bnb?.length > 0 
-    ? Math.max(...data.hours_per_bnb.map(b => b.hours)) 
-    : 1;
   const maxActivityHours = data?.hours_per_activity?.length > 0 
     ? Math.max(...data.hours_per_activity.map(a => a.hours)) 
     : 1;
@@ -129,7 +126,7 @@ export default function Analytics() {
         ) : data ? (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="bg-white rounded-xl border p-6" data-testid="total-hours-card">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
@@ -144,45 +141,33 @@ export default function Analytics() {
                 </div>
               </div>
               
-              <div className="bg-white rounded-xl border p-6" data-testid="total-shifts-card">
+              <div className="bg-white rounded-xl border p-6" data-testid="total-deployments-card">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
-                    <BarChart3 className="w-7 h-7 text-blue-600" />
+                    <Calendar className="w-7 h-7 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-sm text-slate-500">Total Shifts</p>
-                    <p className="text-3xl font-bold text-slate-900" data-testid="total-shifts-value">
-                      {data.total_shifts || 0}
+                    <p className="text-sm text-slate-500">Total Deployments</p>
+                    <p className="text-3xl font-bold text-slate-900" data-testid="total-deployments-value">
+                      {data.total_deployments || 0}
                     </p>
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Hours per BnB */}
-            <div className="bg-white rounded-xl border p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                <MapPin className="w-5 h-5 text-slate-500" />
-                Hours per BnB
-              </h2>
-              {(!data.hours_per_bnb || data.hours_per_bnb.length === 0) ? (
-                <p className="text-slate-500 text-center py-4">No data for selected range</p>
-              ) : (
-                <div className="space-y-3">
-                  {data.hours_per_bnb.map((item) => (
-                    <div key={item.bnb} className="flex items-center gap-4" data-testid={`bnb-${item.bnb}`}>
-                      <div className="w-24 text-sm font-medium text-slate-700 truncate">{item.bnb}</div>
-                      <div className="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
-                        <div 
-                          className="bg-green-500 h-full rounded-full transition-all duration-500"
-                          style={{ width: `${(item.hours / maxBnbHours) * 100}%` }}
-                        />
-                      </div>
-                      <div className="w-20 text-right font-bold text-slate-900">{formatDuration(item.hours)}</div>
-                    </div>
-                  ))}
+              
+              <div className="bg-white rounded-xl border p-6" data-testid="total-records-card">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <BarChart3 className="w-7 h-7 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">Collection Records</p>
+                    <p className="text-3xl font-bold text-slate-900" data-testid="total-records-value">
+                      {data.total_collection_records || 0}
+                    </p>
+                  </div>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Hours per Activity */}
