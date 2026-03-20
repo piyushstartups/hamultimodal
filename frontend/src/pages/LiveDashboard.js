@@ -9,42 +9,42 @@ import {
   XCircle, Sun, Moon, Play, Pause
 } from 'lucide-react';
 
-// Get today's date in YYYY-MM-DD format (IST timezone - operational day)
-const getTodayDateString = () => {
-  const now = new Date();
-  const istOffset = 5.5 * 60; // IST is UTC+5:30
-  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  
-  // Calculate IST date
-  let istDate = new Date(now);
-  istDate.setUTCMinutes(now.getUTCMinutes() + istOffset);
-  
-  // If IST hour is before 5 AM, it belongs to previous operational day
-  const istHour = Math.floor((utcMinutes + istOffset) / 60) % 24;
-  if (istHour < 5) {
-    istDate.setUTCDate(istDate.getUTCDate() - 1);
-  }
-  
-  return istDate.toISOString().split('T')[0];
-};
-
 export default function LiveDashboard() {
   const { user } = useAuth();
   
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(getTodayDateString());
+  // CRITICAL: operationalDate fetched from BACKEND - this is the SINGLE SOURCE OF TRUTH
+  const [operationalDate, setOperationalDate] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
   const [expandedBnbs, setExpandedBnbs] = useState({});
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(Date.now()); // Only used for live timer calculations
+
+  // CRITICAL: Fetch operational date from BACKEND on mount - this is the SINGLE SOURCE OF TRUTH
+  useEffect(() => {
+    const fetchOperationalDate = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        const opDate = response.data.operational_date;
+        setOperationalDate(opDate);
+        setSelectedDate(opDate);
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+      }
+    };
+    fetchOperationalDate();
+  }, []);
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    if (selectedDate) {
+      fetchData();
+      const interval = setInterval(fetchData, 30000);
+      return () => clearInterval(interval);
+    }
   }, [selectedDate]);
 
-  // Real-time timer update - runs every second
+  // Real-time timer update - runs every second (ONLY use of Date.now() - for elapsed time)
   useEffect(() => {
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
@@ -126,10 +126,11 @@ export default function LiveDashboard() {
     setExpandedBnbs(prev => ({ ...prev, [bnb]: !prev[bnb] }));
   };
 
-  const isToday = selectedDate === getTodayDateString();
-  const displayDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
+  // CRITICAL: Use operationalDate from BACKEND as "today" - NOT any local date calculation
+  const isToday = selectedDate === operationalDate;
+  const displayDate = selectedDate ? new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
-  });
+  }) : 'Loading...';
 
   // Get status badge - compact version
   const getStatusBadge = (activeRecord) => {
@@ -177,13 +178,13 @@ export default function LiveDashboard() {
           <div className="flex items-center gap-2">
             <Input
               type="date"
-              value={selectedDate}
+              value={selectedDate || ''}
               onChange={(e) => { setSelectedDate(e.target.value); setLoading(true); }}
               className="w-36 h-8 text-sm"
               data-testid="date-picker"
             />
-            {!isToday && (
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { setSelectedDate(getTodayDateString()); setLoading(true); }}>
+            {!isToday && operationalDate && (
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { setSelectedDate(operationalDate); setLoading(true); }}>
                 Today
               </Button>
             )}

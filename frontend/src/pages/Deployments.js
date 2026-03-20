@@ -35,30 +35,9 @@ const ACTIVITY_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
-// Get today's date in YYYY-MM-DD format (IST timezone - operational day)
-// Operational day: 11 AM to 5 AM next day
-const getTodayIST = () => {
-  // Get current time in IST
-  const now = new Date();
-  const istOffset = 5.5 * 60; // IST is UTC+5:30
-  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const istMinutes = utcMinutes + istOffset;
-  
-  // Calculate IST date
-  let istDate = new Date(now);
-  istDate.setUTCMinutes(now.getUTCMinutes() + istOffset);
-  
-  // If IST hour is before 5 AM, it belongs to previous operational day
-  const istHour = Math.floor(istMinutes / 60) % 24;
-  if (istHour < 5) {
-    istDate.setUTCDate(istDate.getUTCDate() - 1);
-  }
-  
-  return istDate;
-};
-
 // Create a date object for a specific YYYY-MM-DD string (noon to avoid timezone issues)
 const createDateFromString = (dateStr) => {
+  if (!dateStr) return null;
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day, 12, 0, 0);
 };
@@ -89,8 +68,10 @@ export default function Deployments() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'deployment_manager';
   
-  const [currentMonth, setCurrentMonth] = useState(() => getTodayIST());
-  const [selectedDate, setSelectedDate] = useState(() => getTodayIST()); // Default to today (IST)
+  // CRITICAL: operationalDate is fetched from BACKEND - this is the SINGLE SOURCE OF TRUTH
+  const [operationalDate, setOperationalDate] = useState(null); // YYYY-MM-DD string from backend
+  const [currentMonth, setCurrentMonth] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
   const [calendarCollapsed, setCalendarCollapsed] = useState(false);
   const [deployments, setDeployments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -145,9 +126,34 @@ export default function Deployments() {
     assigned_kits: [],
   });
 
+  // CRITICAL: Fetch operational date from BACKEND on mount - this is the SINGLE SOURCE OF TRUTH
   useEffect(() => {
-    fetchDeployments();
-    fetchOptions();
+    const fetchOperationalDate = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        const opDate = response.data.operational_date;
+        setOperationalDate(opDate);
+        
+        // Initialize calendar and selected date from backend's operational date
+        const dateObj = createDateFromString(opDate);
+        setCurrentMonth(dateObj);
+        setSelectedDate(dateObj);
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+        // Fallback: use a safe default (this should rarely happen)
+        const fallback = new Date();
+        setCurrentMonth(fallback);
+        setSelectedDate(fallback);
+      }
+    };
+    fetchOperationalDate();
+  }, []);
+
+  useEffect(() => {
+    if (currentMonth) {
+      fetchDeployments();
+      fetchOptions();
+    }
   }, [currentMonth]);
 
   // Auto-expand first deployment for managers when date changes
@@ -702,9 +708,10 @@ export default function Deployments() {
     }
   };
 
-  const days = getDaysInMonth(currentMonth);
-  const monthName = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const today = formatDateKey(getTodayIST()); // Use IST date for "today" highlight
+  // CRITICAL: Use operationalDate from BACKEND as "today" - NOT any local date calculation
+  const days = currentMonth ? getDaysInMonth(currentMonth) : [];
+  const monthName = currentMonth ? currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
+  const today = operationalDate || ''; // Use backend's operational date as "today"
   const selectedDeployments = selectedDate ? getDeploymentsForDate(selectedDate) : [];
   const ssdItems = items.filter(i => i.category === 'ssd' || i.item_name.toLowerCase().includes('ssd'));
 

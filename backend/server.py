@@ -260,6 +260,22 @@ async def startup():
 # AUTH ROUTES
 # ========================
 
+@app.get("/api/system/operational-date")
+async def get_current_operational_date():
+    """
+    Returns the current operational date based on IST timezone.
+    Operational day: 11:00 AM (Day 1) to 5:00 AM (Day 2) = Day 1
+    
+    This is the SINGLE SOURCE OF TRUTH for "today" across the entire system.
+    Frontend MUST use this endpoint instead of local date calculations.
+    """
+    operational_date = get_operational_date()
+    return {
+        "operational_date": operational_date,
+        "timezone": "Asia/Kolkata",
+        "note": "Use this date for all 'today' references. Do NOT use browser date."
+    }
+
 @app.post("/api/auth/login")
 async def login(data: UserLogin):
     # Auto-create Admin user if it doesn't exist
