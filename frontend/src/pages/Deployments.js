@@ -1599,106 +1599,102 @@ export default function Deployments() {
         </DialogContent>
       </Dialog>
 
-      {/* Hardware Check Dialog */}
+      {/* Hardware Check Dialog - Compact with sticky footer */}
       <Dialog open={hardwareCheckDialog} onOpenChange={setHardwareCheckDialog}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-teal-500" />
-              Hardware Health Check - {hardwareCheckKit}
+        <DialogContent className="sm:max-w-md max-h-[80vh] flex flex-col p-0">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Cpu className="w-4 h-4 text-teal-500" />
+              Hardware Check - {hardwareCheckKit}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <p className="text-sm text-slate-600">
-              Before starting your first collection, please upload photos of the equipment for quality tracking.
+          
+          {/* Scrollable content area */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            <p className="text-xs text-slate-500">
+              Upload photos of equipment before starting collection.
             </p>
             
-            {/* Left Glove */}
-            <div>
-              <Label className="flex items-center gap-2">
-                <Hand className="w-4 h-4" />
-                Left Glove Photo *
-              </Label>
-              <div className="mt-2">
+            {/* Compact 3-column grid for image uploads */}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Left Glove */}
+              <div>
+                <Label className="text-xs flex items-center gap-1 mb-1">
+                  <Hand className="w-3 h-3" />
+                  Left Glove
+                </Label>
                 {hardwareImages.leftGlove ? (
                   <div className="relative">
-                    <img src={hardwareImages.leftGlove} alt="Left Glove" className="w-full h-32 object-cover rounded-lg border" />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="absolute top-2 right-2"
+                    <img src={hardwareImages.leftGlove} alt="Left Glove" className="w-full h-20 object-cover rounded border" />
+                    <button 
+                      type="button"
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center"
                       onClick={() => setHardwareImages(prev => ({ ...prev, leftGlove: '' }))}
                     >
-                      Change
-                    </Button>
+                      ×
+                    </button>
                   </div>
                 ) : (
-                  <label className="block w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
+                  <label className="block w-full h-20 border-2 border-dashed rounded cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
                     <div className="text-center">
-                      <Camera className="w-8 h-8 text-slate-400 mx-auto" />
-                      <p className="text-sm text-slate-500 mt-1">Tap to upload</p>
+                      <Camera className="w-5 h-5 text-slate-400 mx-auto" />
+                      <p className="text-xs text-slate-400">Upload</p>
                     </div>
                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload('leftGlove', e)} />
                   </label>
                 )}
               </div>
-            </div>
-            
-            {/* Right Glove */}
-            <div>
-              <Label className="flex items-center gap-2">
-                <Hand className="w-4 h-4 transform scale-x-[-1]" />
-                Right Glove Photo *
-              </Label>
-              <div className="mt-2">
+              
+              {/* Right Glove */}
+              <div>
+                <Label className="text-xs flex items-center gap-1 mb-1">
+                  <Hand className="w-3 h-3 transform scale-x-[-1]" />
+                  Right Glove
+                </Label>
                 {hardwareImages.rightGlove ? (
                   <div className="relative">
-                    <img src={hardwareImages.rightGlove} alt="Right Glove" className="w-full h-32 object-cover rounded-lg border" />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="absolute top-2 right-2"
+                    <img src={hardwareImages.rightGlove} alt="Right Glove" className="w-full h-20 object-cover rounded border" />
+                    <button 
+                      type="button"
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center"
                       onClick={() => setHardwareImages(prev => ({ ...prev, rightGlove: '' }))}
                     >
-                      Change
-                    </Button>
+                      ×
+                    </button>
                   </div>
                 ) : (
-                  <label className="block w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
+                  <label className="block w-full h-20 border-2 border-dashed rounded cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
                     <div className="text-center">
-                      <Camera className="w-8 h-8 text-slate-400 mx-auto" />
-                      <p className="text-sm text-slate-500 mt-1">Tap to upload</p>
+                      <Camera className="w-5 h-5 text-slate-400 mx-auto" />
+                      <p className="text-xs text-slate-400">Upload</p>
                     </div>
                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload('rightGlove', e)} />
                   </label>
                 )}
               </div>
-            </div>
-            
-            {/* Head Camera */}
-            <div>
-              <Label className="flex items-center gap-2">
-                <Camera className="w-4 h-4" />
-                Head Camera Photo *
-              </Label>
-              <div className="mt-2">
+              
+              {/* Head Camera */}
+              <div>
+                <Label className="text-xs flex items-center gap-1 mb-1">
+                  <Camera className="w-3 h-3" />
+                  Head Cam
+                </Label>
                 {hardwareImages.headCamera ? (
                   <div className="relative">
-                    <img src={hardwareImages.headCamera} alt="Head Camera" className="w-full h-32 object-cover rounded-lg border" />
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="absolute top-2 right-2"
+                    <img src={hardwareImages.headCamera} alt="Head Camera" className="w-full h-20 object-cover rounded border" />
+                    <button 
+                      type="button"
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center"
                       onClick={() => setHardwareImages(prev => ({ ...prev, headCamera: '' }))}
                     >
-                      Change
-                    </Button>
+                      ×
+                    </button>
                   </div>
                 ) : (
-                  <label className="block w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
+                  <label className="block w-full h-20 border-2 border-dashed rounded cursor-pointer hover:border-teal-400 flex items-center justify-center bg-slate-50">
                     <div className="text-center">
-                      <Camera className="w-8 h-8 text-slate-400 mx-auto" />
-                      <p className="text-sm text-slate-500 mt-1">Tap to upload</p>
+                      <Camera className="w-5 h-5 text-slate-400 mx-auto" />
+                      <p className="text-xs text-slate-400">Upload</p>
                     </div>
                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload('headCamera', e)} />
                   </label>
@@ -1706,30 +1702,32 @@ export default function Deployments() {
               </div>
             </div>
             
-            {/* Notes */}
+            {/* Notes - compact */}
             <div>
-              <Label>Notes (optional)</Label>
+              <Label className="text-xs">Notes (optional)</Label>
               <Textarea
                 value={hardwareNotes}
                 onChange={(e) => setHardwareNotes(e.target.value)}
-                placeholder="Any issues or observations about the equipment..."
-                className="mt-1"
+                placeholder="Any issues with equipment..."
+                className="mt-1 text-sm h-16 resize-none"
               />
             </div>
-            
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setHardwareCheckDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button 
-                onClick={submitHardwareCheck} 
-                className="flex-1 bg-teal-500 hover:bg-teal-600" 
-                disabled={hardwareLoading}
-                data-testid="submit-hardware-check"
-              >
-                {hardwareLoading ? 'Submitting...' : 'Submit & Start Collection'}
-              </Button>
-            </div>
+          </div>
+          
+          {/* Sticky footer with buttons */}
+          <div className="px-4 py-3 border-t bg-slate-50 flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setHardwareCheckDialog(false)} className="flex-1">
+              Cancel
+            </Button>
+            <Button 
+              onClick={submitHardwareCheck} 
+              size="sm"
+              className="flex-1 bg-teal-500 hover:bg-teal-600" 
+              disabled={hardwareLoading}
+              data-testid="submit-hardware-check"
+            >
+              {hardwareLoading ? 'Submitting...' : 'Submit & Start'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
