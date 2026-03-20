@@ -129,12 +129,20 @@ class ItemCreate(BaseModel):
     quantity: int = 1  # For quantity-tracked items
 
 class DeploymentCreate(BaseModel):
-    date: str  # YYYY-MM-DD
+    date: str  # YYYY-MM-DD - THIS IS THE SINGLE SOURCE OF TRUTH
     bnb: str
-    shift: str  # morning / evening
+    # NEW STRUCTURE: Both shifts in one deployment
+    morning_managers: List[str] = []  # User IDs for morning shift
+    evening_managers: List[str] = []  # User IDs for evening shift
+    assigned_kits: List[str] = []  # Kits assigned to this BnB for the day
+    # Legacy field for backwards compatibility during transition
+    shift: Optional[str] = None  # Will be removed after migration
+    deployment_managers: Optional[List[str]] = None  # Legacy field
+
+class DeploymentUpdate(BaseModel):
+    morning_managers: List[str] = []
+    evening_managers: List[str] = []
     assigned_kits: List[str] = []
-    assigned_users: List[str] = []
-    deployment_managers: List[str] = []  # Multiple user_ids
 
 class ItemUpdate(BaseModel):
     category: Optional[str] = None
@@ -143,12 +151,21 @@ class ItemUpdate(BaseModel):
     current_location: Optional[str] = None
     quantity: Optional[int] = None
 
-# Shift models for automatic time tracking - CONTEXT-AWARE (tied to deployment/kit)
-class ShiftStart(BaseModel):
-    deployment_id: str  # Required - which deployment this shift belongs to
+# Collection record models - CONTEXT-AWARE (tied to deployment/kit)
+class CollectionStart(BaseModel):
+    deployment_id: str  # Required - which deployment this collection belongs to
     kit: str  # Required - which kit
+    shift: str  # Required - "morning" or "evening" (user selects which shift they're working)
     ssd_used: str
     activity_type: str  # cooking, cleaning, organizing, outdoor, other
+
+# Legacy model for backwards compatibility
+class ShiftStart(BaseModel):
+    deployment_id: str
+    kit: str
+    ssd_used: str
+    activity_type: str
+    shift: str = "morning"  # Default to morning for legacy calls
 
 class EventCreate(BaseModel):
     event_type: str  # transfer, damage, lost
@@ -509,9 +526,19 @@ async def get_deployments(
     if date:
         query["date"] = date
     
-    # Deployment managers only see their deployments (where they are in deployment_managers array)
+    # Deployment managers see deployments where they're in morning_managers, evening_managers, or legacy deployment_managers
     if user["role"] == "deployment_manager":
-        query["deployment_managers"] = user["id"]
+        manager_filter = {
+            "$or": [
+                {"morning_managers": user["id"]},
+                {"evening_managers": user["id"]},
+                {"deployment_managers": user["id"]}  # Legacy support
+            ]
+        }
+        if date:
+            query = {"date": date, **manager_filter}
+        else:
+            query = manager_filter
     
     deployments = await get_db().deployments.find(query, {"_id": 0}).sort("date", -1).to_list(100)
     return deployments
@@ -523,7 +550,14 @@ async def get_today_deployments(user: dict = Depends(get_current_user_dep())):
     query = {"date": operational_date}
     
     if user["role"] == "deployment_manager":
-        query["deployment_managers"] = user["id"]
+        # Manager can see deployment if they're in morning_managers OR evening_managers
+        query["$or"] = [
+            {"morning_managers": user["id"]},
+            {"evening_managers": user["id"]},
+            {"deployment_managers": user["id"]}  # Legacy support
+        ]
+        del query["date"]  # Remove date from main query, add it to $and
+        query = {"date": operational_date, "$or": query["$or"]}
     
     return await get_db().deployments.find(query, {"_id": 0}).to_list(50)
 
@@ -532,25 +566,31 @@ async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_cur
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    # Validate at least one deployment manager
-    if not data.deployment_managers or len(data.deployment_managers) == 0:
-        raise HTTPException(status_code=400, detail="At least one deployment manager is required")
-    
-    # Check for duplicate
+    # NEW STRUCTURE: One deployment per BnB per date (no shift duplication)
+    # Check for duplicate by date + bnb only
     existing = await get_db().deployments.find_one({
-        "date": data.date, "bnb": data.bnb, "shift": data.shift
+        "date": data.date, "bnb": data.bnb
     })
     if existing:
-        raise HTTPException(status_code=400, detail="Deployment already exists for this BnB/shift/date")
+        raise HTTPException(status_code=400, detail="Deployment already exists for this BnB on this date. Edit the existing deployment instead.")
+    
+    # Validate at least one manager (morning or evening)
+    has_managers = (data.morning_managers and len(data.morning_managers) > 0) or \
+                   (data.evening_managers and len(data.evening_managers) > 0) or \
+                   (data.deployment_managers and len(data.deployment_managers) > 0)
+    if not has_managers:
+        raise HTTPException(status_code=400, detail="At least one manager is required (morning or evening)")
     
     doc = {
         "id": f"dep-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')[:18]}",
-        "date": data.date,
+        "date": data.date,  # THIS IS THE SINGLE SOURCE OF TRUTH
         "bnb": data.bnb,
-        "shift": data.shift,
+        "morning_managers": data.morning_managers or [],
+        "evening_managers": data.evening_managers or [],
         "assigned_kits": data.assigned_kits,
-        "assigned_users": data.assigned_users,
-        "deployment_managers": data.deployment_managers,
+        # Legacy fields for backwards compatibility
+        "deployment_managers": data.deployment_managers or data.morning_managers or [],
+        "shift": data.shift or "morning",  # Legacy
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await get_db().deployments.insert_one(doc)
@@ -558,19 +598,21 @@ async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_cur
     return doc
 
 @app.put("/api/deployments/{deployment_id}")
-async def update_deployment(deployment_id: str, data: DeploymentCreate, user: dict = Depends(get_current_user_dep())):
+async def update_deployment(deployment_id: str, data: DeploymentUpdate, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
+    update_data = {
+        "morning_managers": data.morning_managers,
+        "evening_managers": data.evening_managers,
+        "assigned_kits": data.assigned_kits,
+        # Update legacy field too
+        "deployment_managers": data.morning_managers + data.evening_managers
+    }
+    
     await get_db().deployments.update_one(
         {"id": deployment_id},
-        {"$set": {
-            "bnb": data.bnb,
-            "shift": data.shift,
-            "assigned_kits": data.assigned_kits,
-            "assigned_users": data.assigned_users,
-            "deployment_managers": data.deployment_managers
-        }}
+        {"$set": update_data}
     )
     return {"status": "updated"}
 
@@ -841,10 +883,11 @@ async def get_shifts(
     date: Optional[str] = None,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get shifts - admins see all, managers see their own"""
+    """Get shifts - filter by deployment_date (NOT timestamp)"""
     query = {}
     if date:
-        query["start_time"] = {"$regex": f"^{date}"}
+        # Use deployment_date field, NOT timestamp
+        query["date"] = date
     
     if user["role"] == "deployment_manager":
         query["user"] = user["id"]
@@ -854,9 +897,9 @@ async def get_shifts(
 
 @app.get("/api/shifts/today")
 async def get_today_shifts(user: dict = Depends(get_current_user_dep())):
-    """Get today's completed shifts"""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    query = {"start_time": {"$regex": f"^{today}"}, "status": "completed"}
+    """Get today's completed shifts using operational date"""
+    operational_date = get_operational_date()
+    query = {"date": operational_date, "status": "completed"}
     
     if user["role"] == "deployment_manager":
         query["user"] = user["id"]
@@ -878,13 +921,17 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
     
+    # Get shift from request or default to morning
+    shift_value = getattr(data, 'shift', 'morning') or 'morning'
+    
     now = datetime.now(timezone.utc)
-    # Use deployment.date as the canonical date (NOT derived from timestamp)
+    # CRITICAL: Use deployment["date"] as the SINGLE SOURCE OF TRUTH
+    # NEVER derive date from timestamp
     record = {
         "id": f"rec-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
         "deployment_id": data.deployment_id,
-        "date": deployment["date"],  # ALWAYS use deployment date
-        "shift": deployment.get("shift", "morning"),  # Store shift assignment from deployment
+        "date": deployment["date"],  # SINGLE SOURCE OF TRUTH - copied from deployment
+        "shift": shift_value,  # User-selected shift (morning/evening)
         "bnb": deployment["bnb"],
         "user": user["id"],
         "user_name": user["name"],

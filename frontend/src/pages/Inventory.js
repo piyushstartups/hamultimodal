@@ -295,13 +295,21 @@ export default function Inventory() {
           quantity: formData.tracking_type === 'quantity' ? formData.quantity : null
         });
         toast.success('Item updated');
-      } else if (dialogType === 'transfer') {
+      } else if (dialogType === 'transfer' || dialogType === 'bulk-transfer') {
         const from_location = `${formData.from_type}:${formData.from_value}`;
         const to_location = `${formData.to_type}:${formData.to_value}`;
         
+        // For bulk transfer, item is selected from form; for transfer, it's the editingItem
+        const itemName = dialogType === 'bulk-transfer' ? formData.item_name : editingItem.item_name;
+        
+        if (!itemName) {
+          toast.error('Please select an item');
+          return;
+        }
+        
         await api.post('/events', {
           event_type: 'transfer',
-          item: editingItem.item_name,
+          item: itemName,
           from_location,
           to_location,
           quantity: 1,
@@ -426,10 +434,16 @@ export default function Inventory() {
             </div>
           </div>
           {isAdmin && (
-            <Button size="sm" onClick={openAddDialog} data-testid="add-item-btn">
-              <Plus className="w-4 h-4 mr-1" />
-              Add Item
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => { setDialogType('bulk-transfer'); setDialogOpen(true); }} data-testid="transfer-item-btn">
+                <ArrowRightLeft className="w-4 h-4 mr-1" />
+                Transfer Item
+              </Button>
+              <Button size="sm" onClick={openAddDialog} data-testid="add-item-btn">
+                <Plus className="w-4 h-4 mr-1" />
+                Add Item
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -755,6 +769,7 @@ export default function Inventory() {
               {dialogType === 'add' ? 'Add Item' : 
                dialogType === 'edit' ? 'Edit Item' : 
                dialogType === 'transfer' ? `Transfer: ${editingItem?.item_name}` : 
+               dialogType === 'bulk-transfer' ? 'Transfer Item' :
                `Report Damage: ${editingItem?.item_name}`}
             </DialogTitle>
           </DialogHeader>
@@ -895,6 +910,74 @@ export default function Inventory() {
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     placeholder="Add transfer notes"
                     className="mt-1"
+                  />
+                </div>
+              </>
+            )}
+            
+            {/* BULK TRANSFER DIALOG - Admin can select any item */}
+            {dialogType === 'bulk-transfer' && (
+              <>
+                <div>
+                  <Label>Select Item *</Label>
+                  <Select value={formData.item_name} onValueChange={(v) => setFormData({ ...formData, item_name: v })}>
+                    <SelectTrigger className="mt-1" data-testid="bulk-transfer-item-select"><SelectValue placeholder="Select an item" /></SelectTrigger>
+                    <SelectContent>
+                      {items.map(item => <SelectItem key={item.item_name} value={item.item_name}>{item.item_name} ({item.current_location})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>From Type</Label>
+                    <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>From</Label>
+                    <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        {getLocationOptions(formData.from_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>To Type</Label>
+                    <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>To</Label>
+                    <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>
+                        {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div>
+                  <Label>Notes (optional)</Label>
+                  <Textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Add transfer notes"
+                    className="mt-1"
+                    data-testid="bulk-transfer-notes"
                   />
                 </div>
               </>
