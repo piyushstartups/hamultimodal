@@ -101,7 +101,11 @@ export default function DeploymentPlanning() {
     for (let i = -3; i <= 3; i++) {
       const d = new Date(center);
       d.setDate(d.getDate() + i);
-      dates.push(d.toISOString().split('T')[0]);
+      // Use local date components, NOT toISOString() which converts to UTC
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      dates.push(`${year}-${month}-${day}`);
     }
     setWeekDates(dates);
   };
@@ -136,7 +140,11 @@ export default function DeploymentPlanning() {
   const navigateDate = (direction) => {
     const current = new Date(selectedDate);
     current.setDate(current.getDate() + direction);
-    setSelectedDate(current.toISOString().split('T')[0]);
+    // Use local date components, NOT toISOString() which converts to UTC
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    setSelectedDate(`${year}-${month}-${day}`);
   };
 
   const formatDate = (dateStr) => {

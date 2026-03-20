@@ -26,7 +26,11 @@ export default function Analytics() {
         weekAgo.setDate(weekAgo.getDate() - 6);
         
         setEndDate(opDate);
-        setStartDate(weekAgo.toISOString().split('T')[0]);
+        // Use local date components, NOT toISOString() which converts to UTC
+        const startYear = weekAgo.getFullYear();
+        const startMonth = String(weekAgo.getMonth() + 1).padStart(2, '0');
+        const startDay = String(weekAgo.getDate()).padStart(2, '0');
+        setStartDate(`${startYear}-${startMonth}-${startDay}`);
       } catch (error) {
         console.error('Failed to fetch operational date:', error);
       }
@@ -65,7 +69,11 @@ export default function Analytics() {
     const end = new Date(operationalDate + 'T12:00:00');
     const start = new Date(end);
     start.setDate(start.getDate() - (days - 1));
-    setStartDate(start.toISOString().split('T')[0]);
+    // Use local date components, NOT toISOString() which converts to UTC
+    const startYear = start.getFullYear();
+    const startMonth = String(start.getMonth() + 1).padStart(2, '0');
+    const startDay = String(start.getDate()).padStart(2, '0');
+    setStartDate(`${startYear}-${startMonth}-${startDay}`);
     setEndDate(operationalDate);
   };
 

@@ -87,7 +87,11 @@ export default function AdminAnalytics() {
         start.setDate(start.getDate() - parseInt(dateRange));
         
         setEndDate(opDate);
-        setStartDate(start.toISOString().split('T')[0]);
+        // Use local date components, NOT toISOString() which converts to UTC
+        const startYear = start.getFullYear();
+        const startMonth = String(start.getMonth() + 1).padStart(2, '0');
+        const startDay = String(start.getDate()).padStart(2, '0');
+        setStartDate(`${startYear}-${startMonth}-${startDay}`);
       } catch (error) {
         console.error('Failed to fetch operational date:', error);
       }
@@ -108,7 +112,11 @@ export default function AdminAnalytics() {
     const start = new Date(end);
     start.setDate(start.getDate() - parseInt(days));
     setEndDate(operationalDate);
-    setStartDate(start.toISOString().split('T')[0]);
+    // Use local date components, NOT toISOString() which converts to UTC
+    const startYear = start.getFullYear();
+    const startMonth = String(start.getMonth() + 1).padStart(2, '0');
+    const startDay = String(start.getDate()).padStart(2, '0');
+    setStartDate(`${startYear}-${startMonth}-${startDay}`);
   };
 
   const fetchAllAnalytics = async () => {

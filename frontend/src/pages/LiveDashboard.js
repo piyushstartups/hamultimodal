@@ -118,7 +118,11 @@ export default function LiveDashboard() {
   const changeDate = (days) => {
     const d = new Date(selectedDate + 'T12:00:00'); // Use noon to avoid timezone issues
     d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    // CRITICAL: Use local date components, NOT toISOString() which converts to UTC
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    setSelectedDate(`${year}-${month}-${day}`);
     setLoading(true);
   };
 
