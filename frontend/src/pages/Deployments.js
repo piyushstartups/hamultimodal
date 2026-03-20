@@ -90,10 +90,15 @@ export default function Deployments() {
   const [handoverDialogOpen, setHandoverDialogOpen] = useState(false);
   const [handoverType, setHandoverType] = useState('outgoing');
   const [handoverDeployment, setHandoverDeployment] = useState(null);
+  const [handoverShiftType, setHandoverShiftType] = useState('morning'); // NEW: which shift is doing handover
   const [kitChecklists, setKitChecklists] = useState({});
   const [bnbChecklist, setBnbChecklist] = useState({});
   const [missingItems, setMissingItems] = useState([]);
   const [handoverNotes, setHandoverNotes] = useState('');
+  
+  // NEW: Shift tab state (per deployment) - tracks which tab user is viewing
+  const [activeShiftTab, setActiveShiftTab] = useState({}); // {deploymentId: 'morning' | 'evening'}
+  const [handoverStatus, setHandoverStatus] = useState({}); // {deploymentId: {morning_outgoing_complete, etc.}}
   
   // Timer state
   const [elapsedTimes, setElapsedTimes] = useState({});
@@ -259,8 +264,77 @@ export default function Deployments() {
         statuses.forEach(s => { statusMap[s.kit] = s.completed; });
         setHardwareCheckStatus(statusMap);
       }
+      
+      // Fetch handover status
+      if (deployment) {
+        fetchHandoverStatus(deploymentId, deployment.date);
+      }
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  // NEW: Fetch handover status for a deployment
+  const fetchHandoverStatus = async (deploymentId, date) => {
+    try {
+      const response = await api.get(`/handovers/status/${deploymentId}/${date}`);
+      setHandoverStatus(prev => ({ ...prev, [deploymentId]: response.data }));
+    } catch (error) {
+      console.error('Failed to fetch handover status:', error);
+    }
+  };
+
+  // NEW: Check if user belongs to a specific shift
+  const getUserShiftAccess = (deployment) => {
+    const userId = user?.id;
+    if (!userId || !deployment) return { canMorning: false, canNight: false };
+    
+    // Admins can access both shifts
+    if (isAdmin) return { canMorning: true, canNight: true };
+    
+    const isMorningManager = deployment.morning_managers?.includes(userId);
+    const isNightManager = deployment.evening_managers?.includes(userId);
+    // Legacy support
+    const isLegacyManager = deployment.deployment_managers?.includes(userId);
+    
+    return {
+      canMorning: isMorningManager || isLegacyManager,
+      canNight: isNightManager || isLegacyManager
+    };
+  };
+
+  // NEW: Get current tab for a deployment (default based on user access)
+  const getActiveTab = (deployment) => {
+    const currentTab = activeShiftTab[deployment.id];
+    if (currentTab) return currentTab;
+    
+    // Default: morning if user has morning access, else evening
+    const access = getUserShiftAccess(deployment);
+    if (access.canMorning) return 'morning';
+    if (access.canNight) return 'evening';
+    return 'morning'; // Fallback
+  };
+
+  // NEW: Check if actions are allowed based on handover status
+  const canPerformAction = (deployment, shiftTab, actionType) => {
+    const status = handoverStatus[deployment.id];
+    const access = getUserShiftAccess(deployment);
+    
+    // Must have access to the shift tab
+    if (shiftTab === 'morning' && !access.canMorning) return { allowed: false, reason: 'Not assigned to morning shift' };
+    if (shiftTab === 'evening' && !access.canNight) return { allowed: false, reason: 'Not assigned to night shift' };
+    
+    if (!status) return { allowed: true, reason: null }; // Status not loaded yet, allow
+    
+    if (shiftTab === 'morning') {
+      // Morning team can always start/stop within their shift
+      return { allowed: true, reason: null };
+    } else {
+      // Night team needs morning handover to start
+      if (actionType === 'start' && !status.morning_outgoing_complete) {
+        return { allowed: false, reason: 'Morning team must complete handover first' };
+      }
+      return { allowed: true, reason: null };
     }
   };
 
@@ -515,9 +589,10 @@ export default function Deployments() {
   };
 
   // Handover functions
-  const openHandoverDialog = (dep, type) => {
+  const openHandoverDialog = (dep, type, shiftType = 'morning') => {
     setHandoverDeployment(dep);
     setHandoverType(type);
+    setHandoverShiftType(shiftType);
     
     // Initialize kit checklists
     const initialKitChecklists = {};
@@ -576,14 +651,20 @@ export default function Deployments() {
       await api.post('/handovers', {
         deployment_id: handoverDeployment.id,
         handover_type: handoverType,
+        shift_type: handoverShiftType, // NEW: include which shift is doing handover
         kit_checklists: kitChecklistsArray,
         bnb_checklist: bnbChecklist,
         missing_items: missingItems.filter(m => m.item),
         notes: handoverNotes || null
       });
       
-      toast.success(`Handover (${handoverType}) submitted successfully`);
+      toast.success(`${handoverShiftType === 'morning' ? 'Morning' : 'Night'} shift handover (${handoverType}) submitted successfully`);
       setHandoverDialogOpen(false);
+      
+      // Refresh handover status
+      if (handoverDeployment) {
+        fetchHandoverStatus(handoverDeployment.id, handoverDeployment.date);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit handover');
     }
@@ -950,47 +1031,160 @@ export default function Deployments() {
                     </div>
                   </div>
                   
-                  {/* Expanded: Kit Cards + Handover */}
+                  {/* Expanded: Shift Tabs + Kit Cards + Handover */}
                   {expandedDeployment === dep.id && (
                     <div className="p-4 space-y-4">
-                      {/* Handover buttons */}
-                      {isManager && (
-                        <div className="flex gap-2 mb-4">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="flex-1"
-                            onClick={() => openHandoverDialog(dep, 'outgoing')}
-                            data-testid="handover-outgoing-btn"
-                          >
-                            <ClipboardCheck className="w-4 h-4 mr-2" />
-                            End Shift Handover
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="flex-1"
-                            onClick={() => openHandoverDialog(dep, 'incoming')}
-                            data-testid="handover-incoming-btn"
-                          >
-                            <ClipboardCheck className="w-4 h-4 mr-2" />
-                            Start Shift Handover
-                          </Button>
-                        </div>
-                      )}
+                      {/* Shift Tabs */}
+                      <div className="flex border-b border-slate-200">
+                        <button
+                          className={`flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                            getActiveTab(dep) === 'morning'
+                              ? 'border-amber-500 text-amber-700 bg-amber-50'
+                              : 'border-transparent text-slate-500 hover:text-slate-700'
+                          }`}
+                          onClick={() => setActiveShiftTab(prev => ({ ...prev, [dep.id]: 'morning' }))}
+                          data-testid={`morning-tab-${dep.id}`}
+                        >
+                          <Sun className="w-4 h-4" />
+                          Morning Shift
+                          {getUserShiftAccess(dep).canMorning && (
+                            <span className="ml-1 w-2 h-2 bg-green-500 rounded-full" title="You have access"></span>
+                          )}
+                        </button>
+                        <button
+                          className={`flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
+                            getActiveTab(dep) === 'evening'
+                              ? 'border-indigo-500 text-indigo-700 bg-indigo-50'
+                              : 'border-transparent text-slate-500 hover:text-slate-700'
+                          }`}
+                          onClick={() => setActiveShiftTab(prev => ({ ...prev, [dep.id]: 'evening' }))}
+                          data-testid={`evening-tab-${dep.id}`}
+                        >
+                          <Moon className="w-4 h-4" />
+                          Night Shift
+                          {getUserShiftAccess(dep).canNight && (
+                            <span className="ml-1 w-2 h-2 bg-green-500 rounded-full" title="You have access"></span>
+                          )}
+                        </button>
+                      </div>
+                      
+                      {/* Handover Status Banner */}
+                      {(() => {
+                        const currentTab = getActiveTab(dep);
+                        const status = handoverStatus[dep.id];
+                        const access = getUserShiftAccess(dep);
+                        
+                        // Show handover requirements
+                        if (currentTab === 'evening' && status && !status.morning_outgoing_complete) {
+                          return (
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 text-amber-800">
+                              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                              <div>
+                                <p className="font-medium text-sm">Morning handover required</p>
+                                <p className="text-xs text-amber-600">Morning team must complete their End Shift Handover before night shift can start collection.</p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        // Access warning
+                        if ((currentTab === 'morning' && !access.canMorning) || (currentTab === 'evening' && !access.canNight)) {
+                          return (
+                            <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 flex items-center gap-2 text-slate-600">
+                              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                              <div>
+                                <p className="font-medium text-sm">View Only</p>
+                                <p className="text-xs">You are not assigned to this shift. Actions are disabled.</p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        return null;
+                      })()}
+                      
+                      {/* Handover Buttons - Contextual to current tab */}
+                      {isManager && (() => {
+                        const currentTab = getActiveTab(dep);
+                        const access = getUserShiftAccess(dep);
+                        const status = handoverStatus[dep.id];
+                        const hasAccess = currentTab === 'morning' ? access.canMorning : access.canNight;
+                        
+                        if (!hasAccess) return null;
+                        
+                        return (
+                          <div className="flex gap-2 mb-2">
+                            {currentTab === 'morning' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className={`flex-1 ${status?.morning_outgoing_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
+                                onClick={() => openHandoverDialog(dep, 'outgoing', 'morning')}
+                                data-testid="morning-end-handover-btn"
+                              >
+                                <ClipboardCheck className="w-4 h-4 mr-2" />
+                                {status?.morning_outgoing_complete ? '✓ Morning Handover Done' : 'End Morning Shift'}
+                              </Button>
+                            )}
+                            {currentTab === 'evening' && (
+                              <>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className={`flex-1 ${status?.night_incoming_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
+                                  onClick={() => openHandoverDialog(dep, 'incoming', 'evening')}
+                                  data-testid="night-start-handover-btn"
+                                  disabled={!status?.morning_outgoing_complete}
+                                >
+                                  <ClipboardCheck className="w-4 h-4 mr-2" />
+                                  {status?.night_incoming_complete ? '✓ Received' : 'Receive Handover'}
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className={`flex-1 ${status?.night_outgoing_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
+                                  onClick={() => openHandoverDialog(dep, 'outgoing', 'evening')}
+                                  data-testid="night-end-handover-btn"
+                                  disabled={!status?.night_incoming_complete}
+                                >
+                                  <ClipboardCheck className="w-4 h-4 mr-2" />
+                                  {status?.night_outgoing_complete ? '✓ Night Handover Done' : 'End Night Shift'}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                       
                       {/* Kit Cards */}
                       <div className="space-y-3">
-                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Assigned Kits</p>
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                          Assigned Kits - {getActiveTab(dep) === 'morning' ? 'Morning' : 'Night'} Shift
+                        </p>
                         {(!dep.assigned_kits || dep.assigned_kits.length === 0) ? (
                           <p className="text-sm text-slate-400 py-4 text-center">No kits assigned to this deployment</p>
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {dep.assigned_kits.map(kit => {
+                              const currentTab = getActiveTab(dep);
                               const status = getKitStatus(kit);
                               const activeRecord = getActiveRecord(kit);
                               const completedRecords = getCompletedRecords(kit);
                               const totalHours = getTotalKitHours(kit);
+                              
+                              // Access control
+                              const access = getUserShiftAccess(dep);
+                              const hasAccess = currentTab === 'morning' ? access.canMorning : access.canNight;
+                              const handoverStat = handoverStatus[dep.id];
+                              
+                              // Can start collection?
+                              const canStart = (() => {
+                                if (!hasAccess) return { allowed: false, reason: 'Not assigned to this shift' };
+                                if (currentTab === 'evening' && handoverStat && !handoverStat.morning_outgoing_complete) {
+                                  return { allowed: false, reason: 'Morning handover required' };
+                                }
+                                return { allowed: true, reason: null };
+                              })();
                               
                               return (
                                 <div 
@@ -999,7 +1193,7 @@ export default function Deployments() {
                                     status === 'active' ? 'border-green-400 bg-green-50' :
                                     status === 'paused' ? 'border-amber-400 bg-amber-50' :
                                     'border-slate-200 bg-white'
-                                  }`}
+                                  } ${!hasAccess ? 'opacity-60' : ''}`}
                                   data-testid={`kit-card-${kit}`}
                                 >
                                   {/* Kit Header */}
@@ -1038,19 +1232,25 @@ export default function Deployments() {
                                     </div>
                                   )}
                                   
-                                  {/* Control Buttons */}
+                                  {/* Control Buttons - with access control */}
                                   <div className="px-4 py-3 bg-white border-t border-slate-100">
                                     {status === 'not_started' && (
-                                      <Button 
-                                        className="w-full bg-green-500 hover:bg-green-600 h-12 text-base"
-                                        onClick={() => openStartShift(dep, kit)}
-                                        data-testid={`start-${kit}`}
-                                      >
-                                        <Play className="w-5 h-5 mr-2" />
-                                        {completedRecords.length > 0 ? 'Start New Collection' : 'Start Collection'}
-                                      </Button>
+                                      <div>
+                                        <Button 
+                                          className={`w-full h-12 text-base ${canStart.allowed ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300 cursor-not-allowed'}`}
+                                          onClick={() => canStart.allowed && openStartShift(dep, kit)}
+                                          disabled={!canStart.allowed}
+                                          data-testid={`start-${kit}`}
+                                        >
+                                          <Play className="w-5 h-5 mr-2" />
+                                          {completedRecords.length > 0 ? 'Start New Collection' : 'Start Collection'}
+                                        </Button>
+                                        {!canStart.allowed && (
+                                          <p className="text-xs text-amber-600 mt-1 text-center">{canStart.reason}</p>
+                                        )}
+                                      </div>
                                     )}
-                                    {status === 'active' && (
+                                    {status === 'active' && hasAccess && (
                                       <div className="flex gap-2">
                                         <Button 
                                           className="flex-1 bg-amber-500 hover:bg-amber-600 h-12"
@@ -1070,7 +1270,10 @@ export default function Deployments() {
                                         </Button>
                                       </div>
                                     )}
-                                    {status === 'paused' && (
+                                    {status === 'active' && !hasAccess && (
+                                      <p className="text-xs text-slate-500 text-center py-2">Active collection by another shift</p>
+                                    )}
+                                    {status === 'paused' && hasAccess && (
                                       <div className="flex gap-2">
                                         <Button 
                                           className="flex-1 bg-green-500 hover:bg-green-600 h-12"
@@ -1090,6 +1293,9 @@ export default function Deployments() {
                                         </Button>
                                       </div>
                                     )}
+                                    {status === 'paused' && !hasAccess && (
+                                      <p className="text-xs text-slate-500 text-center py-2">Paused collection by another shift</p>
+                                    )}
                                   </div>
                                   
                                   {/* Completed Records List */}
@@ -1105,18 +1311,23 @@ export default function Deployments() {
                                               <p className="font-medium text-slate-700">
                                                 {formatDuration(record.total_duration_hours)}
                                                 <span className="text-slate-400 ml-2 text-xs">{record.activity_type}</span>
+                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${record.shift === 'morning' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                                  {record.shift === 'morning' ? 'AM' : 'PM'}
+                                                </span>
                                               </p>
                                               <p className="text-xs text-slate-400">{record.ssd_used}</p>
                                             </div>
-                                            <Button 
-                                              variant="ghost" 
-                                              size="icon" 
-                                              className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                              onClick={() => handleDeleteRecord(record.id)}
-                                              data-testid={`delete-record-${record.id}`}
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </Button>
+                                            {hasAccess && (
+                                              <Button 
+                                                variant="ghost" 
+                                                size="icon" 
+                                                className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                onClick={() => handleDeleteRecord(record.id)}
+                                                data-testid={`delete-record-${record.id}`}
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </Button>
+                                            )}
                                           </div>
                                         ))}
                                       </div>
@@ -1181,8 +1392,9 @@ export default function Deployments() {
       <Dialog open={handoverDialogOpen} onOpenChange={setHandoverDialogOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {handoverType === 'outgoing' ? 'End Shift Handover' : 'Start Shift Handover'} - {handoverDeployment?.bnb}
+            <DialogTitle className="flex items-center gap-2">
+              {handoverShiftType === 'morning' ? <Sun className="w-5 h-5 text-amber-500" /> : <Moon className="w-5 h-5 text-indigo-500" />}
+              {handoverShiftType === 'morning' ? 'Morning' : 'Night'} Shift - {handoverType === 'outgoing' ? 'End Handover' : 'Receive Handover'} - {handoverDeployment?.bnb}
             </DialogTitle>
           </DialogHeader>
           

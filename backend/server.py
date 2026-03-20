@@ -212,6 +212,7 @@ class BnbChecklist(BaseModel):
 class HandoverCreate(BaseModel):
     deployment_id: str
     handover_type: str  # outgoing / incoming
+    shift_type: str = "morning"  # morning / evening - which shift is doing the handover
     kit_checklists: List[KitChecklist]
     bnb_checklist: BnbChecklist
     missing_items: List[dict] = []  # [{item, quantity, kit_or_bnb, report_as_lost}]
@@ -1183,18 +1184,94 @@ async def create_handover(data: HandoverCreate, user: dict = Depends(get_current
         "date": deployment["date"],
         "bnb": deployment["bnb"],
         "handover_type": data.handover_type,
+        "shift_type": data.shift_type,  # morning / evening
         "user": user["id"],
         "user_name": user["name"],
         "kit_checklists": [kc.dict() for kc in data.kit_checklists],
         "bnb_checklist": data.bnb_checklist.dict(),
         "missing_items": data.missing_items,
         "notes": data.notes,
+        "timestamp": now.isoformat(),
         "created_at": now.isoformat()
     }
     
     await get_db().handovers.insert_one(handover_doc)
     handover_doc.pop("_id", None)
     return handover_doc
+
+
+@app.get("/api/handovers/status/{deployment_id}/{date}")
+async def get_handover_status(deployment_id: str, date: str, user: dict = Depends(get_current_user_dep())):
+    """
+    Get handover status for a deployment on a specific date.
+    Returns which shifts have completed their handovers.
+    
+    Handover flow:
+    - Morning team does OUTGOING handover -> morning_outgoing_complete
+    - Night team does INCOMING handover -> night_incoming_complete
+    - Night team does OUTGOING handover -> night_outgoing_complete
+    - Next day Morning team does INCOMING handover -> next_day_ready
+    """
+    
+    # Get handovers for this deployment on this date
+    handovers = await get_db().handovers.find({
+        "deployment_id": deployment_id,
+        "timestamp": {"$regex": f"^{date}"}  # Match date prefix in timestamp
+    }, {"_id": 0}).to_list(100)
+    
+    # Determine status based on completed handovers
+    morning_outgoing_complete = any(
+        h.get("handover_type") == "outgoing" and 
+        h.get("shift_type") == "morning" 
+        for h in handovers
+    )
+    
+    night_incoming_complete = any(
+        h.get("handover_type") == "incoming" and 
+        h.get("shift_type") == "evening" 
+        for h in handovers
+    )
+    
+    night_outgoing_complete = any(
+        h.get("handover_type") == "outgoing" and 
+        h.get("shift_type") == "evening" 
+        for h in handovers
+    )
+    
+    # Legacy handovers without shift_type - check by time of day
+    for h in handovers:
+        if not h.get("shift_type"):
+            try:
+                ts = datetime.fromisoformat(h.get("timestamp", "").replace("Z", "+00:00"))
+                hour = ts.hour
+                # Morning shift: before 3 PM
+                # Evening shift: 3 PM onwards
+                is_morning = hour < 15
+                
+                if h.get("handover_type") == "outgoing":
+                    if is_morning:
+                        morning_outgoing_complete = True
+                    else:
+                        night_outgoing_complete = True
+                elif h.get("handover_type") == "incoming":
+                    if not is_morning:
+                        night_incoming_complete = True
+            except:
+                pass
+    
+    return {
+        "deployment_id": deployment_id,
+        "date": date,
+        "morning_outgoing_complete": morning_outgoing_complete,
+        "night_incoming_complete": night_incoming_complete,
+        "night_outgoing_complete": night_outgoing_complete,
+        "handovers": handovers,
+        # Computed flags for UI
+        "can_morning_end_shift": True,  # Morning can always try to end (handover dialog will guide)
+        "can_night_start": morning_outgoing_complete,  # Night needs morning handover first
+        "can_night_end_shift": night_incoming_complete,  # Night must have done incoming first
+    }
+
 
 # ========================
 # REQUESTS

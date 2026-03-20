@@ -213,6 +213,13 @@ Deployments → Date → BnB → Handover buttons
 - [x] **CRITICAL: No new Date() Fallbacks** - Removed all `new Date()` fallbacks for operational date. Deployments page now uses retry logic (3 attempts) and shows error state if fetch fails, ensuring no incorrect dates are ever displayed.
 - [x] **Live Dashboard Kit Cards Fix** - Kit cards now show TOTAL collection hours for the day (completed + active) instead of only current session timer. When active, shows a small live indicator with current session timer below the total.
 - [x] **Live Dashboard Shift-Wise Breakdown** - BnB view now shows separate Morning Shift and Night Shift sections, each displaying assigned managers and kit-wise hours for that shift. Same kits appear in both sections with shift-filtered data. Total BnB output shown at bottom.
+- [x] **Deployment Shift Discipline** - Implemented tabbed shift view (Morning/Night) with access control:
+  - Users see which shifts they have access to (green dot indicator)
+  - Morning team can only control kits in Morning tab
+  - Night team can only control kits in Night tab
+  - Handover status tracking with visual indicators
+  - Morning must complete "End Shift Handover" before Night can start collection
+  - Collection records display shift badge (AM/PM) for clarity
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
