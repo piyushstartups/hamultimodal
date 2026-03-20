@@ -183,6 +183,10 @@ Deployments → Date → BnB → Handover buttons
 - [x] **Live Dashboard Status Badges** - Active/Paused/Idle status for each kit
 - [x] **Analytics Cleanup** - Removed "Hours per BnB" and "Total shifts", added "Total Deployments"
 - [x] **UI Cleanup** - Removed redundant "Request" section from main Dashboard
+- [x] **CRITICAL: Date Mismatch Fix** - Live Dashboard now queries by deployment_id (not date field) to avoid timezone issues
+- [x] **CRITICAL: Live Counters Fix** - Total hours now include BOTH completed AND active collection records
+- [x] **CRITICAL: Pause/Resume Logic Fix** - Paused time correctly excluded from duration calculation
+- [x] **UI: Compact Kit Cards** - Kit cards reduced from full-width to 2-4 per row grid layout
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
@@ -216,4 +220,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-20 - Collection system fix (authorization), Live Dashboard real-time timers, Analytics cleanup
+2026-03-20 - Critical fixes: Date mismatch, Live counters, Pause/Resume logic, Compact UI
