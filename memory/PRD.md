@@ -205,6 +205,10 @@ Deployments → Date → BnB → Handover buttons
 - [x] **Shift Classification Fix** - Shift is stored on collection record from deployment.shift, NOT inferred from time
 - [x] **Grouped Deployments API** - New endpoint `/api/deployments/grouped/{date}` returns deployments grouped by BnB
 - [x] **Inventory Transfer** - Transfer button already available for all users (admins and managers)
+- [x] **CRITICAL: Deployment Date as Single Source of Truth** - All records use deployment.date, NOT timestamp-derived dates
+- [x] **CRITICAL: New Deployment Structure** - One deployment per BnB per date (morning_managers + evening_managers in same deployment)
+- [x] **CRITICAL: Shift from User Selection** - Collection record shift comes from user request, NOT inferred
+- [x] **Admin Transfer Item Button** - Prominent "Transfer Item" button in Inventory header for Admin
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)

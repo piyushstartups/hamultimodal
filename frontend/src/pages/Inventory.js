@@ -923,7 +923,7 @@ export default function Inventory() {
                   <Select value={formData.item_name} onValueChange={(v) => setFormData({ ...formData, item_name: v })}>
                     <SelectTrigger className="mt-1" data-testid="bulk-transfer-item-select"><SelectValue placeholder="Select an item" /></SelectTrigger>
                     <SelectContent>
-                      {items.map(item => <SelectItem key={item.item_name} value={item.item_name}>{item.item_name} ({item.current_location})</SelectItem>)}
+                      {items.map((item, idx) => <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>{item.item_name} ({item.current_location})</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
