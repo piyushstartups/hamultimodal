@@ -24,7 +24,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Plus, Edit, Trash2, 
   MapPin, Package, Users, Play, Pause, Square, Timer, 
   ChevronDown, ChevronUp, RefreshCw, ClipboardCheck, AlertCircle, Eye,
-  Camera, Hand, CheckCircle, Cpu
+  Camera, Hand, CheckCircle, Cpu, Sun, Moon
 } from 'lucide-react';
 
 const ACTIVITY_TYPES = [
@@ -121,8 +121,8 @@ export default function Deployments() {
   const [editingDeployment, setEditingDeployment] = useState(null);
   const [formData, setFormData] = useState({
     bnb: '',
-    shift: 'morning',
-    deployment_managers: [],
+    morning_managers: [],
+    evening_managers: [],
     assigned_kits: [],
   });
 
@@ -589,7 +589,7 @@ export default function Deployments() {
       return;
     }
     setEditingDeployment(null);
-    setFormData({ bnb: '', shift: 'morning', deployment_managers: [], assigned_kits: [] });
+    setFormData({ bnb: '', morning_managers: [], evening_managers: [], assigned_kits: [] });
     setDialogOpen(true);
   };
 
@@ -597,8 +597,8 @@ export default function Deployments() {
     setEditingDeployment(deployment);
     setFormData({
       bnb: deployment.bnb,
-      shift: deployment.shift,
-      deployment_managers: deployment.deployment_managers || [],
+      morning_managers: deployment.morning_managers || [],
+      evening_managers: deployment.evening_managers || [],
       assigned_kits: deployment.assigned_kits || [],
     });
     setDialogOpen(true);
@@ -606,8 +606,9 @@ export default function Deployments() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.bnb || formData.deployment_managers.length === 0) {
-      toast.error('BnB and at least one manager required');
+    const hasManagers = (formData.morning_managers?.length > 0) || (formData.evening_managers?.length > 0);
+    if (!formData.bnb || !hasManagers) {
+      toast.error('BnB and at least one manager (morning or evening) required');
       return;
     }
 
@@ -615,10 +616,9 @@ export default function Deployments() {
       const payload = {
         date: formatDateKey(selectedDate),
         bnb: formData.bnb,
-        shift: formData.shift,
-        deployment_managers: formData.deployment_managers,
+        morning_managers: formData.morning_managers,
+        evening_managers: formData.evening_managers,
         assigned_kits: formData.assigned_kits,
-        assigned_users: [],
       };
 
       if (editingDeployment) {
@@ -656,16 +656,23 @@ export default function Deployments() {
     });
   };
 
-  const toggleManager = (managerId) => {
-    const arr = formData.deployment_managers;
+  const toggleMorningManager = (managerId) => {
+    const arr = formData.morning_managers || [];
     setFormData({
       ...formData,
-      deployment_managers: arr.includes(managerId) ? arr.filter(m => m !== managerId) : [...arr, managerId]
+      morning_managers: arr.includes(managerId) ? arr.filter(m => m !== managerId) : [...arr, managerId]
+    });
+  };
+
+  const toggleEveningManager = (managerId) => {
+    const arr = formData.evening_managers || [];
+    setFormData({
+      ...formData,
+      evening_managers: arr.includes(managerId) ? arr.filter(m => m !== managerId) : [...arr, managerId]
     });
   };
 
   const getUserName = (userId) => managers.find(m => m.id === userId)?.name || userId;
-  const getManagerNames = (dep) => dep.deployment_managers?.length > 0 ? dep.deployment_managers.map(getUserName).join(', ') : 'Unassigned';
   
   // Get kit status from the new data structure
   const getKitStatus = (kit) => {
@@ -828,7 +835,7 @@ export default function Deployments() {
               </div>
             )}
 
-            {/* Deployment cards */}
+            {/* Deployment cards - NEW STRUCTURE: One card per BnB with morning+evening inside */}
             {selectedDeployments.length === 0 ? (
               <div className="bg-white rounded-xl border p-8 text-center">
                 <MapPin className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -846,7 +853,7 @@ export default function Deployments() {
                   }`}
                   data-testid={`deployment-${dep.id}`}
                 >
-                  {/* BnB Header - Clickable */}
+                  {/* BnB Header - Clickable - NO SHIFT BADGE */}
                   <button
                     onClick={() => toggleDeploymentExpand(dep)}
                     className="w-full bg-slate-900 text-white px-4 py-3 flex items-center justify-between hover:bg-slate-800 transition-colors"
@@ -854,7 +861,6 @@ export default function Deployments() {
                     <div className="flex items-center gap-3">
                       <MapPin className="w-5 h-5" />
                       <span className="font-bold text-lg">{dep.bnb}</span>
-                      <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{dep.shift}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {isAdmin && (
@@ -871,13 +877,39 @@ export default function Deployments() {
                     </div>
                   </button>
                   
-                  {/* Manager info */}
-                  <div className="px-4 py-2 border-b bg-slate-50 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                      <Users className="w-4 h-4" />
-                      <span>{getManagerNames(dep)}</span>
+                  {/* NEW: Morning + Evening Teams Section */}
+                  <div className="px-4 py-3 border-b bg-slate-50">
+                    <div className="grid grid-cols-2 gap-4">
+                  {/* Morning Team */}
+                      <div className="flex items-start gap-2">
+                        <Sun className="w-4 h-4 text-amber-500 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-amber-700 uppercase">Morning Team</p>
+                          <p className="text-sm text-slate-600">
+                            {dep.morning_managers?.length > 0 
+                              ? dep.morning_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
+                              : <span className="text-slate-400 italic">Not assigned</span>
+                            }
+                          </p>
+                        </div>
+                      </div>
+                      {/* Evening Team */}
+                      <div className="flex items-start gap-2">
+                        <Moon className="w-4 h-4 text-indigo-500 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-medium text-indigo-700 uppercase">Evening Team</p>
+                          <p className="text-sm text-slate-600">
+                            {dep.evening_managers?.length > 0 
+                              ? dep.evening_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
+                              : <span className="text-slate-400 italic">Not assigned</span>
+                            }
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    {/* Kits count and View History */}
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
+                      <span className="text-xs text-slate-500">{dep.assigned_kits?.length || 0} kits assigned</span>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -888,7 +920,6 @@ export default function Deployments() {
                         <Eye className="w-3 h-3 mr-1" />
                         View History
                       </Button>
-                      <span className="text-xs text-slate-400">{dep.assigned_kits?.length || 0} kits</span>
                     </div>
                   </div>
                   
@@ -1257,7 +1288,7 @@ export default function Deployments() {
         </DialogContent>
       </Dialog>
 
-      {/* Admin: Add/Edit Deployment Dialog */}
+      {/* Admin: Add/Edit Deployment Dialog - NEW STRUCTURE */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -1274,24 +1305,34 @@ export default function Deployments() {
               </Select>
             </div>
             
+            {/* Morning Team */}
             <div>
-              <Label>Shift *</Label>
-              <Select value={formData.shift} onValueChange={(v) => setFormData({ ...formData, shift: v })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="morning">Morning</SelectItem>
-                  <SelectItem value="evening">Evening</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <Label>Managers *</Label>
+              <Label className="flex items-center gap-2">
+                <Sun className="w-4 h-4 text-amber-500" />
+                Morning Team
+              </Label>
               <div className="flex flex-wrap gap-2 mt-1">
                 {managers.map(m => (
-                  <button key={m.id} type="button" onClick={() => toggleManager(m.id)}
+                  <button key={`morning-${m.id}`} type="button" onClick={() => toggleMorningManager(m.id)}
                     className={`px-3 py-1.5 text-sm rounded border transition-all ${
-                      formData.deployment_managers.includes(m.id) ? 'bg-green-500 text-white border-green-500' : 'bg-white text-slate-700 border-slate-200'
+                      formData.morning_managers?.includes(m.id) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >{m.name}</button>
+                ))}
+              </div>
+            </div>
+            
+            {/* Evening Team */}
+            <div>
+              <Label className="flex items-center gap-2">
+                <Moon className="w-4 h-4 text-indigo-500" />
+                Evening Team
+              </Label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {managers.map(m => (
+                  <button key={`evening-${m.id}`} type="button" onClick={() => toggleEveningManager(m.id)}
+                    className={`px-3 py-1.5 text-sm rounded border transition-all ${
+                      formData.evening_managers?.includes(m.id) ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200'
                     }`}
                   >{m.name}</button>
                 ))}
@@ -1304,7 +1345,7 @@ export default function Deployments() {
                 {kits.map(k => (
                   <button key={k.kit_id} type="button" onClick={() => toggleKit(k.kit_id)}
                     className={`px-3 py-1 text-sm rounded border transition-all ${
-                      formData.assigned_kits.includes(k.kit_id) ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-700 border-slate-200'
+                      formData.assigned_kits?.includes(k.kit_id) ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-700 border-slate-200'
                     }`}
                   >{k.kit_id}</button>
                 ))}
