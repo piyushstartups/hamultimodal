@@ -21,6 +21,7 @@ export default function Handover() {
   const [dashboard, setDashboard] = useState(null);
   const [users, setUsers] = useState([]);
   const [items, setItems] = useState([]);
+  const [operationalDate, setOperationalDate] = useState('');
   const [handoverForm, setHandoverForm] = useState({
     to_user_id: '',
     shift_number: 1,
@@ -35,6 +36,10 @@ export default function Handover() {
 
   const fetchData = async () => {
     try {
+      // Fetch operational date first
+      const opDateRes = await api.get('/system/operational-date');
+      setOperationalDate(opDateRes.data.operational_date);
+      
       const [dashboardRes, usersRes, itemsRes] = await Promise.all([
         api.get('/my-bnb/dashboard'),
         api.get('/users'),
@@ -137,7 +142,7 @@ export default function Handover() {
         from_user_id: user.id,
         to_user_id: handoverForm.to_user_id,
         bnb_id: dashboard.bnb.kit_id,
-        shift_date: new Date().toISOString().split('T')[0],
+        shift_date: operationalDate, // Use operational date from backend
         shift_number: parseInt(handoverForm.shift_number),
         kit_checklist: handoverForm.kit_checklist,
         bnb_checklist: handoverForm.bnb_checklist,

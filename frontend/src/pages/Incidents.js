@@ -62,6 +62,7 @@ export default function Incidents() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [operationalDate, setOperationalDate] = useState('');
   
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -77,7 +78,7 @@ export default function Incidents() {
     item_id: '',
     kit_id: '',
     bnb_id: '',
-    shift_date: new Date().toISOString().split('T')[0],
+    shift_date: '', // Will be set from backend operational date
     description: '',
     severity: 'medium',
     penalty_amount: '',
@@ -88,6 +89,21 @@ export default function Incidents() {
   const [workers, setWorkers] = useState([]);
   const [items, setItems] = useState([]);
   const [kits, setKits] = useState([]);
+
+  // Fetch operational date from backend on mount
+  useEffect(() => {
+    const fetchOperationalDate = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        const opDate = response.data.operational_date;
+        setOperationalDate(opDate);
+        setFormData(prev => ({ ...prev, shift_date: opDate }));
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+      }
+    };
+    fetchOperationalDate();
+  }, []);
 
   useEffect(() => {
     if (user?.role !== 'admin' && user?.role !== 'supervisor') {
@@ -188,7 +204,7 @@ export default function Incidents() {
       item_id: '',
       kit_id: '',
       bnb_id: '',
-      shift_date: new Date().toISOString().split('T')[0],
+      shift_date: operationalDate, // Use operational date from backend
       description: '',
       severity: 'medium',
       penalty_amount: '',

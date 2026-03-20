@@ -9,33 +9,41 @@ export default function MyDeployments() {
   const [deployments, setDeployments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
+  const [operationalDate, setOperationalDate] = useState('');
+  const [displayDate, setDisplayDate] = useState('');
 
   useEffect(() => {
-    fetchData();
+    const init = async () => {
+      try {
+        // Fetch operational date from backend
+        const opDateRes = await api.get('/system/operational-date');
+        const opDate = opDateRes.data.operational_date;
+        setOperationalDate(opDate);
+        
+        // Format display date
+        const dateObj = new Date(opDate + 'T12:00:00');
+        setDisplayDate(dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }));
+        
+        // Fetch deployments for operational date
+        const [depsRes, usersRes] = await Promise.all([
+          api.get(`/deployments?date=${opDate}`),
+          api.get('/users')
+        ]);
+        setDeployments(depsRes.data);
+        setUsers(usersRes.data);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    init();
   }, []);
-
-  const fetchData = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const [depsRes, usersRes] = await Promise.all([
-        api.get(`/deployments?date=${today}`),
-        api.get('/users')
-      ]);
-      setDeployments(depsRes.data);
-      setUsers(usersRes.data);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getUserName = (userId) => {
     const u = users.find(u => u.id === userId);
     return u?.name || userId;
   };
-
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -49,7 +57,7 @@ export default function MyDeployments() {
           </a>
           <div>
             <h1 className="text-lg font-bold text-slate-900">My Deployments</h1>
-            <p className="text-sm text-slate-600">{today}</p>
+            <p className="text-sm text-slate-600">{displayDate || 'Loading...'}</p>
           </div>
         </div>
       </header>

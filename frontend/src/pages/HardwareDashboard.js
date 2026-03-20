@@ -20,17 +20,29 @@ export default function HardwareDashboard() {
   const [kits, setKits] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // Filters
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  // Filters - filterDate will be set from backend
+  const [filterDate, setFilterDate] = useState('');
   const [filterBnb, setFilterBnb] = useState('all');
   const [filterKit, setFilterKit] = useState('all');
 
+  // Fetch operational date from backend on mount
   useEffect(() => {
+    const init = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        setFilterDate(response.data.operational_date);
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+      }
+    };
+    init();
     fetchData();
   }, []);
 
   useEffect(() => {
-    fetchChecks();
+    if (filterDate) {
+      fetchChecks();
+    }
   }, [filterDate, filterBnb, filterKit]);
 
   const fetchData = async () => {

@@ -8,18 +8,37 @@ import { ArrowLeft, RefreshCw, Clock, BarChart3, Activity, TrendingUp, Calendar 
 export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  
-  // Default to last 7 days
-  const today = new Date();
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 6);
-  
-  const [startDate, setStartDate] = useState(weekAgo.toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+  const [operationalDate, setOperationalDate] = useState(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  // Fetch operational date from backend on mount
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        const opDate = response.data.operational_date;
+        setOperationalDate(opDate);
+        
+        // Calculate week ago from operational date
+        const today = new Date(opDate + 'T12:00:00');
+        const weekAgo = new Date(today);
+        weekAgo.setDate(weekAgo.getDate() - 6);
+        
+        setEndDate(opDate);
+        setStartDate(weekAgo.toISOString().split('T')[0]);
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+      }
+    };
+    init();
+  }, []);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (startDate && endDate) {
+      fetchData();
+    }
+  }, [startDate, endDate]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -42,11 +61,12 @@ export default function Analytics() {
   };
 
   const setQuickRange = (days) => {
-    const end = new Date();
-    const start = new Date();
+    if (!operationalDate) return;
+    const end = new Date(operationalDate + 'T12:00:00');
+    const start = new Date(end);
     start.setDate(start.getDate() - (days - 1));
     setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(end.toISOString().split('T')[0]);
+    setEndDate(operationalDate);
   };
 
   // Calculate max for bar widths

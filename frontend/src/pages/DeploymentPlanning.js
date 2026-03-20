@@ -37,7 +37,8 @@ import Layout from '../components/Layout';
 
 export default function DeploymentPlanning() {
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [operationalDate, setOperationalDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [weekDates, setWeekDates] = useState([]);
@@ -66,15 +67,32 @@ export default function DeploymentPlanning() {
   const [kits, setKits] = useState([]);
   const [workers, setWorkers] = useState([]);
 
+  // Fetch operational date on mount
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        const opDate = response.data.operational_date;
+        setOperationalDate(opDate);
+        setSelectedDate(opDate);
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+      }
+    };
+    init();
+  }, []);
+
   useEffect(() => {
     if (user?.role !== 'admin' && user?.role !== 'supervisor') {
       toast.error('Admin access required');
       window.location.href = '/dashboard';
       return;
     }
-    generateWeekDates(selectedDate);
-    fetchSummary();
-    fetchOptions();
+    if (selectedDate) {
+      generateWeekDates(selectedDate);
+      fetchSummary();
+      fetchOptions();
+    }
   }, [user, selectedDate]);
 
   const generateWeekDates = (centerDate) => {
@@ -122,12 +140,12 @@ export default function DeploymentPlanning() {
   };
 
   const formatDate = (dateStr) => {
-    const date = new Date(dateStr);
+    const date = new Date(dateStr + 'T12:00:00');
     return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
 
   const isToday = (dateStr) => {
-    return dateStr === new Date().toISOString().split('T')[0];
+    return dateStr === operationalDate; // Use backend operational date
   };
 
   const openNewAssignment = () => {

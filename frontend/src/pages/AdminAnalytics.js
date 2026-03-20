@@ -57,6 +57,7 @@ export default function AdminAnalytics() {
   const [dateRange, setDateRange] = useState('7'); // days
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [operationalDate, setOperationalDate] = useState('');
   
   // Analytics data
   const [overview, setOverview] = useState(null);
@@ -73,13 +74,25 @@ export default function AdminAnalytics() {
       return;
     }
     
-    // Set initial date range
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - parseInt(dateRange));
-    
-    setEndDate(end.toISOString().split('T')[0]);
-    setStartDate(start.toISOString().split('T')[0]);
+    // Fetch operational date from backend
+    const initDates = async () => {
+      try {
+        const response = await api.get('/system/operational-date');
+        const opDate = response.data.operational_date;
+        setOperationalDate(opDate);
+        
+        // Set initial date range based on operational date
+        const end = new Date(opDate + 'T12:00:00');
+        const start = new Date(end);
+        start.setDate(start.getDate() - parseInt(dateRange));
+        
+        setEndDate(opDate);
+        setStartDate(start.toISOString().split('T')[0]);
+      } catch (error) {
+        console.error('Failed to fetch operational date:', error);
+      }
+    };
+    initDates();
   }, [user]);
 
   useEffect(() => {
@@ -89,11 +102,12 @@ export default function AdminAnalytics() {
   }, [startDate, endDate]);
 
   const handleDateRangeChange = (days) => {
+    if (!operationalDate) return;
     setDateRange(days);
-    const end = new Date();
-    const start = new Date();
+    const end = new Date(operationalDate + 'T12:00:00');
+    const start = new Date(end);
     start.setDate(start.getDate() - parseInt(days));
-    setEndDate(end.toISOString().split('T')[0]);
+    setEndDate(operationalDate);
     setStartDate(start.toISOString().split('T')[0]);
   };
 
