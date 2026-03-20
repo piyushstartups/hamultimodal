@@ -435,8 +435,12 @@ export default function Deployments() {
     const dateKey = formatDateKey(date);
     let deps = deployments.filter(d => d.date === dateKey);
     if (isManager) {
+      // FIX: Check if user is in morning_managers OR evening_managers OR legacy deployment_managers
       deps = deps.filter(d => 
-        d.deployment_managers?.includes(user?.id) || d.deployment_manager === user?.id
+        d.morning_managers?.includes(user?.id) || 
+        d.evening_managers?.includes(user?.id) ||
+        d.deployment_managers?.includes(user?.id) || 
+        d.deployment_manager === user?.id
       );
     }
     return deps;
@@ -807,10 +811,9 @@ export default function Deployments() {
     }
   };
 
-  // CRITICAL: Use operationalDate from BACKEND as "today" - NOT any local date calculation
+  // Date is fully user-controlled - no "today" concept needed
   const days = currentMonth ? getDaysInMonth(currentMonth) : [];
   const monthName = currentMonth ? currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
-  const today = operationalDate || ''; // Use backend's operational date as "today"
   const selectedDeployments = selectedDate ? getDeploymentsForDate(selectedDate) : [];
   const ssdItems = items.filter(i => i.category === 'ssd' || i.item_name.toLowerCase().includes('ssd'));
 
@@ -899,7 +902,6 @@ export default function Deployments() {
               {days.map((day, index) => {
                 if (!day) return <div key={`empty-${index}`} className="aspect-square" />;
                 const dateKey = formatDateKey(day);
-                const isToday = dateKey === today;
                 const isSelected = selectedDate && formatDateKey(selectedDate) === dateKey;
                 const dayDeployments = getDeploymentsForDate(day);
                 const hasMyDeployments = dayDeployments.length > 0;
@@ -912,7 +914,6 @@ export default function Deployments() {
                     className={`aspect-square p-1 rounded-lg border transition-all relative ${
                       isSelected ? 'bg-blue-500 text-white border-blue-500 ring-2 ring-blue-300' 
                       : hasMyDeployments ? 'bg-green-50 border-green-300 font-bold'
-                      : isToday ? 'bg-blue-50 border-blue-200'
                       : 'bg-white border-slate-200 hover:border-blue-300'
                     }`}
                   >
@@ -1072,26 +1073,12 @@ export default function Deployments() {
                         </button>
                       </div>
                       
-                      {/* Handover Status Banner */}
+                      {/* Access Status Banner - only show if user doesn't have access */}
                       {(() => {
                         const currentTab = getActiveTab(dep);
-                        const status = handoverStatus[dep.id];
                         const access = getUserShiftAccess(dep);
                         
-                        // Show handover requirements
-                        if (currentTab === 'evening' && status && !status.morning_outgoing_complete) {
-                          return (
-                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 text-amber-800">
-                              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                              <div>
-                                <p className="font-medium text-sm">Morning handover required</p>
-                                <p className="text-xs text-amber-600">Morning team must complete their End Shift Handover before night shift can start collection.</p>
-                              </div>
-                            </div>
-                          );
-                        }
-                        
-                        // Access warning
+                        // Access warning only
                         if ((currentTab === 'morning' && !access.canMorning) || (currentTab === 'evening' && !access.canNight)) {
                           return (
                             <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 flex items-center gap-2 text-slate-600">
@@ -1107,7 +1094,7 @@ export default function Deployments() {
                         return null;
                       })()}
                       
-                      {/* Handover Buttons - Contextual to current tab */}
+                      {/* Handover Buttons - Independent tracking, no restrictions */}
                       {isManager && (() => {
                         const currentTab = getActiveTab(dep);
                         const access = getUserShiftAccess(dep);
@@ -1138,7 +1125,6 @@ export default function Deployments() {
                                   className={`flex-1 ${status?.night_incoming_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
                                   onClick={() => openHandoverDialog(dep, 'incoming', 'evening')}
                                   data-testid="night-start-handover-btn"
-                                  disabled={!status?.morning_outgoing_complete}
                                 >
                                   <ClipboardCheck className="w-4 h-4 mr-2" />
                                   {status?.night_incoming_complete ? '✓ Received' : 'Receive Handover'}
@@ -1149,7 +1135,6 @@ export default function Deployments() {
                                   className={`flex-1 ${status?.night_outgoing_complete ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
                                   onClick={() => openHandoverDialog(dep, 'outgoing', 'evening')}
                                   data-testid="night-end-handover-btn"
-                                  disabled={!status?.night_incoming_complete}
                                 >
                                   <ClipboardCheck className="w-4 h-4 mr-2" />
                                   {status?.night_outgoing_complete ? '✓ Night Handover Done' : 'End Night Shift'}
@@ -1179,14 +1164,10 @@ export default function Deployments() {
                               // Access control
                               const access = getUserShiftAccess(dep);
                               const hasAccess = currentTab === 'morning' ? access.canMorning : access.canNight;
-                              const handoverStat = handoverStatus[dep.id];
                               
-                              // Can start collection?
+                              // Can start collection? Handover is independent - no restriction
                               const canStart = (() => {
                                 if (!hasAccess) return { allowed: false, reason: 'Not assigned to this shift' };
-                                if (currentTab === 'evening' && handoverStat && !handoverStat.morning_outgoing_complete) {
-                                  return { allowed: false, reason: 'Morning handover required' };
-                                }
                                 return { allowed: true, reason: null };
                               })();
                               

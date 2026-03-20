@@ -130,8 +130,7 @@ export default function LiveDashboard() {
     setExpandedBnbs(prev => ({ ...prev, [bnb]: !prev[bnb] }));
   };
 
-  // CRITICAL: Use operationalDate from BACKEND as "today" - NOT any local date calculation
-  const isToday = selectedDate === operationalDate;
+  // Display date formatting - user-controlled, no "today" concept
   const displayDate = selectedDate ? new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { 
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
   }) : 'Loading...';
@@ -174,7 +173,7 @@ export default function LiveDashboard() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-4 space-y-4">
-        {/* Date Selector - Compact */}
+        {/* Date Selector - Compact, user-controlled only */}
         <div className="bg-white rounded-lg border p-2 flex items-center justify-between">
           <Button variant="ghost" size="icon" onClick={() => changeDate(-1)} className="h-8 w-8" data-testid="prev-date">
             <ChevronLeft className="w-4 h-4" />
@@ -187,13 +186,8 @@ export default function LiveDashboard() {
               className="w-36 h-8 text-sm"
               data-testid="date-picker"
             />
-            {!isToday && operationalDate && (
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { setSelectedDate(operationalDate); setLoading(true); }}>
-                Today
-              </Button>
-            )}
           </div>
-          <Button variant="ghost" size="icon" onClick={() => changeDate(1)} disabled={isToday} className="h-8 w-8" data-testid="next-date">
+          <Button variant="ghost" size="icon" onClick={() => changeDate(1)} className="h-8 w-8" data-testid="next-date">
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>

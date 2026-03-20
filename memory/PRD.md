@@ -228,6 +228,17 @@ Deployments → Date → BnB → Handover buttons
   - Sticky footer with action buttons always visible
   - Compact spacing and smaller form elements
   - Files fixed: Actions.js, AdminPanel.js, DeploymentPlanning.js, Deployments.js, Incidents.js, Inventory.js
+- [x] **Remove "Today" Concept** - Simplified date handling:
+  - Calendar no longer highlights "today" with blue
+  - Live Dashboard "Today" button removed
+  - Date is fully user-controlled, not system-driven
+- [x] **Simplify Handover Logic** - Handovers are now independent:
+  - Collection can start anytime without handover completion
+  - Handover is only for tracking and accountability
+  - All handover buttons enabled (no dependencies)
+- [x] **Fix Deployment Visibility Bug** - Deployment managers can now see their deployments:
+  - Calendar indicator checks morning_managers OR evening_managers
+  - Both morning and night shift users see green indicator for their deployments
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
