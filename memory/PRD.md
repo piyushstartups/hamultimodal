@@ -1,7 +1,7 @@
 # HA Multimodal Management - Product Requirements Document
 
 ## Overview
-Clean, minimal, web-based internal operations system for managing daily deployments, shifts, inventory, and handovers with **automatic time tracking**.
+Clean, minimal, web-based internal operations system for managing daily deployments, collection records, inventory, and handovers with **automatic time tracking**.
 
 **Application Name:** HA Multimodal Management
 
@@ -12,13 +12,14 @@ Clean, minimal, web-based internal operations system for managing daily deployme
 4. Show users only what is relevant to them
 5. **Clear separation of responsibilities between pages**
 6. **All time tracking is automatic - NO manual input**
+7. **Collection records are the primary unit** - No shift dependency
 
 ## User Roles
 
 | Role | Access |
 |------|--------|
-| admin | Full control: Inventory (CRUD), Deployments (planning), Admin Panel (users/bnbs/kits). Does NOT see Quick Actions page. |
-| deployment_manager | Can: Use Quick Actions (Transfer/Damage/Lost), Control shifts via Deployments page, Submit handovers, View inventory. Cannot: Edit inventory, access Admin Panel |
+| admin | Full control: Inventory (CRUD), Deployments (planning), Admin Panel (users/bnbs/kits). Does NOT see Quick Actions page. Can control any collection. |
+| deployment_manager | Can: Use Quick Actions (Transfer/Damage/Lost), Control collections via Deployments page, Submit handovers, View inventory. Cannot: Edit inventory, access Admin Panel. Can control any collection on their assigned deployments. |
 
 ## Key UX Patterns
 
@@ -47,7 +48,17 @@ Date → BnB (click to expand) → Kit Cards → Actions
   - Timer display for active/paused
   - Duration display for completed
   - Control buttons: Start / Pause / Resume / Stop
+  - **Hardware check required** before first collection of the day
 - **Handover buttons**: End Shift Handover, Start Shift Handover
+- **Collection Records list** showing completed collections for each kit
+
+### Live Dashboard
+- **Real-time tracking** with auto-updating timers (HH:MM:SS)
+- **Status badges** for each kit: Active (green pulse), Paused (amber), Idle (grey)
+- **Date picker** for historical data viewing
+- **BnB breakdown** with morning/night shift hours
+- **Kit-level status** showing active collection details
+- Auto-refreshes every 30 seconds
 
 ### Quick Actions Page (Manager Only)
 - **Transfer Item** (kit↔kit, kit↔bnb, kit↔station)
@@ -59,13 +70,18 @@ Date → BnB (click to expand) → Kit Cards → Actions
 - Manager: View + Transfer/Damage actions
 - Grouped by category
 
-### Live Dashboard
-- Auto-calculated values from shifts
+### Analytics Dashboard
+- **Total Hours Collected** - sum of all collection durations
+- **Total Deployments** - count of deployments in date range
+- **Collection Records** - count of collection records
+- **Hours per Category** - breakdown by activity type
+- **Daily Trend** - day-by-day hours chart
+- Date range selector with quick presets (7/14/30 days)
 
 ### Admin Panel (Admin Only)
 - Users, BnBs, Kits management
 
-## Shift System (Context-Aware)
+## Collection System (Context-Aware)
 
 ### Data Model
 ```json
@@ -160,6 +176,14 @@ Deployments → Date → BnB → Handover buttons
 - **Admin**: `Admin` / `admin123`
 - **Manager**: `TestManager1` / `test123`
 
+## Completed Features (2026-03-20)
+- [x] **Collection System Fix** - Removed shift dependency, all actions work on collection records
+- [x] **Authorization Fix** - Any deployment manager can pause/resume/stop collections on their deployments
+- [x] **Live Dashboard Real-Time Timers** - HH:MM:SS timers that update every second
+- [x] **Live Dashboard Status Badges** - Active/Paused/Idle status for each kit
+- [x] **Analytics Cleanup** - Removed "Hours per BnB" and "Total shifts", added "Total Deployments"
+- [x] **UI Cleanup** - Removed redundant "Request" section from main Dashboard
+
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
 - [x] Calendar collapse for managers
@@ -172,6 +196,8 @@ Deployments → Date → BnB → Handover buttons
 - [x] Analytics Dashboard with date range support
 - [x] Admin Historical Live Dashboard with date picker
 - [x] App name updated to "HA Multimodal Management"
+- [x] Hardware Health Checks before first collection
+- [x] BnB Day View for historical traceability
 
 ## Architecture
 ```
@@ -190,4 +216,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-18 - Final fixes: Stop button bug fixed, Analytics dashboard added, Admin historical view added
+2026-03-20 - Collection system fix (authorization), Live Dashboard real-time timers, Analytics cleanup
