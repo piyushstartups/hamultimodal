@@ -70,6 +70,7 @@ export default function Deployments() {
   
   // CRITICAL: operationalDate is fetched from BACKEND - this is the SINGLE SOURCE OF TRUTH
   const [operationalDate, setOperationalDate] = useState(null); // YYYY-MM-DD string from backend
+  const [dateError, setDateError] = useState(null); // Error state if operational date fetch fails
   const [currentMonth, setCurrentMonth] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
   const [calendarCollapsed, setCalendarCollapsed] = useState(false);
@@ -127,23 +128,29 @@ export default function Deployments() {
   });
 
   // CRITICAL: Fetch operational date from BACKEND on mount - this is the SINGLE SOURCE OF TRUTH
+  // NO FALLBACK to new Date() - retry or show error state instead
   useEffect(() => {
-    const fetchOperationalDate = async () => {
+    const fetchOperationalDate = async (retryCount = 0) => {
+      const MAX_RETRIES = 3;
       try {
         const response = await api.get('/system/operational-date');
         const opDate = response.data.operational_date;
         setOperationalDate(opDate);
+        setDateError(null);
         
         // Initialize calendar and selected date from backend's operational date
         const dateObj = createDateFromString(opDate);
         setCurrentMonth(dateObj);
         setSelectedDate(dateObj);
       } catch (error) {
-        console.error('Failed to fetch operational date:', error);
-        // Fallback: use a safe default (this should rarely happen)
-        const fallback = new Date();
-        setCurrentMonth(fallback);
-        setSelectedDate(fallback);
+        console.error(`Failed to fetch operational date (attempt ${retryCount + 1}):`, error);
+        if (retryCount < MAX_RETRIES) {
+          // Retry after 1 second
+          setTimeout(() => fetchOperationalDate(retryCount + 1), 1000);
+        } else {
+          // After max retries, show error state - DO NOT fallback to new Date()
+          setDateError('Unable to load operational date. Please refresh the page.');
+        }
       }
     };
     fetchOperationalDate();
@@ -724,6 +731,26 @@ export default function Deployments() {
 
   return (
     <div className="min-h-screen bg-slate-100">
+      {/* Error State - Show if operational date fetch failed */}
+      {dateError && (
+        <div className="fixed inset-0 bg-slate-100 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl border border-red-200 p-8 max-w-md text-center shadow-lg">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Connection Error</h2>
+            <p className="text-slate-600 mb-6">{dateError}</p>
+            <Button 
+              onClick={() => window.location.reload()} 
+              className="bg-slate-900 hover:bg-slate-800"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Page
+            </Button>
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
       <header className="bg-white border-b">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">

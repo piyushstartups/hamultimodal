@@ -210,6 +210,7 @@ Deployments → Date → BnB → Handover buttons
 - [x] **CRITICAL: Shift from User Selection** - Collection record shift comes from user request, NOT inferred
 - [x] **Admin Transfer Item Button** - Prominent "Transfer Item" button in Inventory header for Admin
 - [x] **CRITICAL: Frontend Date Fix (Complete)** - ALL frontend pages now fetch operational date from backend `/api/system/operational-date` endpoint instead of using browser's `new Date()`. Verified pages: Incidents, Analytics, HardwareDashboard, MyDeployments, DeploymentPlanning, AdminAnalytics, Handover, LiveDashboard, Deployments. This ensures production date handling is correct regardless of server/browser timezone.
+- [x] **CRITICAL: No new Date() Fallbacks** - Removed all `new Date()` fallbacks for operational date. Deployments page now uses retry logic (3 attempts) and shows error state if fetch fails, ensuring no incorrect dates are ever displayed.
 
 ## Completed Features (2026-03-18)
 - [x] Improved deployment UX (BnB click expansion)
