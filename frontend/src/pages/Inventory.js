@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 
 // Standard item categories (user-specified list - NO vague categories)
+// NOTE: HDD is managed separately in HDD Dashboard, NOT in Inventory
 const ITEM_CATEGORIES = [
   { value: 'glove_left', label: 'Glove Left' },
   { value: 'glove_right', label: 'Glove Right' },
@@ -39,13 +40,12 @@ const ITEM_CATEGORIES = [
   { value: 'power_bank', label: 'Power Bank' },
   { value: 'ssd', label: 'SSD' },
   { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
-  { value: 'hdd', label: 'HDD' },
 ];
 
-// Categories with UNIQUE items (show item ID dropdown)
-const UNIQUE_CATEGORIES = ['glove_left', 'glove_right', 'head_camera', 'wrist_camera', 'laptop', 'power_bank', 'ssd', 'hdd'];
+// Categories with UNIQUE items (require Item Code / ID input)
+const UNIQUE_CATEGORIES = ['glove_left', 'glove_right', 'head_camera', 'wrist_camera', 'laptop', 'power_bank', 'ssd'];
 
-// Categories with NON-UNIQUE items (show quantity input)
+// Categories with NON-UNIQUE items (no item name needed, just category + location)
 const NON_UNIQUE_CATEGORIES = ['usb_hub', 'imu', 'l_shaped_wire', 'laptop_charger', 'bluetooth_adapter'];
 
 // Kit Standard Composition (reference for completeness check)
@@ -76,9 +76,6 @@ const LOCATION_TYPES = [
 const TABS = [
   { id: 'distribution', label: 'Distribution', icon: Grid3X3 },
   { id: 'completeness', label: 'Kit Completeness', icon: CheckCircle2 },
-  { id: 'hub', label: 'Hub', icon: Warehouse },
-  { id: 'kits', label: 'Kit-wise', icon: Box },
-  { id: 'bnbs', label: 'BnB-level', icon: MapPin },
   { id: 'movements', label: 'Movement Log', icon: History },
 ];
 
@@ -768,131 +765,6 @@ export default function Inventory() {
               </div>
             )}
 
-            {/* HUB INVENTORY TAB */}
-            {activeTab === 'hub' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <Warehouse className="w-5 h-5" />
-                  <h2 className="font-semibold">Hub / Station Inventory</h2>
-                  <span className="text-sm text-slate-500">({getHubItems().length} items)</span>
-                </div>
-                
-                {getHubItems().length === 0 ? (
-                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
-                    No items at hub/station
-                  </div>
-                ) : (
-                  <div className="bg-white rounded-xl border overflow-hidden">
-                    {renderCategorySection(getHubItems(), 'hub')}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* KIT-WISE INVENTORY TAB */}
-            {activeTab === 'kits' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <Box className="w-5 h-5" />
-                  <h2 className="font-semibold">Kit-wise Inventory</h2>
-                </div>
-                
-                {kits.length === 0 ? (
-                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
-                    No kits configured
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {kits.map(kit => {
-                      const kitItems = getKitItems(kit.kit_id);
-                      const sectionKey = `kit-${kit.kit_id}`;
-                      const isExpanded = expandedSections[sectionKey] !== false;
-                      
-                      return (
-                        <div key={kit.kit_id} className="bg-white rounded-xl border overflow-hidden" data-testid={`kit-inventory-${kit.kit_id}`}>
-                          <button
-                            onClick={() => toggleSection(sectionKey)}
-                            className="w-full px-4 py-3 flex items-center justify-between bg-slate-900 text-white hover:bg-slate-800"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Box className="w-5 h-5" />
-                              <span className="font-bold">{kit.kit_id}</span>
-                              <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{kitItems.length} items</span>
-                            </div>
-                            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                          </button>
-                          
-                          {isExpanded && (
-                            <div>
-                              {kitItems.length === 0 ? (
-                                <div className="p-4 text-center text-slate-500 text-sm">No items in this kit</div>
-                              ) : (
-                                <div className="divide-y">
-                                  {kitItems.map(item => renderItemRow(item))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* BNB-LEVEL INVENTORY TAB */}
-            {activeTab === 'bnbs' && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-slate-700">
-                  <MapPin className="w-5 h-5" />
-                  <h2 className="font-semibold">BnB-level Inventory</h2>
-                </div>
-                
-                {bnbs.length === 0 ? (
-                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
-                    No BnBs configured
-                  </div>
-                ) : (
-                  <div className="grid gap-4">
-                    {bnbs.map(bnb => {
-                      const bnbItems = getBnbItems(bnb.name);
-                      const sectionKey = `bnb-${bnb.name}`;
-                      const isExpanded = expandedSections[sectionKey] !== false;
-                      
-                      return (
-                        <div key={bnb.name} className="bg-white rounded-xl border overflow-hidden" data-testid={`bnb-inventory-${bnb.name}`}>
-                          <button
-                            onClick={() => toggleSection(sectionKey)}
-                            className="w-full px-4 py-3 flex items-center justify-between bg-blue-600 text-white hover:bg-blue-700"
-                          >
-                            <div className="flex items-center gap-3">
-                              <MapPin className="w-5 h-5" />
-                              <span className="font-bold">{bnb.name}</span>
-                              <span className="text-xs bg-white/20 px-2 py-0.5 rounded">{bnbItems.length} items</span>
-                            </div>
-                            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                          </button>
-                          
-                          {isExpanded && (
-                            <div>
-                              {bnbItems.length === 0 ? (
-                                <div className="p-4 text-center text-slate-500 text-sm">No items at this BnB</div>
-                              ) : (
-                                <div className="divide-y">
-                                  {bnbItems.map(item => renderItemRow(item))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* MOVEMENT LOG TAB */}
             {activeTab === 'movements' && (
               <div className="space-y-4">
@@ -970,22 +842,19 @@ export default function Inventory() {
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
             {(dialogType === 'add' || dialogType === 'edit') && (
               <>
+                {/* STEP 1: Select Category FIRST */}
                 <div>
-                  <Label className="text-xs">Item Name *</Label>
-                  <Input
-                    value={formData.item_name}
-                    onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
-                    placeholder="e.g., SSD-01, Camera-02"
-                    className="mt-1 h-9"
-                    disabled={dialogType === 'edit'}
-                    required
-                    data-testid="item-name-input"
-                  />
-                </div>
-                
-                <div>
-                  <Label className="text-xs">Category *</Label>
-                  <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                  <Label className="text-xs font-semibold text-slate-700">Step 1: Select Category *</Label>
+                  <Select value={formData.category} onValueChange={(v) => {
+                    // Auto-set tracking type based on category
+                    const isUnique = UNIQUE_CATEGORIES.includes(v);
+                    setFormData({ 
+                      ...formData, 
+                      category: v, 
+                      tracking_type: isUnique ? 'individual' : 'quantity',
+                      item_name: isUnique ? formData.item_name : v // For non-unique, use category as item_name
+                    });
+                  }}>
                     <SelectTrigger className="mt-1 h-9" data-testid="category-select"><SelectValue placeholder="Select category" /></SelectTrigger>
                     <SelectContent>
                       {ITEM_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
@@ -993,63 +862,76 @@ export default function Inventory() {
                   </Select>
                 </div>
                 
-                <div>
-                  <Label className="text-xs">Tracking Type</Label>
-                  <Select value={formData.tracking_type} onValueChange={(v) => setFormData({ ...formData, tracking_type: v })}>
-                    <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="individual">Individual (unique)</SelectItem>
-                      <SelectItem value="quantity">Quantity (bulk)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* STEP 2: Show Item Code ONLY for UNIQUE categories */}
+                {formData.category && UNIQUE_CATEGORIES.includes(formData.category) && (
+                  <div className="bg-slate-50 p-3 rounded-lg border">
+                    <Label className="text-xs font-semibold text-slate-700">Step 2: Item Code / ID *</Label>
+                    <Input
+                      value={formData.item_name}
+                      onChange={(e) => setFormData({ ...formData, item_name: e.target.value })}
+                      placeholder={`e.g., ${formData.category.toUpperCase().replace('_', '-')}-01`}
+                      className="mt-1 h-9"
+                      disabled={dialogType === 'edit'}
+                      required
+                      data-testid="item-name-input"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">Enter a unique identifier for this item</p>
+                  </div>
+                )}
                 
-                {formData.tracking_type === 'quantity' && (
-                  <div>
-                    <Label className="text-xs">Quantity</Label>
+                {/* For NON-UNIQUE categories, show quantity */}
+                {formData.category && NON_UNIQUE_CATEGORIES.includes(formData.category) && (
+                  <div className="bg-slate-50 p-3 rounded-lg border">
+                    <Label className="text-xs font-semibold text-slate-700">Step 2: Quantity</Label>
                     <Input
                       type="number"
                       min="1"
                       value={formData.quantity}
                       onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
                       className="mt-1 h-9"
+                      data-testid="item-quantity-input"
                     />
+                    <p className="text-xs text-slate-500 mt-1">How many {ITEM_CATEGORIES.find(c => c.value === formData.category)?.label || 'items'} to add</p>
                   </div>
                 )}
                 
-                <div>
-                  <Label className="text-xs">Status</Label>
-                  <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
-                    <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="damaged">Damaged</SelectItem>
-                      <SelectItem value="lost">Lost</SelectItem>
-                      <SelectItem value="repair">In Repair</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-xs">Location Type</Label>
-                    <Select value={formData.location_type} onValueChange={(v) => setFormData({ ...formData, location_type: v, location_value: '' })}>
-                      <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Location</Label>
-                    <Select value={formData.location_value} onValueChange={(v) => setFormData({ ...formData, location_value: v })}>
-                      <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
-                      <SelectContent>
-                        {getLocationOptions(formData.location_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                {formData.category && (
+                  <>
+                    <div>
+                      <Label className="text-xs">Status</Label>
+                      <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                        <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="damaged">Damaged</SelectItem>
+                          <SelectItem value="lost">Lost</SelectItem>
+                          <SelectItem value="repair">In Repair</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Location Type</Label>
+                        <Select value={formData.location_type} onValueChange={(v) => setFormData({ ...formData, location_type: v, location_value: '' })}>
+                          <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Location</Label>
+                        <Select value={formData.location_value} onValueChange={(v) => setFormData({ ...formData, location_value: v })}>
+                          <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
+                          <SelectContent>
+                            {getLocationOptions(formData.location_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
             

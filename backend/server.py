@@ -2284,18 +2284,20 @@ async def update_hdd_status(hdd_id: str, status: str, user: dict = Depends(get_c
 
 @app.get("/api/ssds")
 async def get_ssds_for_offload(user: dict = Depends(get_current_user_dep())):
-    """Get all SSDs with pending data for offload"""
-    # Get all SSDs from inventory
-    ssds = await get_db().inventory.find(
+    """Get ALL SSDs from items collection for offload selection (no filtering by location/status/assignment)"""
+    # Get ALL SSD items from items collection - no filters except category
+    ssds = await get_db().items.find(
         {"category": {"$in": ["ssd", "SSD"]}},
         {"_id": 0}
-    ).to_list(100)
+    ).to_list(500)
     
     result = []
     for ssd in ssds:
+        ssd_id = ssd.get("item_id") or ssd.get("item_name")
+        
         # Get all pending (not offloaded) collection records for this SSD
         pending_records = await get_db().shifts.find({
-            "ssd_used": ssd["item_id"],
+            "ssd_used": ssd_id,
             "status": "completed",
             "offload_id": {"$exists": False}
         }, {"_id": 0}).to_list(500)
@@ -2305,7 +2307,11 @@ async def get_ssds_for_offload(user: dict = Depends(get_current_user_dep())):
         pending_bnbs = list(set(r.get("bnb") for r in pending_records if r.get("bnb")))
         
         result.append({
-            **ssd,
+            "item_id": ssd_id,
+            "item_name": ssd.get("item_name", ssd_id),
+            "category": ssd.get("category", "ssd"),
+            "status": ssd.get("status", "active"),
+            "current_location": ssd.get("current_location", "Unknown"),
             "has_pending_data": len(pending_records) > 0,
             "pending_record_count": len(pending_records),
             "pending_hours": round(pending_hours, 2),

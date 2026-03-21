@@ -283,6 +283,21 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-21 - Flow Cleanup (Data Offload, Inventory, Hardware Check):
+**Data Offload:**
+- Fixed SSD list to show ALL SSDs from inventory (no filters)
+- Simplified flow: Select SSD(s) → Select HDD → Enter size → Submit
+- HDD shows capacity tracking (total, used, remaining)
+
+**Inventory:**
+- Removed HDD from Add Item categories (HDDs managed in HDD Dashboard only)
+- Fixed Add Item flow: Category first, then Item Code only for UNIQUE categories
+- Removed unused tabs (Hub, Kit-wise, BnB-level), kept Distribution, Kit Completeness, Movement Log
+
+**Hardware Check:**
+- Changed layout to 2-column: Morning Shift (left), Evening Shift (right)
+- Both visible simultaneously, kits expandable independently
+
 2026-03-21 - Analytics Calculations Fix:
 - Single source of truth: collection_records (shifts table) only
 - Uses deployment_date for date filtering (respects operational day 11AM-5AM)

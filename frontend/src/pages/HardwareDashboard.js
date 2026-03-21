@@ -212,7 +212,7 @@ const ShiftSection = ({ title, icon: Icon, iconColor, bgColor, borderColor, chec
   });
 
   return (
-    <div className={`${bgColor} border ${borderColor} rounded-xl overflow-hidden`}>
+    <div className={`${bgColor} border ${borderColor} rounded-xl overflow-hidden h-fit`}>
       {/* Section Header */}
       <div className={`px-4 py-3 flex items-center gap-2 border-b ${borderColor}`}>
         <Icon className={`w-5 h-5 ${iconColor}`} />
@@ -220,12 +220,12 @@ const ShiftSection = ({ title, icon: Icon, iconColor, bgColor, borderColor, chec
         <span className="text-sm text-slate-500">({checks.length} checks)</span>
       </div>
       
-      {/* Checks Grid */}
+      {/* Checks List - Single column since sections are side by side */}
       <div className="p-4">
         {checks.length === 0 ? (
           <p className="text-sm text-slate-500 text-center py-4">No hardware checks for this shift</p>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className="space-y-3">
             {sortedChecks.map(check => (
               <HardwareCheckCard
                 key={check.id}
@@ -519,8 +519,8 @@ export default function HardwareDashboard() {
             No hardware checks found for this date/filters
           </div>
         ) : (
-          <div className="space-y-6">
-            {/* Morning Shift Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Morning Shift Section - LEFT COLUMN */}
             <ShiftSection
               title="Morning Shift"
               icon={Sun}
@@ -535,7 +535,7 @@ export default function HardwareDashboard() {
               onImageClick={handleImageClick}
             />
             
-            {/* Evening Shift Section */}
+            {/* Evening Shift Section - RIGHT COLUMN */}
             <ShiftSection
               title="Evening Shift"
               icon={Moon}
@@ -549,30 +549,30 @@ export default function HardwareDashboard() {
               loadingImagesFor={loadingImagesFor}
               onImageClick={handleImageClick}
             />
-            
-            {/* Load More Button */}
-            {hasMore && (
-              <div className="flex justify-center pt-4">
-                <Button
-                  variant="outline"
-                  onClick={loadMoreChecks}
-                  disabled={loadingMore}
-                  data-testid="load-more-btn"
-                  className="min-w-[200px]"
-                >
-                  {loadingMore ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    <>
-                      Load More ({totalChecks - checks.length} remaining)
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
+          </div>
+        )}
+        
+        {/* Load More Button */}
+        {!loading && hasMore && (
+          <div className="flex justify-center pt-4">
+            <Button
+              variant="outline"
+              onClick={loadMoreChecks}
+              disabled={loadingMore}
+              data-testid="load-more-btn"
+              className="min-w-[200px]"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  Load More ({totalChecks - checks.length} remaining)
+                </>
+              )}
+            </Button>
           </div>
         )}
       </main>
