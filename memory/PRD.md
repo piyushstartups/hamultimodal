@@ -283,4 +283,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - Removed all "today" and selection blue highlighting from calendar. Calendar now only shows deployment indicators (green). Collapsed view uses neutral slate color.
+2026-03-21 - Optimized hardware check image upload: Added client-side image compression (max 1280px, 70% JPEG quality), non-blocking submit flow, and async upload support in backend.

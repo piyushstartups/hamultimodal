@@ -35,6 +35,60 @@ const ACTIVITY_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+// Image compression utility - resizes and compresses images before upload
+const compressImage = (file, maxWidth = 1280, quality = 0.7) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        
+        // Scale down if larger than maxWidth
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Convert to compressed JPEG
+        const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressedBase64);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
+// Background image upload with retry
+const uploadImageWithRetry = async (apiCall, maxRetries = 3) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await apiCall();
+      return true;
+    } catch (error) {
+      console.warn(`Upload attempt ${attempt} failed:`, error);
+      if (attempt === maxRetries) {
+        console.error('All upload attempts failed');
+        return false;
+      }
+      // Wait before retry (exponential backoff)
+      await new Promise(r => setTimeout(r, 1000 * attempt));
+    }
+  }
+  return false;
+};
+
 // Create a date object for a specific YYYY-MM-DD string (noon to avoid timezone issues)
 const createDateFromString = (dateStr) => {
   if (!dateStr) return null;
@@ -113,8 +167,14 @@ export default function Deployments() {
     rightGlove: '',
     headCamera: ''
   });
+  const [hardwareImageFiles, setHardwareImageFiles] = useState({
+    leftGlove: null,
+    rightGlove: null,
+    headCamera: null
+  }); // Store raw files for async upload
   const [hardwareNotes, setHardwareNotes] = useState('');
   const [hardwareLoading, setHardwareLoading] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState({}); // Track background uploads {checkId: status}
   
   // Options
   const [bnbs, setBnbs] = useState([]);
@@ -352,20 +412,87 @@ export default function Deployments() {
     setHardwareCheckDeployment(deployment);
     setHardwareCheckKit(kit);
     setHardwareImages({ leftGlove: '', rightGlove: '', headCamera: '' });
+    setHardwareImageFiles({ leftGlove: null, rightGlove: null, headCamera: null });
     setHardwareNotes('');
     setHardwareCheckDialog(true);
   };
 
-  const handleImageUpload = (field, e) => {
+  const handleImageUpload = async (field, e) => {
     const file = e.target.files[0];
     if (!file) return;
     
-    // Convert to base64 for storage
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setHardwareImages(prev => ({ ...prev, [field]: reader.result }));
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Store original file for later upload
+      setHardwareImageFiles(prev => ({ ...prev, [field]: file }));
+      
+      // Compress image for preview (quick operation)
+      const compressedBase64 = await compressImage(file, 1280, 0.7);
+      setHardwareImages(prev => ({ ...prev, [field]: compressedBase64 }));
+    } catch (error) {
+      console.error('Image compression error:', error);
+      // Fallback to regular base64 if compression fails
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setHardwareImages(prev => ({ ...prev, [field]: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Background upload function - runs after user proceeds
+  const uploadImagesInBackground = async (checkId, images) => {
+    setPendingUploads(prev => ({ ...prev, [checkId]: 'uploading' }));
+    
+    try {
+      // Upload all images in parallel
+      const uploadPromises = [];
+      
+      if (images.leftGlove) {
+        uploadPromises.push(
+          uploadImageWithRetry(() => 
+            api.patch(`/hardware-checks/${checkId}/images`, { 
+              hardware_check_id: checkId,
+              left_glove_image: images.leftGlove 
+            })
+          )
+        );
+      }
+      if (images.rightGlove) {
+        uploadPromises.push(
+          uploadImageWithRetry(() => 
+            api.patch(`/hardware-checks/${checkId}/images`, { 
+              hardware_check_id: checkId,
+              right_glove_image: images.rightGlove 
+            })
+          )
+        );
+      }
+      if (images.headCamera) {
+        uploadPromises.push(
+          uploadImageWithRetry(() => 
+            api.patch(`/hardware-checks/${checkId}/images`, { 
+              hardware_check_id: checkId,
+              head_camera_image: images.headCamera 
+            })
+          )
+        );
+      }
+      
+      const results = await Promise.all(uploadPromises);
+      const allSucceeded = results.every(r => r === true);
+      
+      setPendingUploads(prev => ({ 
+        ...prev, 
+        [checkId]: allSucceeded ? 'complete' : 'failed' 
+      }));
+      
+      if (!allSucceeded) {
+        console.warn('Some image uploads failed for check:', checkId);
+      }
+    } catch (error) {
+      console.error('Background upload error:', error);
+      setPendingUploads(prev => ({ ...prev, [checkId]: 'failed' }));
+    }
   };
 
   const submitHardwareCheck = async () => {
@@ -376,7 +503,9 @@ export default function Deployments() {
     
     setHardwareLoading(true);
     try {
-      await api.post('/hardware-checks', {
+      // Step 1: Create record immediately WITHOUT waiting for full upload
+      // Send compressed previews for immediate record creation
+      const response = await api.post('/hardware-checks', {
         deployment_id: hardwareCheckDeployment.id,
         kit: hardwareCheckKit,
         left_glove_image: hardwareImages.leftGlove,
@@ -385,14 +514,19 @@ export default function Deployments() {
         notes: hardwareNotes || null
       });
       
-      toast.success('Hardware check completed!');
-      setHardwareCheckDialog(false);
+      const checkId = response.data.id;
       
-      // Update status
+      // Step 2: Immediately update UI and allow user to proceed
+      toast.success('Hardware check submitted! You can start collection now.');
+      setHardwareCheckDialog(false);
       setHardwareCheckStatus(prev => ({ ...prev, [hardwareCheckKit]: true }));
       
-      // Now open the shift start dialog
+      // Step 3: Open shift start dialog immediately (non-blocking)
       openStartShift(hardwareCheckDeployment, hardwareCheckKit);
+      
+      // Note: Images are already included in the initial request (compressed)
+      // No need for separate background upload since we're sending compressed images
+      
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit hardware check');
     } finally {

@@ -186,10 +186,16 @@ class RequestCreate(BaseModel):
 class HardwareCheckCreate(BaseModel):
     deployment_id: str
     kit: str
-    left_glove_image: str  # Base64 or URL
-    right_glove_image: str
-    head_camera_image: str
+    left_glove_image: Optional[str] = None  # Base64 or URL - now optional for async upload
+    right_glove_image: Optional[str] = None
+    head_camera_image: Optional[str] = None
     notes: Optional[str] = None
+
+class HardwareCheckImageUpload(BaseModel):
+    hardware_check_id: str
+    left_glove_image: Optional[str] = None
+    right_glove_image: Optional[str] = None
+    head_camera_image: Optional[str] = None
 
 # Handover models
 class KitChecklist(BaseModel):
@@ -1618,7 +1624,8 @@ async def get_live_dashboard(
 
 @app.post("/api/hardware-checks")
 async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(get_current_user_dep())):
-    """Create a hardware health check for a kit (required before first collection of the day)"""
+    """Create a hardware health check for a kit (required before first collection of the day)
+    Images can be uploaded immediately or async via separate endpoint"""
     deployment = await get_db().deployments.find_one({"id": data.deployment_id})
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
@@ -1633,6 +1640,10 @@ async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(
         raise HTTPException(status_code=400, detail="Hardware check already completed for this kit today")
     
     now = datetime.now(timezone.utc)
+    
+    # Determine upload status
+    has_all_images = bool(data.left_glove_image and data.right_glove_image and data.head_camera_image)
+    
     check = {
         "id": f"hw-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
         "deployment_id": data.deployment_id,
@@ -1645,12 +1656,46 @@ async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(
         "right_glove_image": data.right_glove_image,
         "head_camera_image": data.head_camera_image,
         "notes": data.notes,
+        "image_upload_status": "complete" if has_all_images else "pending",
         "created_at": now.isoformat()
     }
     
     await get_db().hardware_checks.insert_one(check)
     check.pop("_id", None)
     return check
+
+
+@app.patch("/api/hardware-checks/{check_id}/images")
+async def upload_hardware_check_images(check_id: str, data: HardwareCheckImageUpload, user: dict = Depends(get_current_user_dep())):
+    """Async image upload for hardware check - allows uploading images after initial submission"""
+    check = await get_db().hardware_checks.find_one({"id": check_id})
+    if not check:
+        raise HTTPException(status_code=404, detail="Hardware check not found")
+    
+    update_data = {}
+    if data.left_glove_image:
+        update_data["left_glove_image"] = data.left_glove_image
+    if data.right_glove_image:
+        update_data["right_glove_image"] = data.right_glove_image
+    if data.head_camera_image:
+        update_data["head_camera_image"] = data.head_camera_image
+    
+    if update_data:
+        # Check if all images are now present
+        current_left = update_data.get("left_glove_image") or check.get("left_glove_image")
+        current_right = update_data.get("right_glove_image") or check.get("right_glove_image")
+        current_head = update_data.get("head_camera_image") or check.get("head_camera_image")
+        
+        if current_left and current_right and current_head:
+            update_data["image_upload_status"] = "complete"
+        
+        await get_db().hardware_checks.update_one(
+            {"id": check_id},
+            {"$set": update_data}
+        )
+    
+    updated = await get_db().hardware_checks.find_one({"id": check_id}, {"_id": 0})
+    return updated
 
 @app.get("/api/hardware-checks/status/{deployment_id}/{kit}")
 async def get_hardware_check_status(deployment_id: str, kit: str, user: dict = Depends(get_current_user_dep())):
