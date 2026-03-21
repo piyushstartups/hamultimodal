@@ -283,4 +283,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - Optimized hardware check image upload: Added client-side image compression (max 1280px, 70% JPEG quality), non-blocking submit flow, and async upload support in backend.
+2026-03-21 - Optimized Hardware Dashboard: Added lazy loading for images (load on expand), pagination (20 items/page with Load More), separate image fetch endpoint, and caching.

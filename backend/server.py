@@ -1717,9 +1717,18 @@ async def get_hardware_checks(
     date: Optional[str] = None,
     bnb: Optional[str] = None,
     kit: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 20,
+    include_images: bool = False,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get hardware checks with optional filters (for hardware dashboard)"""
+    """Get hardware checks with optional filters (for hardware dashboard)
+    
+    Optimized for performance:
+    - By default, excludes large image fields (include_images=False)
+    - Supports pagination with skip/limit
+    - Images can be fetched separately via /hardware-checks/{id}/images
+    """
     query = {}
     
     if date:
@@ -1729,8 +1738,45 @@ async def get_hardware_checks(
     if kit:
         query["kit"] = kit
     
-    checks = await get_db().hardware_checks.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
-    return checks
+    # Projection: exclude images by default for faster loading
+    projection = {"_id": 0}
+    if not include_images:
+        projection["left_glove_image"] = 0
+        projection["right_glove_image"] = 0
+        projection["head_camera_image"] = 0
+    
+    # Get total count for pagination info
+    total_count = await get_db().hardware_checks.count_documents(query)
+    
+    checks = await get_db().hardware_checks.find(query, projection).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return {
+        "checks": checks,
+        "total": total_count,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + len(checks) < total_count
+    }
+
+
+@app.get("/api/hardware-checks/{check_id}/images")
+async def get_hardware_check_images(check_id: str, user: dict = Depends(get_current_user_dep())):
+    """Get images for a specific hardware check (lazy loading)"""
+    check = await get_db().hardware_checks.find_one(
+        {"id": check_id},
+        {
+            "_id": 0,
+            "id": 1,
+            "left_glove_image": 1,
+            "right_glove_image": 1,
+            "head_camera_image": 1
+        }
+    )
+    
+    if not check:
+        raise HTTPException(status_code=404, detail="Hardware check not found")
+    
+    return check
 
 # ========================
 # ANALYTICS DASHBOARD - DATE RANGE SUPPORT

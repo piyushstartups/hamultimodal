@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -11,19 +11,187 @@ import {
   SelectValue,
 } from '../components/ui/select';
 import { 
-  ArrowLeft, Camera, Hand, RefreshCw, Package, MapPin, Calendar, User
+  ArrowLeft, Camera, Hand, RefreshCw, Package, MapPin, Calendar, User,
+  ChevronDown, ChevronUp, Loader2, ImageIcon
 } from 'lucide-react';
+
+// Hardware check card component with lazy image loading
+const HardwareCheckCard = ({ check, onLoadImages }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [images, setImages] = useState(null);
+  const [loadingImages, setLoadingImages] = useState(false);
+
+  const formatTime = (isoString) => {
+    if (!isoString) return '-';
+    return new Date(isoString).toLocaleTimeString('en-US', { 
+      hour: '2-digit', minute: '2-digit' 
+    });
+  };
+
+  const handleExpand = async () => {
+    if (!expanded && !images) {
+      // Load images on first expand
+      setLoadingImages(true);
+      try {
+        const loadedImages = await onLoadImages(check.id);
+        setImages(loadedImages);
+      } catch (error) {
+        console.error('Failed to load images:', error);
+      } finally {
+        setLoadingImages(false);
+      }
+    }
+    setExpanded(!expanded);
+  };
+
+  return (
+    <div className="bg-white rounded-xl border overflow-hidden" data-testid={`check-${check.id}`}>
+      {/* Check Header - Clickable to expand */}
+      <div 
+        className="bg-slate-100 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-200 transition-colors"
+        onClick={handleExpand}
+        data-testid={`check-header-${check.id}`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-slate-500" />
+            <span className="font-bold">{check.kit}</span>
+          </div>
+          <span className="text-slate-400">•</span>
+          <div className="flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-slate-500" />
+            <span className="text-sm text-slate-600">{check.bnb}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-slate-500">
+            {formatTime(check.created_at)}
+          </div>
+          <div className="flex items-center gap-1 text-xs text-slate-400">
+            <ImageIcon className="w-3 h-3" />
+            <span>3</span>
+          </div>
+          {expanded ? (
+            <ChevronUp className="w-4 h-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          )}
+        </div>
+      </div>
+      
+      {/* Expanded Content - Images loaded on demand */}
+      {expanded && (
+        <div className="p-4">
+          {loadingImages ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+              <span className="ml-2 text-sm text-slate-500">Loading images...</span>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                {/* Left Glove */}
+                <div className="text-center">
+                  <p className="text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
+                    <Hand className="w-3 h-3" /> Left Glove
+                  </p>
+                  {images?.left_glove_image ? (
+                    <img 
+                      src={images.left_glove_image} 
+                      alt="Left Glove" 
+                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
+                      onClick={() => window.open(images.left_glove_image, '_blank')}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center">
+                      <Camera className="w-6 h-6 text-slate-300" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Right Glove */}
+                <div className="text-center">
+                  <p className="text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
+                    <Hand className="w-3 h-3 transform scale-x-[-1]" /> Right Glove
+                  </p>
+                  {images?.right_glove_image ? (
+                    <img 
+                      src={images.right_glove_image} 
+                      alt="Right Glove" 
+                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
+                      onClick={() => window.open(images.right_glove_image, '_blank')}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center">
+                      <Camera className="w-6 h-6 text-slate-300" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Head Camera */}
+                <div className="text-center">
+                  <p className="text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
+                    <Camera className="w-3 h-3" /> Head Cam
+                  </p>
+                  {images?.head_camera_image ? (
+                    <img 
+                      src={images.head_camera_image} 
+                      alt="Head Camera" 
+                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
+                      onClick={() => window.open(images.head_camera_image, '_blank')}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center">
+                      <Camera className="w-6 h-6 text-slate-300" />
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Notes */}
+              {check.notes && (
+                <div className="mt-3 p-2 bg-slate-50 rounded-lg">
+                  <p className="text-xs text-slate-500">Notes:</p>
+                  <p className="text-sm text-slate-700">{check.notes}</p>
+                </div>
+              )}
+              
+              {/* User info */}
+              <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+                <User className="w-3 h-3" />
+                Checked by {check.user_name}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function HardwareDashboard() {
   const [checks, setChecks] = useState([]);
   const [bnbs, setBnbs] = useState([]);
   const [kits, setKits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  
+  // Pagination state
+  const [totalChecks, setTotalChecks] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [currentSkip, setCurrentSkip] = useState(0);
+  const ITEMS_PER_PAGE = 20;
   
   // Filters - filterDate will be set from backend
   const [filterDate, setFilterDate] = useState('');
   const [filterBnb, setFilterBnb] = useState('all');
   const [filterKit, setFilterKit] = useState('all');
+
+  // Image cache to avoid refetching
+  const [imageCache, setImageCache] = useState({});
 
   // Fetch operational date from backend on mount
   useEffect(() => {
@@ -41,7 +209,10 @@ export default function HardwareDashboard() {
 
   useEffect(() => {
     if (filterDate) {
-      fetchChecks();
+      // Reset pagination when filters change
+      setCurrentSkip(0);
+      setChecks([]);
+      fetchChecks(0, true);
     }
   }, [filterDate, filterBnb, filterKit]);
 
@@ -58,32 +229,75 @@ export default function HardwareDashboard() {
     }
   };
 
-  const fetchChecks = async () => {
-    setLoading(true);
+  const fetchChecks = async (skip = 0, isNewSearch = false) => {
+    if (isNewSearch) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+    
     try {
-      let url = `/hardware-checks?date=${filterDate}`;
+      let url = `/hardware-checks?date=${filterDate}&skip=${skip}&limit=${ITEMS_PER_PAGE}`;
       if (filterBnb !== 'all') url += `&bnb=${filterBnb}`;
       if (filterKit !== 'all') url += `&kit=${filterKit}`;
       
       const response = await api.get(url);
-      setChecks(response.data);
+      const { checks: newChecks, total, has_more } = response.data;
+      
+      if (isNewSearch) {
+        setChecks(newChecks);
+      } else {
+        setChecks(prev => [...prev, ...newChecks]);
+      }
+      
+      setTotalChecks(total);
+      setHasMore(has_more);
+      setCurrentSkip(skip + newChecks.length);
     } catch (error) {
       console.error(error);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  const formatTime = (isoString) => {
-    if (!isoString) return '-';
-    return new Date(isoString).toLocaleTimeString('en-US', { 
-      hour: '2-digit', minute: '2-digit' 
-    });
+  const loadMoreChecks = () => {
+    fetchChecks(currentSkip, false);
   };
 
-  const displayDate = new Date(filterDate + 'T12:00:00').toLocaleDateString('en-US', { 
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
-  });
+  const refreshChecks = () => {
+    setCurrentSkip(0);
+    setChecks([]);
+    setImageCache({});
+    fetchChecks(0, true);
+  };
+
+  // Lazy load images for a specific check
+  const loadImages = useCallback(async (checkId) => {
+    // Check cache first
+    if (imageCache[checkId]) {
+      return imageCache[checkId];
+    }
+    
+    try {
+      const response = await api.get(`/hardware-checks/${checkId}/images`);
+      const images = response.data;
+      
+      // Cache the images
+      setImageCache(prev => ({ ...prev, [checkId]: images }));
+      
+      return images;
+    } catch (error) {
+      console.error('Failed to load images for check:', checkId, error);
+      return null;
+    }
+  }, [imageCache]);
+
+  const displayDate = filterDate 
+    ? new Date(filterDate + 'T12:00:00').toLocaleDateString('en-US', { 
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' 
+      })
+    : 'Loading...';
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -101,8 +315,15 @@ export default function HardwareDashboard() {
               <p className="text-sm text-white/70">Daily equipment health checks</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchChecks} className="border-white/30 text-white hover:bg-white/20" data-testid="refresh-btn">
-            <RefreshCw className="w-4 h-4 mr-2" />
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={refreshChecks} 
+            className="border-white/30 text-white hover:bg-white/20" 
+            data-testid="refresh-btn"
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
@@ -152,7 +373,7 @@ export default function HardwareDashboard() {
             </div>
             <div className="flex items-end">
               <p className="text-sm text-slate-600">
-                <strong>{checks.length}</strong> checks found
+                Showing <strong>{checks.length}</strong> of <strong>{totalChecks}</strong> checks
               </p>
             </div>
           </div>
@@ -164,113 +385,57 @@ export default function HardwareDashboard() {
           <h2 className="font-semibold">{displayDate}</h2>
         </div>
 
+        {/* Info Banner */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700">
+          Click on a card to expand and view images
+        </div>
+
         {/* Checks List */}
         {loading ? (
-          <div className="text-center py-12 text-slate-500">Loading...</div>
+          <div className="flex items-center justify-center py-12 text-slate-500">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            Loading checks...
+          </div>
         ) : checks.length === 0 ? (
           <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
             No hardware checks found for this date/filters
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {checks.map(check => (
-              <div key={check.id} className="bg-white rounded-xl border overflow-hidden" data-testid={`check-${check.id}`}>
-                {/* Check Header */}
-                <div className="bg-slate-100 px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <Package className="w-4 h-4 text-slate-500" />
-                      <span className="font-bold">{check.kit}</span>
-                    </div>
-                    <span className="text-slate-400">•</span>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-slate-500" />
-                      <span className="text-sm text-slate-600">{check.bnb}</span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {formatTime(check.created_at)}
-                  </div>
-                </div>
-                
-                {/* Images */}
-                <div className="p-4">
-                  <div className="grid grid-cols-3 gap-3">
-                    {/* Left Glove */}
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
-                        <Hand className="w-3 h-3" /> Left Glove
-                      </p>
-                      {check.left_glove_image ? (
-                        <img 
-                          src={check.left_glove_image} 
-                          alt="Left Glove" 
-                          className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(check.left_glove_image, '_blank')}
-                        />
-                      ) : (
-                        <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center">
-                          <Camera className="w-6 h-6 text-slate-300" />
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Right Glove */}
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
-                        <Hand className="w-3 h-3 transform scale-x-[-1]" /> Right Glove
-                      </p>
-                      {check.right_glove_image ? (
-                        <img 
-                          src={check.right_glove_image} 
-                          alt="Right Glove" 
-                          className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(check.right_glove_image, '_blank')}
-                        />
-                      ) : (
-                        <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center">
-                          <Camera className="w-6 h-6 text-slate-300" />
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Head Camera */}
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
-                        <Camera className="w-3 h-3" /> Head Cam
-                      </p>
-                      {check.head_camera_image ? (
-                        <img 
-                          src={check.head_camera_image} 
-                          alt="Head Camera" 
-                          className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(check.head_camera_image, '_blank')}
-                        />
-                      ) : (
-                        <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center">
-                          <Camera className="w-6 h-6 text-slate-300" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Notes */}
-                  {check.notes && (
-                    <div className="mt-3 p-2 bg-slate-50 rounded-lg">
-                      <p className="text-xs text-slate-500">Notes:</p>
-                      <p className="text-sm text-slate-700">{check.notes}</p>
-                    </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {checks.map(check => (
+                <HardwareCheckCard 
+                  key={check.id} 
+                  check={check} 
+                  onLoadImages={loadImages}
+                />
+              ))}
+            </div>
+            
+            {/* Load More Button */}
+            {hasMore && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  variant="outline"
+                  onClick={loadMoreChecks}
+                  disabled={loadingMore}
+                  data-testid="load-more-btn"
+                  className="min-w-[200px]"
+                >
+                  {loadingMore ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      Load More ({totalChecks - checks.length} remaining)
+                    </>
                   )}
-                  
-                  {/* User info */}
-                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-400">
-                    <User className="w-3 h-3" />
-                    Checked by {check.user_name}
-                  </div>
-                </div>
+                </Button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </main>
     </div>
