@@ -45,7 +45,9 @@ Date → BnB (click to expand) → Kit Cards → Actions
 ### Calendar Behavior
 - For managers: Calendar **collapses** after date selection
 - Shows "Change Date" button when collapsed
-- Green dots indicate days with assignments
+- **Green highlighting only** for dates with deployments (green background + green dot)
+- **No "today" or selection highlighting** - calendar is purely deployment-driven
+- Collapsed view shows selected date in neutral slate color
 
 ### BnB Click Experience  
 - Click **entire header block** (dark header OR team section) → Immediate expand/collapse
@@ -281,4 +283,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - UI Improvement: Made entire BnB header block clickable (header + team section) for better usability. Shift logic confirmed as Independent (both shifts can operate simultaneously).
+2026-03-21 - Removed all "today" and selection blue highlighting from calendar. Calendar now only shows deployment indicators (green). Collapsed view uses neutral slate color.

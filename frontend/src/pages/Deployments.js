@@ -889,7 +889,7 @@ export default function Deployments() {
         {calendarCollapsed && selectedDate ? (
           <div className="bg-white rounded-xl border px-4 py-3 mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-500 text-white rounded-lg flex items-center justify-center font-bold">
+              <div className="w-10 h-10 bg-slate-700 text-white rounded-lg flex items-center justify-center font-bold">
                 {selectedDate.getDate()}
               </div>
               <div>
@@ -928,9 +928,8 @@ export default function Deployments() {
               {days.map((day, index) => {
                 if (!day) return <div key={`empty-${index}`} className="aspect-square" />;
                 const dateKey = formatDateKey(day);
-                const isSelected = selectedDate && formatDateKey(selectedDate) === dateKey;
                 const dayDeployments = getDeploymentsForDate(day);
-                const hasMyDeployments = dayDeployments.length > 0;
+                const hasDeployments = dayDeployments.length > 0;
                 
                 return (
                   <button
@@ -938,13 +937,13 @@ export default function Deployments() {
                     onClick={() => selectDate(day)}
                     data-testid={`day-${dateKey}`}
                     className={`aspect-square p-1 rounded-lg border transition-all relative ${
-                      isSelected ? 'bg-blue-500 text-white border-blue-500 ring-2 ring-blue-300' 
-                      : hasMyDeployments ? 'bg-green-50 border-green-300 font-bold'
-                      : 'bg-white border-slate-200 hover:border-blue-300'
+                      hasDeployments 
+                        ? 'bg-green-50 border-green-300 font-bold hover:bg-green-100'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
                   >
                     <span className="text-sm">{day.getDate()}</span>
-                    {hasMyDeployments && !isSelected && (
+                    {hasDeployments && (
                       <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-green-500" />
                     )}
                   </button>
