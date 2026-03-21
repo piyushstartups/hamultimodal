@@ -283,6 +283,12 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-21 - HDD Status Tracking:
+- Added status workflow: In Hub → Sent to DC → At Data Centre → Returned
+- Status summary cards on HDD Dashboard showing count per status
+- Quick status change buttons in expanded HDD view
+- Reset HDD Storage prompt when status is "Returned"
+
 2026-03-21 - Inventory System Refactor:
 - Fixed category dropdown: 13 specific categories (Glove Left, Glove Right, USB Hub, IMUs, Head Camera, L-Shaped Wire, Wrist Camera, Laptop, Laptop Charger, Power Bank, SSD, Bluetooth Adapter, HDD)
 - Removed vague categories (General, Tools)

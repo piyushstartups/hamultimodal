@@ -430,6 +430,36 @@ export default function OffloadManagement() {
               </Button>
             </div>
             
+            {/* Status Summary Cards */}
+            {hdds.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-xs text-green-600 font-medium">In Hub</p>
+                  <p className="text-2xl font-bold text-green-700">
+                    {hdds.filter(h => !h.status || h.status === 'active').length}
+                  </p>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-600 font-medium">Sent to DC</p>
+                  <p className="text-2xl font-bold text-blue-700">
+                    {hdds.filter(h => h.status === 'sent_to_dc').length}
+                  </p>
+                </div>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-xs text-purple-600 font-medium">At Data Centre</p>
+                  <p className="text-2xl font-bold text-purple-700">
+                    {hdds.filter(h => h.status === 'at_dc').length}
+                  </p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <p className="text-xs text-amber-600 font-medium">Returned</p>
+                  <p className="text-2xl font-bold text-amber-700">
+                    {hdds.filter(h => h.status === 'returned').length}
+                  </p>
+                </div>
+              </div>
+            )}
+            
             {hdds.length === 0 ? (
               <div className="bg-white rounded-xl border p-8 text-center">
                 <HardDrive className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -448,6 +478,12 @@ export default function OffloadManagement() {
                     at_dc: 'bg-purple-100 text-purple-700',
                     returned: 'bg-amber-100 text-amber-700'
                   };
+                  const statusLabels = {
+                    active: 'In Hub',
+                    sent_to_dc: 'Sent to DC',
+                    at_dc: 'At Data Centre',
+                    returned: 'Returned'
+                  };
                   
                   return (
                     <div key={hdd.item_id} className="bg-white rounded-xl border overflow-hidden">
@@ -462,7 +498,7 @@ export default function OffloadManagement() {
                             <div className="flex items-center gap-2">
                               <span className="font-bold">{hdd.item_id}</span>
                               <span className={`text-xs px-2 py-0.5 rounded ${statusColors[hdd.status] || statusColors.active}`}>
-                                {hdd.status || 'active'}
+                                {statusLabels[hdd.status] || 'In Hub'}
                               </span>
                             </div>
                             <p className="text-sm text-slate-500">
@@ -508,26 +544,68 @@ export default function OffloadManagement() {
                             </div>
                           </div>
                           
-                          {/* Actions */}
-                          <div className="flex gap-2">
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleUpdateStatus(hdd.item_id, 'sent_to_dc')}
-                              disabled={hdd.status === 'sent_to_dc'}
-                            >
-                              Send to Data Centre
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleResetHdd(hdd.item_id)}
-                              className="text-amber-600 hover:text-amber-700"
-                            >
-                              <RotateCcw className="w-4 h-4 mr-1" />
-                              Reset (Returned)
-                            </Button>
+                          {/* Status Actions */}
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            <span className="text-xs text-slate-500 mr-2 self-center">Change Status:</span>
+                            {hdd.status !== 'active' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(hdd.item_id, 'active'); }}
+                                className="text-green-600 hover:text-green-700 border-green-300"
+                              >
+                                In Hub
+                              </Button>
+                            )}
+                            {hdd.status !== 'sent_to_dc' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(hdd.item_id, 'sent_to_dc'); }}
+                                className="text-blue-600 hover:text-blue-700 border-blue-300"
+                              >
+                                Sent to DC
+                              </Button>
+                            )}
+                            {hdd.status !== 'at_dc' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(hdd.item_id, 'at_dc'); }}
+                                className="text-purple-600 hover:text-purple-700 border-purple-300"
+                              >
+                                At Data Centre
+                              </Button>
+                            )}
+                            {hdd.status !== 'returned' && (
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(hdd.item_id, 'returned'); }}
+                                className="text-amber-600 hover:text-amber-700 border-amber-300"
+                              >
+                                Returned
+                              </Button>
+                            )}
                           </div>
+                          
+                          {/* Reset Action - only show when returned */}
+                          {hdd.status === 'returned' && (hdd.used_storage_gb || 0) > 0 && (
+                            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <p className="text-sm text-amber-700 mb-2">
+                                This HDD has returned from the data centre. Reset to clear storage tracking and make it ready for new offloads.
+                              </p>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={(e) => { e.stopPropagation(); handleResetHdd(hdd.item_id); }}
+                                className="text-amber-700 hover:text-amber-800 border-amber-400"
+                              >
+                                <RotateCcw className="w-4 h-4 mr-1" />
+                                Reset HDD Storage
+                              </Button>
+                            </div>
+                          )}
                           
                           {/* Offloads List */}
                           {hdd.offloads?.length > 0 && (
