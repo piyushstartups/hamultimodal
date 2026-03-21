@@ -283,4 +283,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - Added SSD → HDD offload system with: Offload Batches, HDD Data View, full traceability (SSD → Batch → HDD → collection records → kits → managers), and SSD reset logic.
+2026-03-21 - Simplified Data Offload system: Removed BnB/Date selection, added HDD storage tracking (capacity, used, available), auto-derive data from SSDs, added HDD reset for data centre returns.

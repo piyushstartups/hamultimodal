@@ -225,16 +225,21 @@ class HandoverCreate(BaseModel):
     notes: Optional[str] = None
 
 # Offload Batch models (SSD → HDD data transfer tracking)
-class OffloadBatchCreate(BaseModel):
-    date: str  # deployment date (YYYY-MM-DD)
-    bnb: str
-    hdd_id: str  # target HDD item_id from inventory
+# Simplified Offload models (SSD → HDD data transfer)
+class OffloadCreate(BaseModel):
     ssd_ids: List[str]  # list of SSD item_ids being offloaded
+    hdd_id: str  # target HDD item_id
+    transfer_size_gb: float  # approximate transfer size in GB
     notes: Optional[str] = None
 
-class OffloadBatchUpdate(BaseModel):
-    status: Optional[str] = None  # pending, completed, verified
+class HDDCreate(BaseModel):
+    item_id: str
+    name: Optional[str] = None
+    total_capacity_gb: float = 8000  # default 8TB
     notes: Optional[str] = None
+
+class HDDReset(BaseModel):
+    reason: str = "returned_from_data_centre"  # reason for reset
 
 # ========================
 # AUTH HELPERS
@@ -1950,179 +1955,250 @@ async def get_analytics(
     }
 
 # ========================
-# OFFLOAD BATCH ROUTES (SSD → HDD Data Transfer)
+# SIMPLIFIED OFFLOAD ROUTES (SSD → HDD Data Transfer)
 # ========================
 
-@app.post("/api/offload-batches")
-async def create_offload_batch(data: OffloadBatchCreate, user: dict = Depends(get_current_user_dep())):
-    """Create an offload batch - transfers data from SSDs to an HDD"""
+@app.post("/api/offloads")
+async def create_offload(data: OffloadCreate, user: dict = Depends(get_current_user_dep())):
+    """Simple offload - transfer data from SSDs to HDD with storage tracking"""
     
-    # Validate HDD exists in inventory
-    hdd = await get_db().inventory.find_one({"item_id": data.hdd_id})
+    # Get or create HDD record
+    hdd = await get_db().hdds.find_one({"item_id": data.hdd_id})
     if not hdd:
-        raise HTTPException(status_code=404, detail=f"HDD {data.hdd_id} not found in inventory")
+        # Check if HDD exists in inventory
+        inv_hdd = await get_db().inventory.find_one({"item_id": data.hdd_id})
+        if not inv_hdd:
+            raise HTTPException(status_code=404, detail=f"HDD {data.hdd_id} not found")
+        
+        # Create HDD tracking record with default 8TB capacity
+        hdd = {
+            "item_id": data.hdd_id,
+            "name": inv_hdd.get("name", data.hdd_id),
+            "total_capacity_gb": 8000,  # 8TB default
+            "used_storage_gb": 0,
+            "status": "active",  # active, sent_to_dc, at_dc, returned
+            "offloads": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await get_db().hdds.insert_one(hdd)
+        hdd.pop("_id", None)
     
-    # Validate all SSDs exist
+    # Validate SSDs exist
     for ssd_id in data.ssd_ids:
         ssd = await get_db().inventory.find_one({"item_id": ssd_id})
         if not ssd:
-            raise HTTPException(status_code=404, detail=f"SSD {ssd_id} not found in inventory")
+            raise HTTPException(status_code=404, detail=f"SSD {ssd_id} not found")
     
-    # Get collection records associated with these SSDs for the given date/bnb
+    # Get ALL collection records from these SSDs (auto-derive dates, BnBs)
     collection_records = await get_db().shifts.find({
-        "date": data.date,
-        "bnb": data.bnb,
         "ssd_used": {"$in": data.ssd_ids},
-        "status": "completed"
+        "status": "completed",
+        "offload_id": {"$exists": False}  # Not already offloaded
     }, {"_id": 0}).to_list(1000)
     
-    # Calculate derived data
-    total_hours = sum(r.get("total_duration_hours", 0) or 0 for r in collection_records)
+    # Auto-derive dates, BnBs, kits, managers from collection records
+    dates = list(set(r.get("date") for r in collection_records if r.get("date")))
+    bnbs = list(set(r.get("bnb") for r in collection_records if r.get("bnb")))
+    kits = list(set(r.get("kit") for r in collection_records if r.get("kit")))
+    managers = list(set(r.get("user_name") for r in collection_records if r.get("user_name")))
     categories = list(set(r.get("activity_type", "Other") for r in collection_records))
-    kits_involved = list(set(r.get("kit") for r in collection_records if r.get("kit")))
-    managers_involved = list(set(r.get("user_name") for r in collection_records if r.get("user_name")))
+    total_hours = sum(r.get("total_duration_hours", 0) or 0 for r in collection_records)
     
     now = datetime.now(timezone.utc)
-    batch = {
-        "id": f"batch-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
-        "date": data.date,
-        "bnb": data.bnb,
+    offload = {
+        "id": f"off-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
         "hdd_id": data.hdd_id,
         "ssd_ids": data.ssd_ids,
+        "transfer_size_gb": data.transfer_size_gb,
         "collection_record_ids": [r.get("id") for r in collection_records],
-        "total_hours": round(total_hours, 2),
+        # Auto-derived from collection records
+        "dates": sorted(dates),
+        "bnbs": bnbs,
+        "kits": kits,
+        "managers": managers,
         "categories": categories,
-        "kits_involved": kits_involved,
-        "managers_involved": managers_involved,
-        "status": "completed",  # pending, completed, verified
+        "total_hours": round(total_hours, 2),
+        "record_count": len(collection_records),
         "notes": data.notes,
         "created_by": user["id"],
         "created_by_name": user["name"],
         "created_at": now.isoformat()
     }
     
-    await get_db().offload_batches.insert_one(batch)
+    await get_db().offloads.insert_one(offload)
     
-    # Mark SSDs as offloaded (update status to show data was offloaded)
+    # Update HDD storage
+    new_used = (hdd.get("used_storage_gb", 0) or 0) + data.transfer_size_gb
+    await get_db().hdds.update_one(
+        {"item_id": data.hdd_id},
+        {
+            "$set": {"used_storage_gb": round(new_used, 2)},
+            "$push": {"offloads": offload["id"]}
+        }
+    )
+    
+    # Mark SSDs as fresh/available (data has been offloaded)
     for ssd_id in data.ssd_ids:
         await get_db().inventory.update_one(
             {"item_id": ssd_id},
             {"$set": {
-                "last_offload_batch": batch["id"],
-                "last_offload_date": now.isoformat(),
-                "data_status": "offloaded"  # fresh, in_use, offloaded
+                "data_status": "fresh",
+                "last_offload_id": offload["id"],
+                "last_offload_date": now.isoformat()
             }}
         )
     
-    # Link collection records to batch
-    for record_id in batch["collection_record_ids"]:
+    # Link collection records to offload
+    for record_id in offload["collection_record_ids"]:
         await get_db().shifts.update_one(
             {"id": record_id},
-            {"$set": {"offload_batch_id": batch["id"]}}
+            {"$set": {"offload_id": offload["id"]}}
         )
     
-    batch.pop("_id", None)
-    return batch
+    offload.pop("_id", None)
+    return offload
 
 
-@app.get("/api/offload-batches")
-async def get_offload_batches(
+@app.get("/api/offloads")
+async def get_offloads(
     hdd_id: Optional[str] = None,
-    date: Optional[str] = None,
-    bnb: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get offload batches with optional filters"""
+    """Get all offloads with optional HDD filter"""
     query = {}
     if hdd_id:
         query["hdd_id"] = hdd_id
-    if date:
-        query["date"] = date
-    if bnb:
-        query["bnb"] = bnb
     
-    total = await get_db().offload_batches.count_documents(query)
-    batches = await get_db().offload_batches.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    total = await get_db().offloads.count_documents(query)
+    offloads = await get_db().offloads.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
-    return {
-        "batches": batches,
-        "total": total,
-        "skip": skip,
-        "limit": limit
-    }
-
-
-@app.get("/api/offload-batches/{batch_id}")
-async def get_offload_batch(batch_id: str, user: dict = Depends(get_current_user_dep())):
-    """Get detailed offload batch with full traceability"""
-    batch = await get_db().offload_batches.find_one({"id": batch_id}, {"_id": 0})
-    if not batch:
-        raise HTTPException(status_code=404, detail="Offload batch not found")
-    
-    # Get full collection records for traceability
-    collection_records = await get_db().shifts.find(
-        {"id": {"$in": batch.get("collection_record_ids", [])}},
-        {"_id": 0}
-    ).to_list(1000)
-    
-    # Get SSD details
-    ssd_details = await get_db().inventory.find(
-        {"item_id": {"$in": batch.get("ssd_ids", [])}},
-        {"_id": 0}
-    ).to_list(100)
-    
-    # Get HDD details
-    hdd_details = await get_db().inventory.find_one(
-        {"item_id": batch.get("hdd_id")},
-        {"_id": 0}
-    )
-    
-    batch["collection_records"] = collection_records
-    batch["ssd_details"] = ssd_details
-    batch["hdd_details"] = hdd_details
-    
-    return batch
+    return {"offloads": offloads, "total": total}
 
 
 @app.get("/api/hdds")
 async def get_hdds(user: dict = Depends(get_current_user_dep())):
-    """Get all HDDs in inventory with their batch data"""
-    # Get all HDD items from inventory
-    hdds = await get_db().inventory.find(
-        {"category": {"$in": ["hdd", "HDD"]}},
-        {"_id": 0}
-    ).to_list(100)
+    """Get all HDDs with storage and data visibility"""
+    hdds = await get_db().hdds.find({}, {"_id": 0}).to_list(100)
     
-    # For each HDD, get batch summary
     result = []
     for hdd in hdds:
-        batches = await get_db().offload_batches.find(
+        # Get offloads for this HDD
+        offloads = await get_db().offloads.find(
             {"hdd_id": hdd["item_id"]},
             {"_id": 0}
-        ).to_list(100)
+        ).sort("created_at", -1).to_list(100)
         
-        total_hours = sum(b.get("total_hours", 0) for b in batches)
+        # Aggregate data visibility from offloads
+        all_dates = []
+        all_bnbs = []
+        all_kits = []
+        total_hours = 0
+        
+        for off in offloads:
+            all_dates.extend(off.get("dates", []))
+            all_bnbs.extend(off.get("bnbs", []))
+            all_kits.extend(off.get("kits", []))
+            total_hours += off.get("total_hours", 0)
+        
+        total_capacity = hdd.get("total_capacity_gb", 8000)
+        used_storage = hdd.get("used_storage_gb", 0)
         
         result.append({
             **hdd,
-            "batch_count": len(batches),
+            "total_capacity_gb": total_capacity,
+            "used_storage_gb": round(used_storage, 2),
+            "available_storage_gb": round(total_capacity - used_storage, 2),
+            "offload_count": len(offloads),
             "total_hours": round(total_hours, 2),
-            "batches": batches
+            "data_dates": sorted(list(set(all_dates))),
+            "data_bnbs": list(set(all_bnbs)),
+            "data_kits": list(set(all_kits)),
+            "offloads": offloads
         })
     
     return result
 
 
-@app.get("/api/ssds/offload-status")
-async def get_ssds_offload_status(
-    date: Optional[str] = None,
-    bnb: Optional[str] = None,
-    user: dict = Depends(get_current_user_dep())
-):
-    """Get SSDs with their data/offload status for a specific date/bnb"""
-    # Get all SSDs
+@app.post("/api/hdds")
+async def create_hdd(data: HDDCreate, user: dict = Depends(get_current_user_dep())):
+    """Create or update HDD tracking record"""
+    existing = await get_db().hdds.find_one({"item_id": data.item_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="HDD already exists")
+    
+    hdd = {
+        "item_id": data.item_id,
+        "name": data.name or data.item_id,
+        "total_capacity_gb": data.total_capacity_gb,
+        "used_storage_gb": 0,
+        "status": "active",
+        "offloads": [],
+        "notes": data.notes,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await get_db().hdds.insert_one(hdd)
+    hdd.pop("_id", None)
+    return hdd
+
+
+@app.post("/api/hdds/{hdd_id}/reset")
+async def reset_hdd(hdd_id: str, data: HDDReset, user: dict = Depends(get_current_user_dep())):
+    """Reset HDD when returned from data centre - clears storage and data mapping"""
+    hdd = await get_db().hdds.find_one({"item_id": hdd_id})
+    if not hdd:
+        raise HTTPException(status_code=404, detail="HDD not found")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Archive offloads (keep history but mark as archived)
+    await get_db().offloads.update_many(
+        {"hdd_id": hdd_id},
+        {"$set": {"archived": True, "archived_at": now.isoformat(), "archive_reason": data.reason}}
+    )
+    
+    # Reset HDD
+    await get_db().hdds.update_one(
+        {"item_id": hdd_id},
+        {"$set": {
+            "used_storage_gb": 0,
+            "status": "active",
+            "offloads": [],
+            "last_reset_at": now.isoformat(),
+            "last_reset_reason": data.reason
+        }}
+    )
+    
+    updated = await get_db().hdds.find_one({"item_id": hdd_id}, {"_id": 0})
+    return updated
+
+
+@app.patch("/api/hdds/{hdd_id}/status")
+async def update_hdd_status(hdd_id: str, status: str, user: dict = Depends(get_current_user_dep())):
+    """Update HDD status (active, sent_to_dc, at_dc, returned)"""
+    valid_statuses = ["active", "sent_to_dc", "at_dc", "returned"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+    
+    hdd = await get_db().hdds.find_one({"item_id": hdd_id})
+    if not hdd:
+        raise HTTPException(status_code=404, detail="HDD not found")
+    
+    await get_db().hdds.update_one(
+        {"item_id": hdd_id},
+        {"$set": {"status": status, "status_updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    updated = await get_db().hdds.find_one({"item_id": hdd_id}, {"_id": 0})
+    return updated
+
+
+@app.get("/api/ssds")
+async def get_ssds_for_offload(user: dict = Depends(get_current_user_dep())):
+    """Get all SSDs with pending data for offload"""
+    # Get all SSDs from inventory
     ssds = await get_db().inventory.find(
         {"category": {"$in": ["ssd", "SSD"]}},
         {"_id": 0}
@@ -2130,58 +2206,27 @@ async def get_ssds_offload_status(
     
     result = []
     for ssd in ssds:
-        # Check if SSD has unoffloaded data for the given date/bnb
-        query = {
+        # Get all pending (not offloaded) collection records for this SSD
+        pending_records = await get_db().shifts.find({
             "ssd_used": ssd["item_id"],
             "status": "completed",
-            "offload_batch_id": {"$exists": False}
-        }
-        if date:
-            query["date"] = date
-        if bnb:
-            query["bnb"] = bnb
+            "offload_id": {"$exists": False}
+        }, {"_id": 0}).to_list(500)
         
-        pending_records = await get_db().shifts.find(query, {"_id": 0}).to_list(100)
         pending_hours = sum(r.get("total_duration_hours", 0) or 0 for r in pending_records)
+        pending_dates = list(set(r.get("date") for r in pending_records if r.get("date")))
+        pending_bnbs = list(set(r.get("bnb") for r in pending_records if r.get("bnb")))
         
         result.append({
             **ssd,
-            "pending_offload": len(pending_records) > 0,
+            "has_pending_data": len(pending_records) > 0,
             "pending_record_count": len(pending_records),
             "pending_hours": round(pending_hours, 2),
-            "pending_records": pending_records if pending_records else []
+            "pending_dates": sorted(pending_dates),
+            "pending_bnbs": pending_bnbs
         })
     
     return result
-
-
-@app.post("/api/ssds/{ssd_id}/reset")
-async def reset_ssd(ssd_id: str, user: dict = Depends(get_current_user_dep())):
-    """Mark SSD as fresh/ready for reuse after offload"""
-    ssd = await get_db().inventory.find_one({"item_id": ssd_id})
-    if not ssd:
-        raise HTTPException(status_code=404, detail="SSD not found")
-    
-    # Check if SSD has any pending unoffloaded data
-    pending = await get_db().shifts.find_one({
-        "ssd_used": ssd_id,
-        "status": "completed",
-        "offload_batch_id": {"$exists": False}
-    })
-    
-    if pending:
-        raise HTTPException(
-            status_code=400, 
-            detail="SSD has unoffloaded data. Offload to HDD first before resetting."
-        )
-    
-    await get_db().inventory.update_one(
-        {"item_id": ssd_id},
-        {"$set": {"data_status": "fresh"}}
-    )
-    
-    updated = await get_db().inventory.find_one({"item_id": ssd_id}, {"_id": 0})
-    return updated
 
 
 # ========================

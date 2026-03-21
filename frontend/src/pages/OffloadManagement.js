@@ -1,16 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
 import api from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -23,87 +15,80 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, HardDrive, Database, Plus, ChevronDown, ChevronRight,
   Package, Clock, MapPin, Users, Calendar, RefreshCw, Loader2,
-  CheckCircle2, AlertCircle, ArrowRight, Box
+  CheckCircle2, AlertCircle, ArrowRight, Box, RotateCcw, Trash2
 } from 'lucide-react';
 
 const TABS = [
-  { id: 'offload', label: 'Create Offload', icon: Plus },
-  { id: 'batches', label: 'Offload Batches', icon: Database },
-  { id: 'hdds', label: 'HDD Storage', icon: HardDrive },
+  { id: 'offload', label: 'Offload SSDs', icon: ArrowRight },
+  { id: 'hdds', label: 'HDD Dashboard', icon: HardDrive },
+  { id: 'history', label: 'History', icon: Clock },
 ];
 
+// Storage progress bar component
+const StorageBar = ({ used, total }) => {
+  const percent = total > 0 ? Math.min((used / total) * 100, 100) : 0;
+  const color = percent > 90 ? 'bg-red-500' : percent > 70 ? 'bg-amber-500' : 'bg-green-500';
+  
+  return (
+    <div className="w-full">
+      <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
+        <div 
+          className={`h-full ${color} transition-all`} 
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-xs text-slate-500 mt-1">
+        <span>{used.toFixed(0)} GB used</span>
+        <span>{(total - used).toFixed(0)} GB free</span>
+      </div>
+    </div>
+  );
+};
+
 export default function OffloadManagement() {
-  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('offload');
   const [loading, setLoading] = useState(true);
   
   // Data
   const [ssds, setSsds] = useState([]);
   const [hdds, setHdds] = useState([]);
-  const [batches, setBatches] = useState([]);
-  const [bnbs, setBnbs] = useState([]);
+  const [offloads, setOffloads] = useState([]);
   
   // Offload form state
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedBnb, setSelectedBnb] = useState('');
   const [selectedSsds, setSelectedSsds] = useState([]);
   const [selectedHdd, setSelectedHdd] = useState('');
+  const [transferSize, setTransferSize] = useState('');
   const [offloadNotes, setOffloadNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   
-  // Batch detail dialog
-  const [batchDetailOpen, setBatchDetailOpen] = useState(false);
-  const [selectedBatch, setSelectedBatch] = useState(null);
-  const [batchDetail, setBatchDetail] = useState(null);
+  // Add HDD dialog
+  const [addHddOpen, setAddHddOpen] = useState(false);
+  const [newHddId, setNewHddId] = useState('');
+  const [newHddCapacity, setNewHddCapacity] = useState('8000');
   
-  // Expanded sections
+  // Expanded HDDs
   const [expandedHdds, setExpandedHdds] = useState({});
 
   useEffect(() => {
     fetchData();
-    fetchOperationalDate();
   }, []);
-
-  useEffect(() => {
-    if (selectedDate && selectedBnb) {
-      fetchSsdStatus();
-    }
-  }, [selectedDate, selectedBnb]);
-
-  const fetchOperationalDate = async () => {
-    try {
-      const response = await api.get('/system/operational-date');
-      setSelectedDate(response.data.operational_date);
-    } catch (error) {
-      console.error('Failed to fetch operational date:', error);
-    }
-  };
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [bnbsRes, hddsRes, batchesRes] = await Promise.all([
-        api.get('/bnbs'),
+      const [ssdsRes, hddsRes, offloadsRes] = await Promise.all([
+        api.get('/ssds'),
         api.get('/hdds'),
-        api.get('/offload-batches?limit=100')
+        api.get('/offloads?limit=100')
       ]);
-      setBnbs(bnbsRes.data);
+      setSsds(ssdsRes.data);
       setHdds(hddsRes.data);
-      setBatches(batchesRes.data.batches || []);
+      setOffloads(offloadsRes.data.offloads || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchSsdStatus = async () => {
-    try {
-      const response = await api.get(`/ssds/offload-status?date=${selectedDate}&bnb=${selectedBnb}`);
-      setSsds(response.data);
-    } catch (error) {
-      console.error('Failed to fetch SSD status:', error);
     }
   };
 
@@ -116,45 +101,84 @@ export default function OffloadManagement() {
   };
 
   const handleCreateOffload = async () => {
-    if (!selectedDate || !selectedBnb || selectedSsds.length === 0 || !selectedHdd) {
-      toast.error('Please fill all required fields');
+    if (selectedSsds.length === 0 || !selectedHdd || !transferSize) {
+      toast.error('Please select SSDs, target HDD, and enter transfer size');
+      return;
+    }
+    
+    const size = parseFloat(transferSize);
+    if (isNaN(size) || size <= 0) {
+      toast.error('Please enter a valid transfer size');
       return;
     }
     
     setSubmitting(true);
     try {
-      await api.post('/offload-batches', {
-        date: selectedDate,
-        bnb: selectedBnb,
-        hdd_id: selectedHdd,
+      await api.post('/offloads', {
         ssd_ids: selectedSsds,
+        hdd_id: selectedHdd,
+        transfer_size_gb: size,
         notes: offloadNotes || null
       });
       
-      toast.success('Offload batch created successfully!');
+      toast.success('Offload completed! SSDs are now available for reuse.');
       
-      // Reset form and refresh data
+      // Reset form
       setSelectedSsds([]);
       setSelectedHdd('');
+      setTransferSize('');
       setOffloadNotes('');
       fetchData();
-      fetchSsdStatus();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create offload batch');
+      toast.error(error.response?.data?.detail || 'Failed to create offload');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const openBatchDetail = async (batch) => {
-    setSelectedBatch(batch);
-    setBatchDetailOpen(true);
+  const handleAddHdd = async () => {
+    if (!newHddId) {
+      toast.error('Please enter HDD ID');
+      return;
+    }
     
     try {
-      const response = await api.get(`/offload-batches/${batch.id}`);
-      setBatchDetail(response.data);
+      await api.post('/hdds', {
+        item_id: newHddId,
+        total_capacity_gb: parseFloat(newHddCapacity) || 8000
+      });
+      
+      toast.success('HDD added successfully');
+      setAddHddOpen(false);
+      setNewHddId('');
+      setNewHddCapacity('8000');
+      fetchData();
     } catch (error) {
-      toast.error('Failed to load batch details');
+      toast.error(error.response?.data?.detail || 'Failed to add HDD');
+    }
+  };
+
+  const handleResetHdd = async (hddId) => {
+    if (!confirm(`Reset ${hddId}? This will clear all storage tracking (used for returned drives from data centre).`)) {
+      return;
+    }
+    
+    try {
+      await api.post(`/hdds/${hddId}/reset`, { reason: 'returned_from_data_centre' });
+      toast.success('HDD reset successfully');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to reset HDD');
+    }
+  };
+
+  const handleUpdateStatus = async (hddId, status) => {
+    try {
+      await api.patch(`/hdds/${hddId}/status?status=${status}`);
+      toast.success('Status updated');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update status');
     }
   };
 
@@ -163,15 +187,20 @@ export default function OffloadManagement() {
   };
 
   const formatDuration = (hours) => {
-    if (!hours) return '0h 0m';
+    if (!hours) return '0h';
     const h = Math.floor(hours);
     const m = Math.round((hours - h) * 60);
-    return `${h}h ${m}m`;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
 
   // Get SSDs with pending data
-  const pendingSsds = ssds.filter(ssd => ssd.pending_offload);
-  const totalPendingHours = pendingSsds.reduce((sum, ssd) => sum + ssd.pending_hours, 0);
+  const ssdsWithData = ssds.filter(ssd => ssd.has_pending_data);
+  const totalPendingHours = ssdsWithData.reduce((sum, ssd) => sum + (ssd.pending_hours || 0), 0);
+
+  // Calculate total selected data
+  const selectedSsdData = ssds.filter(ssd => selectedSsds.includes(ssd.item_id));
+  const totalSelectedRecords = selectedSsdData.reduce((sum, ssd) => sum + (ssd.pending_record_count || 0), 0);
+  const totalSelectedHours = selectedSsdData.reduce((sum, ssd) => sum + (ssd.pending_hours || 0), 0);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -185,8 +214,8 @@ export default function OffloadManagement() {
               </Button>
             </a>
             <div>
-              <h1 className="text-lg font-bold">Data Offload Management</h1>
-              <p className="text-sm text-white/70">SSD → HDD Data Transfer & Tracking</p>
+              <h1 className="text-lg font-bold">Data Offload</h1>
+              <p className="text-sm text-white/70">SSD → HDD Transfer</p>
             </div>
           </div>
           <Button 
@@ -203,7 +232,7 @@ export default function OffloadManagement() {
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {/* Tabs */}
-        <div className="flex gap-2 mb-6 border-b border-slate-200 pb-2">
+        <div className="flex gap-2 mb-6">
           {TABS.map(tab => (
             <button
               key={tab.id}
@@ -211,7 +240,7 @@ export default function OffloadManagement() {
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 activeTab === tab.id 
                   ? 'bg-slate-900 text-white' 
-                  : 'text-slate-600 hover:bg-slate-200'
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border'
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -220,303 +249,303 @@ export default function OffloadManagement() {
           ))}
         </div>
 
-        {/* CREATE OFFLOAD TAB */}
+        {/* OFFLOAD TAB */}
         {activeTab === 'offload' && (
-          <div className="space-y-6">
-            {/* Date & BnB Selection */}
-            <div className="bg-white rounded-xl border p-4">
-              <h2 className="font-semibold text-slate-800 mb-4">1. Select Date & BnB</h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Date</Label>
-                  <Input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label>BnB</Label>
-                  <Select value={selectedBnb} onValueChange={setSelectedBnb}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select BnB" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {bnbs.map(bnb => (
-                        <SelectItem key={bnb.name} value={bnb.name}>{bnb.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {/* SSD Selection */}
-            <div className="bg-white rounded-xl border p-4">
-              <h2 className="font-semibold text-slate-800 mb-4">
-                2. Select SSDs to Offload
-                {pendingSsds.length > 0 && (
-                  <span className="ml-2 text-sm font-normal text-amber-600">
-                    ({pendingSsds.length} with pending data, {formatDuration(totalPendingHours)} total)
-                  </span>
-                )}
-              </h2>
-              
-              {!selectedDate || !selectedBnb ? (
-                <p className="text-slate-500 text-sm">Select date and BnB first</p>
-              ) : ssds.length === 0 ? (
-                <p className="text-slate-500 text-sm">No SSDs found</p>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {ssds.map(ssd => (
-                    <div 
-                      key={ssd.item_id}
-                      className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                        selectedSsds.includes(ssd.item_id)
-                          ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                          : ssd.pending_offload
-                            ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
-                            : 'border-slate-200 bg-slate-50 hover:border-slate-300'
-                      }`}
-                      onClick={() => handleSsdToggle(ssd.item_id)}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium text-sm">{ssd.item_id}</span>
-                        <Checkbox 
-                          checked={selectedSsds.includes(ssd.item_id)}
-                          onCheckedChange={() => handleSsdToggle(ssd.item_id)}
-                        />
-                      </div>
-                      {ssd.pending_offload ? (
-                        <div className="text-xs">
-                          <p className="text-amber-700 font-medium">
-                            {ssd.pending_record_count} records • {formatDuration(ssd.pending_hours)}
-                          </p>
-                          <p className="text-slate-500">Pending offload</p>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-green-600 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> No pending data
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* HDD Selection */}
-            <div className="bg-white rounded-xl border p-4">
-              <h2 className="font-semibold text-slate-800 mb-4">3. Select Target HDD</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {hdds.map(hdd => (
-                  <div 
-                    key={hdd.item_id}
-                    className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                      selectedHdd === hdd.item_id
-                        ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                    onClick={() => setSelectedHdd(hdd.item_id)}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <HardDrive className="w-4 h-4 text-slate-500" />
-                      <span className="font-medium">{hdd.item_id}</span>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {hdd.batch_count} batches • {formatDuration(hdd.total_hours)} stored
-                    </p>
-                    {hdd.current_kit && (
-                      <p className="text-xs text-slate-400">Location: {hdd.current_kit}</p>
-                    )}
-                  </div>
-                ))}
-                {hdds.length === 0 && (
-                  <p className="text-slate-500 text-sm col-span-3">
-                    No HDDs found. Add HDDs in Inventory Management first.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Notes & Submit */}
-            <div className="bg-white rounded-xl border p-4">
-              <h2 className="font-semibold text-slate-800 mb-4">4. Notes & Submit</h2>
-              <Textarea
-                placeholder="Optional notes about this offload batch..."
-                value={offloadNotes}
-                onChange={(e) => setOffloadNotes(e.target.value)}
-                className="mb-4"
-                rows={2}
-              />
-              
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-600">
-                  {selectedSsds.length > 0 && selectedHdd && (
-                    <span>
-                      Offloading <strong>{selectedSsds.length}</strong> SSD(s) to <strong>{selectedHdd}</strong>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* SSDs Column */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="bg-white rounded-xl border p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-slate-800">Select SSDs</h2>
+                  {ssdsWithData.length > 0 && (
+                    <span className="text-sm text-amber-600">
+                      {ssdsWithData.length} with data ({formatDuration(totalPendingHours)})
                     </span>
                   )}
                 </div>
-                <Button
-                  onClick={handleCreateOffload}
-                  disabled={submitting || selectedSsds.length === 0 || !selectedHdd}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <ArrowRight className="w-4 h-4 mr-2" />
-                      Create Offload Batch
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* OFFLOAD BATCHES TAB */}
-        {activeTab === 'batches' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800">All Offload Batches</h2>
-              <span className="text-sm text-slate-500">{batches.length} batches</span>
-            </div>
-            
-            {batches.length === 0 ? (
-              <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
-                No offload batches yet
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {batches.map(batch => (
-                  <div 
-                    key={batch.id}
-                    className="bg-white rounded-xl border p-4 hover:border-slate-300 transition-colors cursor-pointer"
-                    onClick={() => openBatchDetail(batch)}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <Database className="w-5 h-5 text-blue-500" />
-                        <span className="font-medium">{batch.id}</span>
+                
+                {ssds.length === 0 ? (
+                  <p className="text-slate-500 text-sm py-4 text-center">
+                    No SSDs found in inventory
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {ssds.map(ssd => (
+                      <div 
+                        key={ssd.item_id}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          selectedSsds.includes(ssd.item_id)
+                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                            : ssd.has_pending_data
+                              ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
+                              : 'border-slate-200 bg-slate-50 opacity-60'
+                        }`}
+                        onClick={() => ssd.has_pending_data && handleSsdToggle(ssd.item_id)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-sm">{ssd.item_id}</span>
+                          {ssd.has_pending_data && (
+                            <Checkbox 
+                              checked={selectedSsds.includes(ssd.item_id)}
+                              onCheckedChange={() => handleSsdToggle(ssd.item_id)}
+                            />
+                          )}
+                        </div>
+                        {ssd.has_pending_data ? (
+                          <div className="text-xs">
+                            <p className="text-amber-700 font-medium">
+                              {ssd.pending_record_count} records • {formatDuration(ssd.pending_hours)}
+                            </p>
+                            <p className="text-slate-500 truncate">
+                              {ssd.pending_bnbs?.join(', ') || 'No BnB data'}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-green-600 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Available
+                          </p>
+                        )}
                       </div>
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        batch.status === 'verified' 
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {batch.status}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div className="flex items-center gap-2 text-slate-600">
-                        <Calendar className="w-4 h-4" />
-                        {batch.date}
-                      </div>
-                      <div className="flex items-center gap-2 text-slate-600">
-                        <MapPin className="w-4 h-4" />
-                        {batch.bnb}
-                      </div>
-                      <div className="flex items-center gap-2 text-slate-600">
-                        <HardDrive className="w-4 h-4" />
-                        {batch.hdd_id}
-                      </div>
-                      <div className="flex items-center gap-2 text-slate-600">
-                        <Clock className="w-4 h-4" />
-                        {formatDuration(batch.total_hours)}
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-slate-500">
-                      {batch.ssd_ids?.length || 0} SSDs • {batch.kits_involved?.length || 0} kits • {batch.categories?.join(', ') || 'N/A'}
-                    </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
+            </div>
+
+            {/* Offload Form Column */}
+            <div className="space-y-4">
+              {/* Selected Summary */}
+              {selectedSsds.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <h3 className="font-medium text-blue-800 mb-2">Selected</h3>
+                  <p className="text-sm text-blue-700">
+                    {selectedSsds.length} SSD(s) • {totalSelectedRecords} records • {formatDuration(totalSelectedHours)}
+                  </p>
+                </div>
+              )}
+
+              {/* Target HDD */}
+              <div className="bg-white rounded-xl border p-4">
+                <h3 className="font-semibold text-slate-800 mb-3">Target HDD</h3>
+                {hdds.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-slate-500 text-sm mb-2">No HDDs configured</p>
+                    <Button size="sm" onClick={() => setAddHddOpen(true)}>
+                      <Plus className="w-4 h-4 mr-1" /> Add HDD
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {hdds.filter(h => h.status === 'active').map(hdd => (
+                      <div 
+                        key={hdd.item_id}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          selectedHdd === hdd.item_id
+                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                        onClick={() => setSelectedHdd(hdd.item_id)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <HardDrive className="w-4 h-4 text-slate-500" />
+                            <span className="font-medium text-sm">{hdd.item_id}</span>
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            {hdd.available_storage_gb?.toFixed(0) || 0} GB free
+                          </span>
+                        </div>
+                        <StorageBar 
+                          used={hdd.used_storage_gb || 0} 
+                          total={hdd.total_capacity_gb || 8000} 
+                        />
+                      </div>
+                    ))}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full mt-2"
+                      onClick={() => setAddHddOpen(true)}
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Add HDD
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Transfer Size */}
+              <div className="bg-white rounded-xl border p-4">
+                <Label className="text-slate-800 font-semibold">Transfer Size (GB)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g., 500"
+                  value={transferSize}
+                  onChange={(e) => setTransferSize(e.target.value)}
+                  className="mt-2"
+                />
+              </div>
+
+              {/* Notes */}
+              <div className="bg-white rounded-xl border p-4">
+                <Label className="text-slate-800 font-semibold">Notes (optional)</Label>
+                <Textarea
+                  placeholder="Any notes about this offload..."
+                  value={offloadNotes}
+                  onChange={(e) => setOffloadNotes(e.target.value)}
+                  className="mt-2"
+                  rows={2}
+                />
+              </div>
+
+              {/* Submit */}
+              <Button
+                onClick={handleCreateOffload}
+                disabled={submitting || selectedSsds.length === 0 || !selectedHdd || !transferSize}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                size="lg"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight className="w-4 h-4 mr-2" />
+                    Mark as Offloaded
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         )}
 
-        {/* HDD STORAGE TAB */}
+        {/* HDD DASHBOARD TAB */}
         {activeTab === 'hdds' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800">HDD Storage Overview</h2>
-              <span className="text-sm text-slate-500">{hdds.length} HDDs</span>
+              <h2 className="font-semibold text-slate-800">HDD Storage Dashboard</h2>
+              <Button size="sm" onClick={() => setAddHddOpen(true)}>
+                <Plus className="w-4 h-4 mr-1" /> Add HDD
+              </Button>
             </div>
             
             {hdds.length === 0 ? (
-              <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
-                No HDDs in inventory. Add HDDs via Inventory Management.
+              <div className="bg-white rounded-xl border p-8 text-center">
+                <HardDrive className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-500 mb-3">No HDDs configured</p>
+                <Button onClick={() => setAddHddOpen(true)}>
+                  <Plus className="w-4 h-4 mr-1" /> Add First HDD
+                </Button>
               </div>
             ) : (
               <div className="grid gap-4">
                 {hdds.map(hdd => {
                   const isExpanded = expandedHdds[hdd.item_id];
+                  const statusColors = {
+                    active: 'bg-green-100 text-green-700',
+                    sent_to_dc: 'bg-blue-100 text-blue-700',
+                    at_dc: 'bg-purple-100 text-purple-700',
+                    returned: 'bg-amber-100 text-amber-700'
+                  };
                   
                   return (
                     <div key={hdd.item_id} className="bg-white rounded-xl border overflow-hidden">
-                      <button
+                      {/* HDD Header */}
+                      <div 
+                        className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-50"
                         onClick={() => toggleHddExpand(hdd.item_id)}
-                        className="w-full px-4 py-3 flex items-center justify-between bg-slate-800 text-white hover:bg-slate-700"
                       >
-                        <div className="flex items-center gap-3">
-                          <HardDrive className="w-5 h-5" />
-                          <span className="font-bold">{hdd.item_id}</span>
-                          <span className="text-xs bg-white/20 px-2 py-0.5 rounded">
-                            {hdd.batch_count} batches
-                          </span>
-                          <span className="text-xs bg-white/20 px-2 py-0.5 rounded">
-                            {formatDuration(hdd.total_hours)}
-                          </span>
+                        <div className="flex items-center gap-4">
+                          <HardDrive className="w-6 h-6 text-slate-600" />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold">{hdd.item_id}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded ${statusColors[hdd.status] || statusColors.active}`}>
+                                {hdd.status || 'active'}
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-500">
+                              {hdd.offload_count || 0} offloads • {formatDuration(hdd.total_hours)}
+                            </p>
+                          </div>
                         </div>
-                        {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                      </button>
+                        <div className="flex items-center gap-4">
+                          <div className="w-48">
+                            <StorageBar 
+                              used={hdd.used_storage_gb || 0} 
+                              total={hdd.total_capacity_gb || 8000} 
+                            />
+                          </div>
+                          {isExpanded ? <ChevronDown className="w-5 h-5 text-slate-400" /> : <ChevronRight className="w-5 h-5 text-slate-400" />}
+                        </div>
+                      </div>
                       
+                      {/* Expanded Content */}
                       {isExpanded && (
-                        <div className="p-4">
-                          {/* HDD Info */}
-                          <div className="grid grid-cols-3 gap-4 mb-4 text-sm">
-                            <div>
-                              <span className="text-slate-500">Status:</span>
-                              <span className="ml-2 font-medium">{hdd.status || 'active'}</span>
+                        <div className="px-4 py-4 border-t bg-slate-50">
+                          {/* Data Summary */}
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div className="bg-white rounded-lg p-3 border">
+                              <p className="text-xs text-slate-500">Dates</p>
+                              <p className="text-sm font-medium">
+                                {hdd.data_dates?.length > 0 
+                                  ? `${hdd.data_dates[0]} - ${hdd.data_dates[hdd.data_dates.length - 1]}`
+                                  : 'No data'}
+                              </p>
                             </div>
-                            <div>
-                              <span className="text-slate-500">Location:</span>
-                              <span className="ml-2 font-medium">{hdd.current_kit || 'Hub'}</span>
+                            <div className="bg-white rounded-lg p-3 border">
+                              <p className="text-xs text-slate-500">BnBs</p>
+                              <p className="text-sm font-medium">
+                                {hdd.data_bnbs?.join(', ') || 'No data'}
+                              </p>
                             </div>
-                            <div>
-                              <span className="text-slate-500">Data Status:</span>
-                              <span className="ml-2 font-medium">{hdd.data_status || 'in_use'}</span>
+                            <div className="bg-white rounded-lg p-3 border">
+                              <p className="text-xs text-slate-500">Kits</p>
+                              <p className="text-sm font-medium">
+                                {hdd.data_kits?.join(', ') || 'No data'}
+                              </p>
                             </div>
                           </div>
                           
-                          {/* Batches */}
-                          <h3 className="font-medium text-slate-700 mb-2">Stored Batches</h3>
-                          {hdd.batches?.length === 0 ? (
-                            <p className="text-sm text-slate-500">No batches stored on this HDD</p>
-                          ) : (
-                            <div className="space-y-2">
-                              {hdd.batches?.map(batch => (
-                                <div 
-                                  key={batch.id}
-                                  className="p-3 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer hover:border-slate-300"
-                                  onClick={() => openBatchDetail(batch)}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm font-medium">{batch.date} - {batch.bnb}</span>
-                                    <span className="text-sm text-slate-600">{formatDuration(batch.total_hours)}</span>
+                          {/* Actions */}
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleUpdateStatus(hdd.item_id, 'sent_to_dc')}
+                              disabled={hdd.status === 'sent_to_dc'}
+                            >
+                              Send to Data Centre
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleResetHdd(hdd.item_id)}
+                              className="text-amber-600 hover:text-amber-700"
+                            >
+                              <RotateCcw className="w-4 h-4 mr-1" />
+                              Reset (Returned)
+                            </Button>
+                          </div>
+                          
+                          {/* Offloads List */}
+                          {hdd.offloads?.length > 0 && (
+                            <div className="mt-4">
+                              <h4 className="text-sm font-medium text-slate-700 mb-2">Recent Offloads</h4>
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {hdd.offloads.slice(0, 5).map(off => (
+                                  <div key={off.id} className="bg-white rounded border p-2 text-sm">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium">{off.ssd_ids?.join(', ')}</span>
+                                      <span className="text-slate-500">{off.transfer_size_gb} GB</span>
+                                    </div>
+                                    <div className="text-xs text-slate-500">
+                                      {off.dates?.join(', ')} • {off.bnbs?.join(', ')}
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-slate-500 mt-1">
-                                    {batch.ssd_ids?.length || 0} SSDs • {batch.kits_involved?.join(', ') || 'N/A'}
-                                  </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -528,118 +557,96 @@ export default function OffloadManagement() {
             )}
           </div>
         )}
+
+        {/* HISTORY TAB */}
+        {activeTab === 'history' && (
+          <div className="space-y-4">
+            <h2 className="font-semibold text-slate-800">Offload History</h2>
+            
+            {offloads.length === 0 ? (
+              <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                No offloads yet
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium text-slate-600">Date</th>
+                      <th className="px-4 py-3 text-left font-medium text-slate-600">SSDs</th>
+                      <th className="px-4 py-3 text-left font-medium text-slate-600">HDD</th>
+                      <th className="px-4 py-3 text-left font-medium text-slate-600">Size</th>
+                      <th className="px-4 py-3 text-left font-medium text-slate-600">Data</th>
+                      <th className="px-4 py-3 text-left font-medium text-slate-600">By</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {offloads.map(off => (
+                      <tr key={off.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3">
+                          {new Date(off.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 font-medium">
+                          {off.ssd_ids?.join(', ')}
+                        </td>
+                        <td className="px-4 py-3">
+                          {off.hdd_id}
+                        </td>
+                        <td className="px-4 py-3">
+                          {off.transfer_size_gb} GB
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {off.record_count} records • {formatDuration(off.total_hours)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {off.created_by_name}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
-      {/* Batch Detail Dialog */}
-      <Dialog open={batchDetailOpen} onOpenChange={setBatchDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      {/* Add HDD Dialog */}
+      <Dialog open={addHddOpen} onOpenChange={setAddHddOpen}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Database className="w-5 h-5" />
-              Offload Batch Details
-            </DialogTitle>
+            <DialogTitle>Add New HDD</DialogTitle>
           </DialogHeader>
-          
-          {batchDetail ? (
-            <div className="space-y-4">
-              {/* Summary */}
-              <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-lg">
-                <div>
-                  <p className="text-xs text-slate-500">Batch ID</p>
-                  <p className="font-medium">{batchDetail.id}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Date / BnB</p>
-                  <p className="font-medium">{batchDetail.date} • {batchDetail.bnb}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Target HDD</p>
-                  <p className="font-medium">{batchDetail.hdd_id}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Total Hours</p>
-                  <p className="font-medium">{formatDuration(batchDetail.total_hours)}</p>
-                </div>
-              </div>
-              
-              {/* SSDs */}
-              <div>
-                <h3 className="font-medium text-slate-700 mb-2">SSDs Offloaded ({batchDetail.ssd_ids?.length || 0})</h3>
-                <div className="flex flex-wrap gap-2">
-                  {batchDetail.ssd_ids?.map(ssd => (
-                    <span key={ssd} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">
-                      {ssd}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Kits & Managers */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h3 className="font-medium text-slate-700 mb-2">Kits Involved</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {batchDetail.kits_involved?.map(kit => (
-                      <span key={kit} className="px-2 py-1 bg-slate-100 text-slate-700 rounded text-sm flex items-center gap-1">
-                        <Box className="w-3 h-3" /> {kit}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-medium text-slate-700 mb-2">Deployment Managers</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {batchDetail.managers_involved?.map(mgr => (
-                      <span key={mgr} className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm flex items-center gap-1">
-                        <Users className="w-3 h-3" /> {mgr}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Categories */}
-              <div>
-                <h3 className="font-medium text-slate-700 mb-2">Activity Categories</h3>
-                <div className="flex flex-wrap gap-2">
-                  {batchDetail.categories?.map(cat => (
-                    <span key={cat} className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-sm">
-                      {cat}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Collection Records */}
-              <div>
-                <h3 className="font-medium text-slate-700 mb-2">
-                  Collection Records ({batchDetail.collection_records?.length || 0})
-                </h3>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {batchDetail.collection_records?.map(record => (
-                    <div key={record.id} className="p-2 bg-slate-50 rounded border text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">{record.kit} • {record.activity_type}</span>
-                        <span className="text-slate-600">{formatDuration(record.total_duration_hours)}</span>
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {record.user_name} • SSD: {record.ssd_used}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Created Info */}
-              <div className="text-xs text-slate-500 pt-2 border-t">
-                Created by {batchDetail.created_by_name} on {new Date(batchDetail.created_at).toLocaleString()}
-              </div>
+          <div className="space-y-4 pt-4">
+            <div>
+              <Label>HDD ID *</Label>
+              <Input
+                placeholder="e.g., HDD-001"
+                value={newHddId}
+                onChange={(e) => setNewHddId(e.target.value)}
+                className="mt-1"
+              />
             </div>
-          ) : (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+            <div>
+              <Label>Total Capacity (GB)</Label>
+              <Input
+                type="number"
+                placeholder="8000"
+                value={newHddCapacity}
+                onChange={(e) => setNewHddCapacity(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-slate-500 mt-1">Default: 8000 GB (8TB)</p>
             </div>
-          )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setAddHddOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddHdd}>
+                Add HDD
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
