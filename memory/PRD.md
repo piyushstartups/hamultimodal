@@ -302,7 +302,15 @@ Deployments → Date → BnB → Handover buttons
 - All 12 master categories available in both Admin and Manager transfer flows
 - User attribution captured via backend (user_name stored in event record)
 
-**ISOLATION CONFIRMED:** No changes to Deployments.js or shift/collection logic. Inventory system is completely isolated.
+2026-03-21 - Hardware Check Flow Restored After Rollback:
+- Removed EMERGENCY bypass in openStartShift function that was skipping hardware checks
+- Restored proper flow: First Start Collection click → Hardware Check popup (if not done for this shift)
+- Subsequent clicks (same kit + same shift) → Skip hardware check, go directly to collection form
+- Shift-specific tracking: hardwareCheckStatus tracks {kit: {morning: bool, evening: bool}}
+- Backend validated: /api/hardware-checks/status returns shift-specific status
+- All 10 backend tests passed (iteration_18.json)
+
+**ISOLATION CONFIRMED:** No changes to Deployments.js shift/collection logic. Only restored hardware check flow that was bypassed by emergency fix.
 
 2026-03-21 - Hardware Check Shift-Specific Logic Fix:
 **Backend:**
