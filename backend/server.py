@@ -959,15 +959,9 @@ async def get_today_shifts(user: dict = Depends(get_current_user_dep())):
 
 @app.post("/api/shifts/start")
 async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_dep())):
-    """Start a new collection record for a specific kit - allows multiple records per kit"""
-    # Check if this kit already has an active/paused record
-    existing = await get_db().shifts.find_one(
-        {"kit": data.kit, "deployment_id": data.deployment_id, "status": {"$in": ["active", "paused"]}}
-    )
-    if existing:
-        raise HTTPException(status_code=400, detail="This kit has an active collection. Stop it first before starting a new one.")
+    """Start a new collection record for a specific kit - with strict access control and multi-device safety"""
     
-    # Get deployment details for context
+    # Get deployment details first
     deployment = await get_db().deployments.find_one({"id": data.deployment_id})
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
@@ -975,23 +969,51 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
     # Get shift from request or default to morning
     shift_value = getattr(data, 'shift', 'morning') or 'morning'
     
+    # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
+    if user["role"] != "admin":
+        if shift_value == "morning":
+            authorized_managers = deployment.get("morning_managers", [])
+        else:
+            authorized_managers = deployment.get("evening_managers", [])
+        
+        if user["id"] not in authorized_managers:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Not authorized for {shift_value} shift. You must be assigned to this shift to start collection."
+            )
+    
+    # === MULTI-DEVICE SAFETY (CRITICAL) ===
+    # Check if this kit already has an active/paused record FOR THE SAME SHIFT
+    # This prevents duplicate sessions from multiple devices
+    existing = await get_db().shifts.find_one({
+        "kit": data.kit, 
+        "deployment_id": data.deployment_id, 
+        "shift": shift_value,
+        "status": {"$in": ["active", "paused"]}
+    })
+    if existing:
+        raise HTTPException(
+            status_code=409,  # Conflict status code for duplicate resource
+            detail=f"Collection already active on {data.kit} for {shift_value} shift. Stop it first before starting a new one."
+        )
+    
     now = datetime.now(timezone.utc)
     # CRITICAL: Use deployment["date"] as the SINGLE SOURCE OF TRUTH
-    # NEVER derive date from timestamp
     record = {
         "id": f"rec-{now.strftime('%Y%m%d%H%M%S%f')[:18]}",
         "deployment_id": data.deployment_id,
-        "date": deployment["date"],  # SINGLE SOURCE OF TRUTH - copied from deployment
-        "shift": shift_value,  # User-selected shift (morning/evening)
+        "date": deployment["date"],  # SINGLE SOURCE OF TRUTH
+        "shift": shift_value,
         "bnb": deployment["bnb"],
         "user": user["id"],
         "user_name": user["name"],
         "kit": data.kit,
         "ssd_used": data.ssd_used,
         "activity_type": data.activity_type,
-        "status": "active",  # active, paused, completed
+        "status": "active",
         "start_time": now.isoformat(),
-        "pauses": [],  # [{pause_time, resume_time}]
+        "pauses": [],
         "end_time": None,
         "total_paused_seconds": 0,
         "total_duration_seconds": None,
@@ -1018,17 +1040,30 @@ async def delete_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
 
 @app.post("/api/shifts/{shift_id}/pause")
 async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
-    """Pause an active collection record - any manager on deployment or admin can pause"""
+    """Pause an active collection record - only authorized shift managers can pause"""
     # First find the record
     shift = await get_db().shifts.find_one({"id": shift_id})
     if not shift:
         raise HTTPException(status_code=404, detail="Collection record not found")
     
-    # Check authorization: admin can do anything, or user must be manager on the deployment
+    # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
     if user["role"] != "admin":
         deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
-        if not deployment or user["id"] not in deployment.get("deployment_managers", []):
-            raise HTTPException(status_code=403, detail="Not authorized to control this collection")
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        
+        record_shift = shift.get("shift", "morning")
+        if record_shift == "morning":
+            authorized_managers = deployment.get("morning_managers", [])
+        else:
+            authorized_managers = deployment.get("evening_managers", [])
+        
+        if user["id"] not in authorized_managers:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Not authorized for {record_shift} shift. Only assigned managers can control this collection."
+            )
     
     if shift["status"] != "active":
         raise HTTPException(status_code=400, detail="Collection is not active")
@@ -1047,17 +1082,30 @@ async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep()
 
 @app.post("/api/shifts/{shift_id}/resume")
 async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
-    """Resume a paused collection record - any manager on deployment or admin can resume"""
+    """Resume a paused collection record - only authorized shift managers can resume"""
     # First find the record
     shift = await get_db().shifts.find_one({"id": shift_id})
     if not shift:
         raise HTTPException(status_code=404, detail="Collection record not found")
     
-    # Check authorization: admin can do anything, or user must be manager on the deployment
+    # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
     if user["role"] != "admin":
         deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
-        if not deployment or user["id"] not in deployment.get("deployment_managers", []):
-            raise HTTPException(status_code=403, detail="Not authorized to control this collection")
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        
+        record_shift = shift.get("shift", "morning")
+        if record_shift == "morning":
+            authorized_managers = deployment.get("morning_managers", [])
+        else:
+            authorized_managers = deployment.get("evening_managers", [])
+        
+        if user["id"] not in authorized_managers:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Not authorized for {record_shift} shift. Only assigned managers can control this collection."
+            )
     
     if shift["status"] != "paused":
         raise HTTPException(status_code=400, detail="Collection is not paused")
@@ -1079,17 +1127,30 @@ async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
 
 @app.post("/api/shifts/{shift_id}/stop")
 async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())):
-    """Stop a collection record - any manager on deployment or admin can stop"""
+    """Stop a collection record - only authorized shift managers can stop"""
     # First find the record
     shift = await get_db().shifts.find_one({"id": shift_id})
     if not shift:
         raise HTTPException(status_code=404, detail="Collection record not found")
     
-    # Check authorization: admin can do anything, or user must be manager on the deployment
+    # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
     if user["role"] != "admin":
         deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
-        if not deployment or user["id"] not in deployment.get("deployment_managers", []):
-            raise HTTPException(status_code=403, detail="Not authorized to control this collection")
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        
+        record_shift = shift.get("shift", "morning")
+        if record_shift == "morning":
+            authorized_managers = deployment.get("morning_managers", [])
+        else:
+            authorized_managers = deployment.get("evening_managers", [])
+        
+        if user["id"] not in authorized_managers:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Not authorized for {record_shift} shift. Only assigned managers can control this collection."
+            )
     
     if shift["status"] == "completed":
         raise HTTPException(status_code=400, detail="Collection is already completed")

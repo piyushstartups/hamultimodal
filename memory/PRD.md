@@ -283,4 +283,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - Optimized Hardware Dashboard: Added lazy loading for images (load on expand), pagination (20 items/page with Load More), separate image fetch endpoint, and caching.
+2026-03-21 - Implemented strict role-based access control and multi-device safety for kit collection actions. Only shift-assigned managers can control kits. Duplicate sessions prevented per kit per shift.
