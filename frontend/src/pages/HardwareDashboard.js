@@ -16,11 +16,8 @@ import {
 } from 'lucide-react';
 
 // Hardware check card component with lazy image loading
-const HardwareCheckCard = ({ check, onLoadImages }) => {
-  const [expanded, setExpanded] = useState(false);
-  const [images, setImages] = useState(null);
-  const [loadingImages, setLoadingImages] = useState(false);
-
+// Expansion state controlled by parent for proper isolation
+const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingImages }) => {
   const formatTime = (isoString) => {
     if (!isoString) return '-';
     return new Date(isoString).toLocaleTimeString('en-US', { 
@@ -28,28 +25,17 @@ const HardwareCheckCard = ({ check, onLoadImages }) => {
     });
   };
 
-  const handleExpand = async () => {
-    if (!expanded && !images) {
-      // Load images on first expand
-      setLoadingImages(true);
-      try {
-        const loadedImages = await onLoadImages(check.id);
-        setImages(loadedImages);
-      } catch (error) {
-        console.error('Failed to load images:', error);
-      } finally {
-        setLoadingImages(false);
-      }
-    }
-    setExpanded(!expanded);
-  };
-
   return (
-    <div className="bg-white rounded-xl border overflow-hidden" data-testid={`check-${check.id}`}>
+    <div 
+      className={`bg-white rounded-xl border overflow-hidden transition-all ${
+        isExpanded ? 'ring-2 ring-blue-400' : ''
+      }`} 
+      data-testid={`check-${check.id}`}
+    >
       {/* Check Header - Clickable to expand */}
       <div 
         className="bg-slate-100 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-200 transition-colors"
-        onClick={handleExpand}
+        onClick={() => onToggleExpand(check.id)}
         data-testid={`check-header-${check.id}`}
       >
         <div className="flex items-center gap-3">
@@ -71,7 +57,7 @@ const HardwareCheckCard = ({ check, onLoadImages }) => {
             <ImageIcon className="w-3 h-3" />
             <span>3</span>
           </div>
-          {expanded ? (
+          {isExpanded ? (
             <ChevronUp className="w-4 h-4 text-slate-400" />
           ) : (
             <ChevronDown className="w-4 h-4 text-slate-400" />
@@ -80,8 +66,8 @@ const HardwareCheckCard = ({ check, onLoadImages }) => {
       </div>
       
       {/* Expanded Content - Images loaded on demand */}
-      {expanded && (
-        <div className="p-4">
+      {isExpanded && (
+        <div className="p-4 border-t border-slate-200">
           {loadingImages ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
@@ -100,7 +86,7 @@ const HardwareCheckCard = ({ check, onLoadImages }) => {
                       src={images.left_glove_image} 
                       alt="Left Glove" 
                       className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                      onClick={() => window.open(images.left_glove_image, '_blank')}
+                      onClick={(e) => { e.stopPropagation(); window.open(images.left_glove_image, '_blank'); }}
                       loading="lazy"
                     />
                   ) : (
@@ -120,7 +106,7 @@ const HardwareCheckCard = ({ check, onLoadImages }) => {
                       src={images.right_glove_image} 
                       alt="Right Glove" 
                       className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                      onClick={() => window.open(images.right_glove_image, '_blank')}
+                      onClick={(e) => { e.stopPropagation(); window.open(images.right_glove_image, '_blank'); }}
                       loading="lazy"
                     />
                   ) : (
@@ -140,7 +126,7 @@ const HardwareCheckCard = ({ check, onLoadImages }) => {
                       src={images.head_camera_image} 
                       alt="Head Camera" 
                       className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                      onClick={() => window.open(images.head_camera_image, '_blank')}
+                      onClick={(e) => { e.stopPropagation(); window.open(images.head_camera_image, '_blank'); }}
                       loading="lazy"
                     />
                   ) : (
@@ -192,6 +178,11 @@ export default function HardwareDashboard() {
 
   // Image cache to avoid refetching
   const [imageCache, setImageCache] = useState({});
+  
+  // FIXED: Expansion state managed at parent level for proper isolation
+  // Only one card can be expanded at a time (accordion style)
+  const [expandedCheckId, setExpandedCheckId] = useState(null);
+  const [loadingImagesFor, setLoadingImagesFor] = useState(null); // Track which check is loading images
 
   // Fetch operational date from backend on mount
   useEffect(() => {
@@ -269,29 +260,34 @@ export default function HardwareDashboard() {
     setCurrentSkip(0);
     setChecks([]);
     setImageCache({});
+    setExpandedCheckId(null); // Reset expansion on refresh
     fetchChecks(0, true);
   };
 
-  // Lazy load images for a specific check
-  const loadImages = useCallback(async (checkId) => {
-    // Check cache first
-    if (imageCache[checkId]) {
-      return imageCache[checkId];
-    }
-    
-    try {
-      const response = await api.get(`/hardware-checks/${checkId}/images`);
-      const images = response.data;
+  // Toggle expansion for a specific check (accordion style - only one open at a time)
+  const handleToggleExpand = useCallback(async (checkId) => {
+    if (expandedCheckId === checkId) {
+      // Clicking the same card - collapse it
+      setExpandedCheckId(null);
+    } else {
+      // Expanding a different card
+      setExpandedCheckId(checkId);
       
-      // Cache the images
-      setImageCache(prev => ({ ...prev, [checkId]: images }));
-      
-      return images;
-    } catch (error) {
-      console.error('Failed to load images for check:', checkId, error);
-      return null;
+      // Load images if not cached
+      if (!imageCache[checkId]) {
+        setLoadingImagesFor(checkId);
+        try {
+          const response = await api.get(`/hardware-checks/${checkId}/images`);
+          const images = response.data;
+          setImageCache(prev => ({ ...prev, [checkId]: images }));
+        } catch (error) {
+          console.error('Failed to load images for check:', checkId, error);
+        } finally {
+          setLoadingImagesFor(null);
+        }
+      }
     }
-  }, [imageCache]);
+  }, [expandedCheckId, imageCache]);
 
   const displayDate = filterDate 
     ? new Date(filterDate + 'T12:00:00').toLocaleDateString('en-US', { 
@@ -407,7 +403,10 @@ export default function HardwareDashboard() {
                 <HardwareCheckCard 
                   key={check.id} 
                   check={check} 
-                  onLoadImages={loadImages}
+                  isExpanded={expandedCheckId === check.id}
+                  onToggleExpand={handleToggleExpand}
+                  images={imageCache[check.id]}
+                  loadingImages={loadingImagesFor === check.id}
                 />
               ))}
             </div>
