@@ -992,73 +992,77 @@ export default function Deployments() {
                   }`}
                   data-testid={`deployment-${dep.id}`}
                 >
-                  {/* BnB Header - Clickable - NO SHIFT BADGE */}
-                  <button
+                  {/* Entire header block is clickable to expand/collapse */}
+                  <div
                     onClick={() => toggleDeploymentExpand(dep)}
-                    className="w-full bg-slate-900 text-white px-4 py-3 flex items-center justify-between hover:bg-slate-800 transition-colors"
+                    className="cursor-pointer"
+                    data-testid={`deployment-header-${dep.id}`}
                   >
-                    <div className="flex items-center gap-3">
-                      <MapPin className="w-5 h-5" />
-                      <span className="font-bold text-lg">{dep.bnb}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {isAdmin && (
-                        <>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/20" onClick={(e) => { e.stopPropagation(); openEditDialog(dep); }}>
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-red-500" onClick={(e) => { e.stopPropagation(); handleDelete(dep.id); }}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                      {expandedDeployment === dep.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-                    </div>
-                  </button>
-                  
-                  {/* NEW: Morning + Evening Teams Section */}
-                  <div className="px-4 py-3 border-b bg-slate-50">
-                    <div className="grid grid-cols-2 gap-4">
-                  {/* Morning Team */}
-                      <div className="flex items-start gap-2">
-                        <Sun className="w-4 h-4 text-amber-500 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-medium text-amber-700 uppercase">Morning Team</p>
-                          <p className="text-sm text-slate-600">
-                            {dep.morning_managers?.length > 0 
-                              ? dep.morning_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
-                              : <span className="text-slate-400 italic">Not assigned</span>
-                            }
-                          </p>
-                        </div>
+                    {/* BnB Header - Dark bar */}
+                    <div className="w-full bg-slate-900 text-white px-4 py-3 flex items-center justify-between hover:bg-slate-800 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <MapPin className="w-5 h-5" />
+                        <span className="font-bold text-lg">{dep.bnb}</span>
                       </div>
-                      {/* Evening Team */}
-                      <div className="flex items-start gap-2">
-                        <Moon className="w-4 h-4 text-indigo-500 mt-0.5" />
-                        <div>
-                          <p className="text-xs font-medium text-indigo-700 uppercase">Evening Team</p>
-                          <p className="text-sm text-slate-600">
-                            {dep.evening_managers?.length > 0 
-                              ? dep.evening_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
-                              : <span className="text-slate-400 italic">Not assigned</span>
-                            }
-                          </p>
-                        </div>
+                      <div className="flex items-center gap-2">
+                        {isAdmin && (
+                          <>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-white/20" onClick={(e) => { e.stopPropagation(); openEditDialog(dep); }}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-white hover:bg-red-500" onClick={(e) => { e.stopPropagation(); handleDelete(dep.id); }}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        {expandedDeployment === dep.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                       </div>
                     </div>
-                    {/* Kits count and View History */}
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
-                      <span className="text-xs text-slate-500">{dep.assigned_kits?.length || 0} kits assigned</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/deployments/${dep.id}/day-view`); }}
-                        data-testid={`view-history-${dep.id}`}
-                      >
-                        <Eye className="w-3 h-3 mr-1" />
-                        View History
-                      </Button>
+                    
+                    {/* Morning + Evening Teams Section - Also clickable */}
+                    <div className="px-4 py-3 border-b bg-slate-50 hover:bg-slate-100 transition-colors">
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Morning Team */}
+                        <div className="flex items-start gap-2">
+                          <Sun className="w-4 h-4 text-amber-500 mt-0.5" />
+                          <div>
+                            <p className="text-xs font-medium text-amber-700 uppercase">Morning Team</p>
+                            <p className="text-sm text-slate-600">
+                              {dep.morning_managers?.length > 0 
+                                ? dep.morning_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
+                                : <span className="text-slate-400 italic">Not assigned</span>
+                              }
+                            </p>
+                          </div>
+                        </div>
+                        {/* Evening Team */}
+                        <div className="flex items-start gap-2">
+                          <Moon className="w-4 h-4 text-indigo-500 mt-0.5" />
+                          <div>
+                            <p className="text-xs font-medium text-indigo-700 uppercase">Evening Team</p>
+                            <p className="text-sm text-slate-600">
+                              {dep.evening_managers?.length > 0 
+                                ? dep.evening_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
+                                : <span className="text-slate-400 italic">Not assigned</span>
+                              }
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Kits count and View History */}
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
+                        <span className="text-xs text-slate-500">{dep.assigned_kits?.length || 0} kits assigned</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          onClick={(e) => { e.stopPropagation(); navigate(`/deployments/${dep.id}/day-view`); }}
+                          data-testid={`view-history-${dep.id}`}
+                        >
+                          <Eye className="w-3 h-3 mr-1" />
+                          View History
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   

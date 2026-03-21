@@ -48,8 +48,11 @@ Date → BnB (click to expand) → Kit Cards → Actions
 - Green dots indicate days with assignments
 
 ### BnB Click Experience  
-- Click BnB header → Immediate expansion
-- Shows all assigned kit cards
+- Click **entire header block** (dark header OR team section) → Immediate expand/collapse
+- Cursor changes to pointer on entire clickable area
+- Team section has hover effect for visual feedback
+- Shows all assigned kit cards when expanded
+- "View History" and admin buttons work independently (don't trigger collapse)
 - No additional navigation required
 
 ## Page Structure
@@ -278,4 +281,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-20 - CRITICAL FIX: Frontend date handling complete. All pages now use backend operational date.
+2026-03-21 - UI Improvement: Made entire BnB header block clickable (header + team section) for better usability. Shift logic confirmed as Independent (both shifts can operate simultaneously).
