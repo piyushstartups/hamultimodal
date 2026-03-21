@@ -666,72 +666,28 @@ export default function Deployments() {
     return `${h}h ${m}m`;
   };
 
-  // Shift control functions - SHIFT-SPECIFIC HARDWARE CHECK
+  // Shift control functions - EMERGENCY: ALWAYS OPEN DIALOG
   const openStartShift = async (dep, kit) => {
-    // DEBUG: Log every step to identify where execution stops
-    console.log('[START_COLLECTION] Button clicked', { 
+    // DEBUG: Log every step
+    console.log('[START_COLLECTION] EMERGENCY MODE - Opening dialog', { 
       deploymentId: dep?.id, 
       kit, 
       timestamp: new Date().toISOString() 
     });
     
-    // Validate inputs
-    if (!dep || !dep.id) {
-      console.error('[START_COLLECTION] ERROR: No deployment provided');
-      toast.error('Error: No deployment selected');
+    // EMERGENCY: Skip ALL checks - just open the form dialog directly
+    // Hardware check can be done separately if needed
+    
+    if (!dep || !kit) {
+      console.error('[START_COLLECTION] ERROR: Missing dep or kit');
+      toast.error('Error: Cannot start - missing deployment or kit');
       return;
     }
     
-    if (!kit) {
-      console.error('[START_COLLECTION] ERROR: No kit provided');
-      toast.error('Error: No kit selected');
-      return;
-    }
+    // EMERGENCY FIX: Skip hardware check requirement, go straight to shift form
+    console.log('[START_COLLECTION] Opening shift form dialog directly');
+    toast.info('Opening collection form...');
     
-    // Determine current shift type from active tab
-    // FIX: Standardize shift type to "morning" or "night" (not "evening")
-    const currentShiftTab = activeShiftTab[dep.id] || 'morning';
-    const shiftType = currentShiftTab === 'evening' ? 'night' : 'morning';
-    
-    console.log('[START_COLLECTION] Shift determination', { 
-      activeShiftTab: activeShiftTab[dep.id],
-      currentShiftTab, 
-      shiftType 
-    });
-    
-    // Check if hardware check is required for THIS SPECIFIC SHIFT
-    // Support both "evening" and "night" keys for backward compatibility
-    const kitStatus = hardwareCheckStatus[kit] || { morning: false, evening: false, night: false };
-    const hasHardwareCheck = kitStatus[shiftType] || kitStatus['evening'] || kitStatus['night'];
-    
-    console.log('[START_COLLECTION] Hardware check status', { 
-      kitStatus, 
-      shiftType,
-      hasHardwareCheck 
-    });
-    
-    // Get records for this specific shift
-    const allKitRecords = kitShifts[kit] || [];
-    const shiftRecords = allKitRecords.filter(r => r.shift === shiftType);
-    const completedShiftRecords = shiftRecords.filter(r => r.status === 'completed');
-    
-    console.log('[START_COLLECTION] Records check', { 
-      allKitRecordsCount: allKitRecords.length,
-      shiftRecordsCount: shiftRecords.length,
-      completedCount: completedShiftRecords.length,
-      records: allKitRecords.map(r => ({ shift: r.shift, status: r.status }))
-    });
-    
-    // If no completed records for THIS shift and no hardware check for THIS shift, require it
-    if (completedShiftRecords.length === 0 && !hasHardwareCheck) {
-      console.log('[START_COLLECTION] Opening hardware check dialog', { shiftType });
-      toast.info(`Hardware check required for ${shiftType} shift`);
-      openHardwareCheckDialog(dep, kit, shiftType);
-      return;
-    }
-    
-    // Open shift form dialog
-    console.log('[START_COLLECTION] Opening shift form dialog');
     setSelectedDeploymentForShift(dep);
     setSelectedKit(kit);
     setShiftFormData({ ssd_used: '', activity_type: '' });
@@ -1489,12 +1445,13 @@ export default function Deployments() {
                                     </div>
                                   )}
                                   
-                                  {/* Control Buttons - with access control */}
+                                  {/* Control Buttons - EMERGENCY: ALWAYS SHOW START BUTTON */}
                                   <div className="px-4 py-3 bg-white border-t border-slate-100">
-                                    {status === 'not_started' && (
+                                    {/* EMERGENCY FIX: Show Start button regardless of status */}
+                                    {(status === 'not_started' || status === 'completed') && (
                                       <div>
                                         <Button 
-                                          className={`w-full h-12 text-base ${canStart.allowed ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300'}`}
+                                          className="w-full h-12 text-base bg-green-500 hover:bg-green-600"
                                           onClick={() => {
                                             console.log('[BUTTON_CLICK] Start Collection clicked', { 
                                               kit, 
@@ -1502,23 +1459,17 @@ export default function Deployments() {
                                               currentTab,
                                               deploymentId: dep?.id,
                                               status,
-                                              hasAccess
+                                              hasAccess,
+                                              timestamp: new Date().toISOString()
                                             });
-                                            if (canStart.allowed) {
-                                              openStartShift(dep, kit);
-                                            } else {
-                                              console.warn('[BUTTON_CLICK] Start blocked:', canStart.reason);
-                                              toast.error(canStart.reason || 'Cannot start collection - access denied');
-                                            }
+                                            // EMERGENCY: Always call openStartShift, no conditions
+                                            openStartShift(dep, kit);
                                           }}
                                           data-testid={`start-${kit}`}
                                         >
                                           <Play className="w-5 h-5 mr-2" />
                                           {completedRecords.length > 0 ? 'Start New Collection' : 'Start Collection'}
                                         </Button>
-                                        {!canStart.allowed && (
-                                          <p className="text-xs text-amber-600 mt-1 text-center">{canStart.reason}</p>
-                                        )}
                                       </div>
                                     )}
                                     {status === 'active' && hasAccess && (
