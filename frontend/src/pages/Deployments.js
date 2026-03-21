@@ -151,7 +151,7 @@ export default function Deployments() {
   const [handoverNotes, setHandoverNotes] = useState('');
   
   // NEW: Shift tab state (per deployment) - tracks which tab user is viewing
-  const [activeShiftTab, setActiveShiftTab] = useState({}); // {deploymentId: 'morning' | 'evening'}
+  const [activeShiftTab, setActiveShiftTab] = useState({}); // {deploymentId: 'morning' | 'night'}
   const [handoverStatus, setHandoverStatus] = useState({}); // {deploymentId: {morning_outgoing_complete, etc.}}
   
   // Timer state
@@ -162,7 +162,7 @@ export default function Deployments() {
   const [hardwareCheckKit, setHardwareCheckKit] = useState(null);
   const [hardwareCheckDeployment, setHardwareCheckDeployment] = useState(null);
   const [hardwareCheckShiftType, setHardwareCheckShiftType] = useState(null); // Track which shift the check is for
-  const [hardwareCheckStatus, setHardwareCheckStatus] = useState({}); // {kit: {morning: bool, evening: bool}}
+  const [hardwareCheckStatus, setHardwareCheckStatus] = useState({}); // {kit: {morning: bool, night: bool}}
   const [hardwareImages, setHardwareImages] = useState({
     leftGlove: '',
     rightGlove: '',
@@ -189,7 +189,7 @@ export default function Deployments() {
   const [formData, setFormData] = useState({
     bnb: '',
     morning_managers: [],
-    evening_managers: [],
+    night_managers: [],
     assigned_kits: [],
   });
 
@@ -320,14 +320,14 @@ export default function Deployments() {
             .then(res => ({ 
               kit, 
               morning: res.data.morning_completed || false,
-              evening: res.data.evening_completed || false
+              night: res.data.night_completed || false
             }))
-            .catch(() => ({ kit, morning: false, evening: false }))
+            .catch(() => ({ kit, morning: false, night: false }))
         );
         const statuses = await Promise.all(statusPromises);
         const statusMap = {};
         statuses.forEach(s => { 
-          statusMap[s.kit] = { morning: s.morning, evening: s.evening }; 
+          statusMap[s.kit] = { morning: s.morning, night: s.night }; 
         });
         setHardwareCheckStatus(statusMap);
       }
@@ -362,7 +362,7 @@ export default function Deployments() {
       isAdmin,
       deploymentId: deployment?.id,
       morningManagers: deployment?.morning_managers,
-      eveningManagers: deployment?.evening_managers,
+      nightManagers: deployment?.night_managers || deployment?.evening_managers,
       deploymentManagers: deployment?.deployment_managers
     });
     
@@ -378,7 +378,7 @@ export default function Deployments() {
     }
     
     const isMorningManager = deployment.morning_managers?.includes(userId);
-    const isNightManager = deployment.evening_managers?.includes(userId);
+    const isNightManager = (deployment.night_managers || deployment.evening_managers)?.includes(userId);
     // Legacy support
     const isLegacyManager = deployment.deployment_managers?.includes(userId);
     
@@ -402,10 +402,10 @@ export default function Deployments() {
     const currentTab = activeShiftTab[deployment.id];
     if (currentTab) return currentTab;
     
-    // Default: morning if user has morning access, else evening
+    // Default: morning if user has morning access, else night
     const access = getUserShiftAccess(deployment);
     if (access.canMorning) return 'morning';
-    if (access.canNight) return 'evening';
+    if (access.canNight) return 'night';
     return 'morning'; // Fallback
   };
 
@@ -416,7 +416,7 @@ export default function Deployments() {
     
     // Must have access to the shift tab
     if (shiftTab === 'morning' && !access.canMorning) return { allowed: false, reason: 'Not assigned to morning shift' };
-    if (shiftTab === 'evening' && !access.canNight) return { allowed: false, reason: 'Not assigned to night shift' };
+    if (shiftTab === 'night' && !access.canNight) return { allowed: false, reason: 'Not assigned to night shift' };
     
     if (!status) return { allowed: true, reason: null }; // Status not loaded yet, allow
     
@@ -435,7 +435,7 @@ export default function Deployments() {
   // Hardware check functions - SHIFT-SPECIFIC
   const checkHardwareRequired = async (deployment, kit, currentShiftTab) => {
     // FIX: Standardize shift type to "morning" or "night"
-    const shiftType = currentShiftTab === 'evening' ? 'night' : 'morning';
+    const shiftType = currentShiftTab === 'night' ? 'night' : 'morning';
     
     console.log('[HARDWARE_CHECK_REQ] checkHardwareRequired', { deploymentId: deployment.id, kit, shiftType });
     
@@ -625,10 +625,10 @@ export default function Deployments() {
     const dateKey = formatDateKey(date);
     let deps = deployments.filter(d => d.date === dateKey);
     if (isManager) {
-      // FIX: Check if user is in morning_managers OR evening_managers OR legacy deployment_managers
+      // FIX: Check if user is in morning_managers OR night_managers OR legacy deployment_managers
       deps = deps.filter(d => 
         d.morning_managers?.includes(user?.id) || 
-        d.evening_managers?.includes(user?.id) ||
+        (d.night_managers || d.evening_managers)?.includes(user?.id) ||
         d.deployment_managers?.includes(user?.id) || 
         d.deployment_manager === user?.id
       );
@@ -682,13 +682,13 @@ export default function Deployments() {
     
     // Determine current shift type from the active tab
     const currentShiftTab = activeShiftTab[dep.id] || 'morning';
-    const shiftType = currentShiftTab === 'evening' ? 'evening' : 'morning';
+    const shiftType = currentShiftTab === 'night' ? 'night' : 'morning';
     
     // Check if hardware check is already done for THIS kit + THIS shift
     const kitStatus = hardwareCheckStatus[kit] || {};
     const isHardwareCheckDone = shiftType === 'morning' 
       ? kitStatus.morning 
-      : (kitStatus.evening || kitStatus.night);
+      : kitStatus.night;
     
     console.log('[START_COLLECTION] Hardware check status', { 
       kit, 
@@ -720,7 +720,7 @@ export default function Deployments() {
     
     // Determine the shift type from the active tab
     const currentShiftTab = activeShiftTab[selectedDeploymentForShift?.id] || 'morning';
-    const shiftType = currentShiftTab === 'evening' ? 'evening' : 'morning';
+    const shiftType = currentShiftTab === 'night' ? 'night' : 'morning';
     
     setShiftLoading(true);
     try {
@@ -928,7 +928,7 @@ export default function Deployments() {
       return;
     }
     setEditingDeployment(null);
-    setFormData({ bnb: '', morning_managers: [], evening_managers: [], assigned_kits: [] });
+    setFormData({ bnb: '', morning_managers: [], night_managers: [], assigned_kits: [] });
     setDialogOpen(true);
   };
 
@@ -937,7 +937,7 @@ export default function Deployments() {
     setFormData({
       bnb: deployment.bnb,
       morning_managers: deployment.morning_managers || [],
-      evening_managers: deployment.evening_managers || [],
+      night_managers: deployment.night_managers || deployment.evening_managers || [],
       assigned_kits: deployment.assigned_kits || [],
     });
     setDialogOpen(true);
@@ -945,9 +945,9 @@ export default function Deployments() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const hasManagers = (formData.morning_managers?.length > 0) || (formData.evening_managers?.length > 0);
+    const hasManagers = (formData.morning_managers?.length > 0) || (formData.night_managers?.length > 0);
     if (!formData.bnb || !hasManagers) {
-      toast.error('BnB and at least one manager (morning or evening) required');
+      toast.error('BnB and at least one manager (morning or night) required');
       return;
     }
 
@@ -956,7 +956,7 @@ export default function Deployments() {
         date: formatDateKey(selectedDate),
         bnb: formData.bnb,
         morning_managers: formData.morning_managers,
-        evening_managers: formData.evening_managers,
+        night_managers: formData.night_managers,
         assigned_kits: formData.assigned_kits,
       };
 
@@ -1003,11 +1003,11 @@ export default function Deployments() {
     });
   };
 
-  const toggleEveningManager = (managerId) => {
-    const arr = formData.evening_managers || [];
+  const toggleNightManager = (managerId) => {
+    const arr = formData.night_managers || [];
     setFormData({
       ...formData,
-      evening_managers: arr.includes(managerId) ? arr.filter(m => m !== managerId) : [...arr, managerId]
+      night_managers: arr.includes(managerId) ? arr.filter(m => m !== managerId) : [...arr, managerId]
     });
   };
 
@@ -1190,7 +1190,7 @@ export default function Deployments() {
               </div>
             )}
 
-            {/* Deployment cards - NEW STRUCTURE: One card per BnB with morning+evening inside */}
+            {/* Deployment cards - NEW STRUCTURE: One card per BnB with morning+night inside */}
             {selectedDeployments.length === 0 ? (
               <div className="bg-white rounded-xl border p-8 text-center">
                 <MapPin className="w-10 h-10 text-slate-300 mx-auto mb-3" />
@@ -1255,10 +1255,10 @@ export default function Deployments() {
                         <div className="flex items-start gap-2">
                           <Moon className="w-4 h-4 text-indigo-500 mt-0.5" />
                           <div>
-                            <p className="text-xs font-medium text-indigo-700 uppercase">Evening Team</p>
+                            <p className="text-xs font-medium text-indigo-700 uppercase">Night Team</p>
                             <p className="text-sm text-slate-600">
-                              {dep.evening_managers?.length > 0 
-                                ? dep.evening_managers.map(id => managers.find(u => u.id === id)?.name || id).join(', ')
+                              {(dep.night_managers || dep.evening_managers)?.length > 0 
+                                ? (dep.night_managers || dep.evening_managers).map(id => managers.find(u => u.id === id)?.name || id).join(', ')
                                 : <span className="text-slate-400 italic">Not assigned</span>
                               }
                             </p>
@@ -1304,12 +1304,12 @@ export default function Deployments() {
                         </button>
                         <button
                           className={`flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 border-b-2 transition-colors ${
-                            getActiveTab(dep) === 'evening'
+                            getActiveTab(dep) === 'night'
                               ? 'border-indigo-500 text-indigo-700 bg-indigo-50'
                               : 'border-transparent text-slate-500 hover:text-slate-700'
                           }`}
-                          onClick={() => setActiveShiftTab(prev => ({ ...prev, [dep.id]: 'evening' }))}
-                          data-testid={`evening-tab-${dep.id}`}
+                          onClick={() => setActiveShiftTab(prev => ({ ...prev, [dep.id]: 'night' }))}
+                          data-testid={`night-tab-${dep.id}`}
                         >
                           <Moon className="w-4 h-4" />
                           Night Shift
@@ -1325,7 +1325,7 @@ export default function Deployments() {
                         const access = getUserShiftAccess(dep);
                         
                         // Access warning only
-                        if ((currentTab === 'morning' && !access.canMorning) || (currentTab === 'evening' && !access.canNight)) {
+                        if ((currentTab === 'morning' && !access.canMorning) || (currentTab === 'night' && !access.canNight)) {
                           return (
                             <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 flex items-center gap-2 text-slate-600">
                               <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -1355,7 +1355,7 @@ export default function Deployments() {
                         
                         // Check if any collections have happened in THIS specific shift
                         // Only show End Shift button if there are records for this shift type
-                        const shiftType = currentTab === 'morning' ? 'morning' : 'evening';
+                        const shiftType = currentTab === 'morning' ? 'morning' : 'night';
                         const shiftHasCollections = (dep.assigned_kits || []).some(kit => {
                           const kitData = kitShifts[kit];
                           if (!kitData) return false;
@@ -1366,15 +1366,15 @@ export default function Deployments() {
                              kitData.active_record.status === 'paused') &&
                             (kitData.active_record.shift === shiftType || 
                              kitData.active_record.shift_type === shiftType ||
-                             // Handle 'night' as alias for 'evening'
-                             (shiftType === 'evening' && (kitData.active_record.shift === 'night' || kitData.active_record.shift_type === 'night')));
+                             // Handle legacy 'evening' data
+                             (shiftType === 'night' && (kitData.active_record.shift === 'evening' || kitData.active_record.shift_type === 'evening')));
                           
                           // Check for completed records specifically for this shift
                           const hasCompletedRecordsForShift = kitData.records?.some(r => {
                             const recordShift = r.shift || r.shift_type;
-                            // Match shift type exactly (with night/evening alias)
+                            // Match shift type exactly (with legacy evening support)
                             return recordShift === shiftType || 
-                              (shiftType === 'evening' && recordShift === 'night') ||
+                              (shiftType === 'night' && recordShift === 'evening') ||
                               (shiftType === 'morning' && recordShift === 'morning');
                           });
                           
@@ -1400,14 +1400,14 @@ export default function Deployments() {
                                     ? 'bg-amber-500 hover:bg-amber-600 text-white' 
                                     : 'bg-indigo-500 hover:bg-indigo-600 text-white'
                               }`}
-                              onClick={() => handleEndShift(dep, currentTab === 'morning' ? 'morning' : 'evening')}
+                              onClick={() => handleEndShift(dep, currentTab === 'morning' ? 'morning' : 'night')}
                               data-testid={`end-${currentTab}-shift-btn`}
                               disabled={shiftCompleted}
                             >
                               <ClipboardCheck className="w-4 h-4 mr-2" />
                               {shiftCompleted 
-                                ? `✓ ${currentTab === 'morning' ? 'Morning' : 'Evening'} Shift Completed` 
-                                : `End ${currentTab === 'morning' ? 'Morning' : 'Evening'} Shift`}
+                                ? `✓ ${currentTab === 'morning' ? 'Morning' : 'Night'} Shift Completed` 
+                                : `End ${currentTab === 'morning' ? 'Morning' : 'Night'} Shift`}
                             </Button>
                           </div>
                         );
@@ -1475,12 +1475,12 @@ export default function Deployments() {
                                   </div>
                                   
                                   {/* Hardware Check Status - SHIFT-SPECIFIC */}
-                                  {hardwareCheckStatus[kit] && (hardwareCheckStatus[kit].morning || hardwareCheckStatus[kit].evening || hardwareCheckStatus[kit].night) && (
+                                  {hardwareCheckStatus[kit] && (hardwareCheckStatus[kit].morning || hardwareCheckStatus[kit].night) && (
                                     <div className="px-4 py-1 bg-teal-50 border-b border-teal-100 flex items-center gap-2 text-xs text-teal-700">
                                       <CheckCircle className="w-3 h-3" />
                                       Hardware check: 
                                       {hardwareCheckStatus[kit].morning && <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">Morning ✓</span>}
-                                      {(hardwareCheckStatus[kit].evening || hardwareCheckStatus[kit].night) && <span className="ml-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Night ✓</span>}
+                                      {hardwareCheckStatus[kit].night && <span className="ml-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Night ✓</span>}
                                     </div>
                                   )}
                                   
@@ -1837,17 +1837,17 @@ export default function Deployments() {
                 </div>
               </div>
               
-              {/* Evening Team */}
+              {/* Night Team */}
               <div>
                 <Label className="flex items-center gap-2 text-sm">
                   <Moon className="w-3 h-3 text-indigo-500" />
-                  Evening Team
+                  Night Team
                 </Label>
                 <div className="flex flex-wrap gap-1.5 mt-1 max-h-20 overflow-y-auto p-1 bg-slate-50 rounded">
                   {managers.map(m => (
-                    <button key={`evening-${m.id}`} type="button" onClick={() => toggleEveningManager(m.id)}
+                    <button key={`night-${m.id}`} type="button" onClick={() => toggleNightManager(m.id)}
                       className={`px-2 py-1 text-xs rounded border transition-all ${
-                        formData.evening_managers?.includes(m.id) ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200'
+                        formData.night_managers?.includes(m.id) ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200'
                       }`}
                     >{m.name}</button>
                   ))}

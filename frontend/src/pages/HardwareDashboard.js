@@ -399,24 +399,24 @@ export default function HardwareDashboard() {
   // Group checks by shift
   const groupChecksByShift = (allChecks) => {
     const morning = [];
-    const evening = [];
+    const night = [];
     
     allChecks.forEach(check => {
-      // Determine shift based on creation time (before 2pm = morning, after = evening)
+      // Determine shift based on creation time (before 2pm = morning, after = night)
       const createdAt = new Date(check.created_at);
       const hour = createdAt.getHours();
       
       if (hour < 14) {
         morning.push(check);
       } else {
-        evening.push(check);
+        night.push(check);
       }
     });
     
-    return { morning, evening };
+    return { morning, night };
   };
 
-  const { morning: morningChecks, evening: eveningChecks } = groupChecksByShift(checks);
+  const { morning: morningChecks, night: nightChecks } = groupChecksByShift(checks);
 
   const displayDate = filterDate 
     ? new Date(filterDate + 'T12:00:00').toLocaleDateString('en-US', { 
@@ -547,12 +547,12 @@ export default function HardwareDashboard() {
             
             {/* Evening Shift Section - RIGHT COLUMN */}
             <ShiftSection
-              title="Evening Shift"
+              title="Night Shift"
               icon={Moon}
               iconColor="text-indigo-500"
               bgColor="bg-indigo-50"
               borderColor="border-indigo-200"
-              checks={eveningChecks}
+              checks={nightChecks}
               expandedCheckId={expandedCheckId}
               onToggleExpand={handleToggleExpand}
               imageCache={imageCache}

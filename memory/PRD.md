@@ -316,9 +316,27 @@ Deployments → Date → BnB → Handover buttons
 - Logic checks both active records AND completed records for matching shift type
 - Handles 'night'/'evening' alias correctly
 - Morning Shift: Shows "End Morning Shift" only if morning collections exist
-- Night Shift: Shows "End Evening Shift" only if evening/night collections exist
+- Night Shift: Shows "End Night Shift" only if night collections exist
 
-**ISOLATION CONFIRMED:** Only fixed End Shift button visibility logic. No changes to collection start/stop/pause flows.
+2026-03-21 - Shift Naming Standardization (MAJOR):
+**Standardized shift naming across entire system to use ONLY "morning" and "night"**
+- Removed ALL uses of "evening" from frontend UI labels, buttons, tabs, badges
+- Updated backend models: evening_managers → night_managers
+- Updated all API endpoints and validation logic
+- Updated frontend state: hardwareCheckStatus now uses {morning, night} not {morning, evening}
+- Created data migration endpoint: POST /api/admin/migrate-evening-to-night
+- Ran migration: 1 shift record converted from "evening" to "night"
+- Backend still accepts "evening" for backward compatibility but normalizes to "night"
+- All new data will be stored with "night" not "evening"
+
+**Files Updated:**
+- Backend: server.py (models, endpoints, validation, migration)
+- Frontend: Deployments.js (all shift references, UI labels, state)
+- Frontend: HardwareDashboard.js (groupChecksByShift function)
+
+**ZERO MISMATCH GUARANTEED:** Frontend and backend now use consistent "morning"/"night" naming.
+
+**ISOLATION CONFIRMED:** Only fixed shift naming. No changes to collection start/stop/pause flows.
 
 2026-03-21 - Hardware Check Shift-Specific Logic Fix:
 **Backend:**

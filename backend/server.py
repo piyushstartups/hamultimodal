@@ -205,7 +205,7 @@ class DeploymentCreate(BaseModel):
     bnb: str
     # NEW STRUCTURE: Both shifts in one deployment
     morning_managers: List[str] = []  # User IDs for morning shift
-    evening_managers: List[str] = []  # User IDs for evening shift
+    night_managers: List[str] = []  # User IDs for night shift
     assigned_kits: List[str] = []  # Kits assigned to this BnB for the day
     # Legacy field for backwards compatibility during transition
     shift: Optional[str] = None  # Will be removed after migration
@@ -213,7 +213,7 @@ class DeploymentCreate(BaseModel):
 
 class DeploymentUpdate(BaseModel):
     morning_managers: List[str] = []
-    evening_managers: List[str] = []
+    night_managers: List[str] = []
     assigned_kits: List[str] = []
 
 class ItemUpdate(BaseModel):
@@ -227,7 +227,7 @@ class ItemUpdate(BaseModel):
 class CollectionStart(BaseModel):
     deployment_id: str  # Required - which deployment this collection belongs to
     kit: str  # Required - which kit
-    shift: str  # Required - "morning" or "evening" (user selects which shift they're working)
+    shift: str  # Required - "morning" or "night" (user selects which shift they're working)
     ssd_used: str
     activity_type: str  # cooking, cleaning, organizing, outdoor, other
 
@@ -258,7 +258,7 @@ class RequestCreate(BaseModel):
 class HardwareCheckCreate(BaseModel):
     deployment_id: str
     kit: str
-    shift_type: str  # "morning" or "evening" - REQUIRED for shift-specific checks
+    shift_type: str  # "morning" or "night" - REQUIRED for shift-specific checks
     left_glove_image: Optional[str] = None  # Base64 or URL - now optional for async upload
     right_glove_image: Optional[str] = None
     head_camera_image: Optional[str] = None
@@ -291,7 +291,7 @@ class BnbChecklist(BaseModel):
 class HandoverCreate(BaseModel):
     deployment_id: str
     handover_type: str  # outgoing / incoming
-    shift_type: str = "morning"  # morning / evening - which shift is doing the handover
+    shift_type: str = "morning"  # morning / night - which shift is doing the handover
     kit_checklists: List[KitChecklist]
     bnb_checklist: BnbChecklist
     missing_items: List[dict] = []  # [{item, quantity, kit_or_bnb, report_as_lost}]
@@ -681,12 +681,13 @@ async def get_deployments(
     if date:
         query["date"] = date
     
-    # Deployment managers see deployments where they're in morning_managers, evening_managers, or legacy deployment_managers
+    # Deployment managers see deployments where they're in morning_managers, night_managers, or legacy deployment_managers
     if user["role"] == "deployment_manager":
         manager_filter = {
             "$or": [
                 {"morning_managers": user["id"]},
-                {"evening_managers": user["id"]},
+                {"night_managers": user["id"]},
+                {"evening_managers": user["id"]},  # Legacy support
                 {"deployment_managers": user["id"]}  # Legacy support
             ]
         }
@@ -705,10 +706,11 @@ async def get_today_deployments(user: dict = Depends(get_current_user_dep())):
     query = {"date": operational_date}
     
     if user["role"] == "deployment_manager":
-        # Manager can see deployment if they're in morning_managers OR evening_managers
+        # Manager can see deployment if they're in morning_managers OR night_managers
         query["$or"] = [
             {"morning_managers": user["id"]},
-            {"evening_managers": user["id"]},
+            {"night_managers": user["id"]},
+            {"evening_managers": user["id"]},  # Legacy support
             {"deployment_managers": user["id"]}  # Legacy support
         ]
         del query["date"]  # Remove date from main query, add it to $and
@@ -729,19 +731,19 @@ async def create_deployment(data: DeploymentCreate, user: dict = Depends(get_cur
     if existing:
         raise HTTPException(status_code=400, detail="Deployment already exists for this BnB on this date. Edit the existing deployment instead.")
     
-    # Validate at least one manager (morning or evening)
+    # Validate at least one manager (morning or night)
     has_managers = (data.morning_managers and len(data.morning_managers) > 0) or \
-                   (data.evening_managers and len(data.evening_managers) > 0) or \
+                   (data.night_managers and len(data.night_managers) > 0) or \
                    (data.deployment_managers and len(data.deployment_managers) > 0)
     if not has_managers:
-        raise HTTPException(status_code=400, detail="At least one manager is required (morning or evening)")
+        raise HTTPException(status_code=400, detail="At least one manager is required (morning or night)")
     
     doc = {
         "id": f"dep-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')[:18]}",
         "date": data.date,  # THIS IS THE SINGLE SOURCE OF TRUTH
         "bnb": data.bnb,
         "morning_managers": data.morning_managers or [],
-        "evening_managers": data.evening_managers or [],
+        "night_managers": data.night_managers or [],
         "assigned_kits": data.assigned_kits,
         # Legacy fields for backwards compatibility
         "deployment_managers": data.deployment_managers or data.morning_managers or [],
@@ -759,10 +761,10 @@ async def update_deployment(deployment_id: str, data: DeploymentUpdate, user: di
     
     update_data = {
         "morning_managers": data.morning_managers,
-        "evening_managers": data.evening_managers,
+        "night_managers": data.night_managers,
         "assigned_kits": data.assigned_kits,
         # Update legacy field too
-        "deployment_managers": data.morning_managers + data.evening_managers
+        "deployment_managers": data.morning_managers + data.night_managers
     }
     
     await get_db().deployments.update_one(
@@ -782,7 +784,7 @@ async def delete_deployment(deployment_id: str, user: dict = Depends(get_current
 async def get_grouped_deployments(date: str, user: dict = Depends(get_current_user_dep())):
     """
     Get deployments grouped by BnB for a given date.
-    Returns structure: { bnbs: [ { bnb: "BnB 1", morning: {...}, evening: {...} } ] }
+    Returns structure: { bnbs: [ { bnb: "BnB 1", morning: {...}, night: {...} } ] }
     """
     query = {"date": date}
     
@@ -797,12 +799,15 @@ async def get_grouped_deployments(date: str, user: dict = Depends(get_current_us
     for dep in deployments:
         bnb = dep["bnb"]
         shift = dep.get("shift", "morning")
+        # Normalize evening to night
+        if shift == "evening":
+            shift = "night"
         
         if bnb not in bnb_groups:
             bnb_groups[bnb] = {
                 "bnb": bnb,
                 "morning": None,
-                "evening": None
+                "night": None
             }
         
         bnb_groups[bnb][shift] = dep
@@ -1098,14 +1103,18 @@ async def start_shift(data: ShiftStart, user: dict = Depends(get_current_user_de
     
     # Get shift from request or default to morning
     shift_value = getattr(data, 'shift', 'morning') or 'morning'
+    # Normalize evening to night
+    if shift_value == "evening":
+        shift_value = "night"
     
     # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
-    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/night)
     if user["role"] != "admin":
         if shift_value == "morning":
             authorized_managers = deployment.get("morning_managers", [])
         else:
-            authorized_managers = deployment.get("evening_managers", [])
+            # Support both night_managers and legacy evening_managers
+            authorized_managers = deployment.get("night_managers", []) or deployment.get("evening_managers", [])
         
         if user["id"] not in authorized_managers:
             raise HTTPException(
@@ -1177,7 +1186,7 @@ async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep()
         raise HTTPException(status_code=404, detail="Collection record not found")
     
     # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
-    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/night)
     if user["role"] != "admin":
         deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
         if not deployment:
@@ -1187,7 +1196,7 @@ async def pause_shift(shift_id: str, user: dict = Depends(get_current_user_dep()
         if record_shift == "morning":
             authorized_managers = deployment.get("morning_managers", [])
         else:
-            authorized_managers = deployment.get("evening_managers", [])
+            authorized_managers = deployment.get("night_managers", []) or deployment.get("evening_managers", [])
         
         if user["id"] not in authorized_managers:
             raise HTTPException(
@@ -1219,7 +1228,7 @@ async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
         raise HTTPException(status_code=404, detail="Collection record not found")
     
     # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
-    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/night)
     if user["role"] != "admin":
         deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
         if not deployment:
@@ -1229,7 +1238,7 @@ async def resume_shift(shift_id: str, user: dict = Depends(get_current_user_dep(
         if record_shift == "morning":
             authorized_managers = deployment.get("morning_managers", [])
         else:
-            authorized_managers = deployment.get("evening_managers", [])
+            authorized_managers = deployment.get("night_managers", []) or deployment.get("evening_managers", [])
         
         if user["id"] not in authorized_managers:
             raise HTTPException(
@@ -1264,7 +1273,7 @@ async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())
         raise HTTPException(status_code=404, detail="Collection record not found")
     
     # === ROLE-BASED ACCESS CONTROL (CRITICAL) ===
-    # User must be assigned to THIS SPECIFIC SHIFT (morning/evening)
+    # User must be assigned to THIS SPECIFIC SHIFT (morning/night)
     if user["role"] != "admin":
         deployment = await get_db().deployments.find_one({"id": shift.get("deployment_id")})
         if not deployment:
@@ -1274,7 +1283,7 @@ async def stop_shift(shift_id: str, user: dict = Depends(get_current_user_dep())
         if record_shift == "morning":
             authorized_managers = deployment.get("morning_managers", [])
         else:
-            authorized_managers = deployment.get("evening_managers", [])
+            authorized_managers = deployment.get("night_managers", []) or deployment.get("evening_managers", [])
         
         if user["id"] not in authorized_managers:
             raise HTTPException(
@@ -1381,7 +1390,7 @@ async def create_handover(data: HandoverCreate, user: dict = Depends(get_current
         "date": deployment["date"],
         "bnb": deployment["bnb"],
         "handover_type": data.handover_type,
-        "shift_type": data.shift_type,  # morning / evening
+        "shift_type": data.shift_type,  # morning / night
         "user": user["id"],
         "user_name": user["name"],
         "kit_checklists": [kc.dict() for kc in data.kit_checklists],
@@ -1425,13 +1434,13 @@ async def get_handover_status(deployment_id: str, date: str, user: dict = Depend
     
     night_incoming_complete = any(
         h.get("handover_type") == "incoming" and 
-        h.get("shift_type") == "evening" 
+        h.get("shift_type") in ["night", "evening"]  # Support both names
         for h in handovers
     )
     
     night_outgoing_complete = any(
         h.get("handover_type") == "outgoing" and 
-        h.get("shift_type") == "evening" 
+        h.get("shift_type") in ["night", "evening"]  # Support both names
         for h in handovers
     )
     
@@ -1630,17 +1639,17 @@ async def get_live_dashboard(
                 "lost_reports": []
             }
         
-        # Add managers from deployment (new structure: morning_managers, evening_managers)
+        # Add managers from deployment (new structure: morning_managers, night_managers)
         morning_mgrs = dep.get("morning_managers", [])
-        evening_mgrs = dep.get("evening_managers", [])
+        night_mgrs = dep.get("night_managers", []) or dep.get("evening_managers", [])
         
         # Also support legacy single deployment_manager field
         legacy_mgr = dep.get("deployment_manager")
-        if legacy_mgr and not morning_mgrs and not evening_mgrs:
+        if legacy_mgr and not morning_mgrs and not night_mgrs:
             if shift_type == "morning":
                 morning_mgrs = [legacy_mgr]
             else:
-                evening_mgrs = [legacy_mgr]
+                night_mgrs = [legacy_mgr]
         
         # Add manager names (avoid duplicates)
         for mgr_id in morning_mgrs:
@@ -1648,7 +1657,7 @@ async def get_live_dashboard(
             if mgr_name not in bnb_data[bnb]["morning_managers"]:
                 bnb_data[bnb]["morning_managers"].append(mgr_name)
         
-        for mgr_id in evening_mgrs:
+        for mgr_id in night_mgrs:
             mgr_name = user_map.get(mgr_id, mgr_id)
             if mgr_name not in bnb_data[bnb]["night_managers"]:
                 bnb_data[bnb]["night_managers"].append(mgr_name)
@@ -1842,7 +1851,7 @@ async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(
     
     # Validate shift_type
     if normalized_shift_type not in ["morning", "night"]:
-        raise HTTPException(status_code=400, detail="shift_type must be 'morning' or 'night' (or 'evening')")
+        raise HTTPException(status_code=400, detail="shift_type must be 'morning' or 'night'")
     
     # Check if already submitted for this kit AND this shift_type (check both names)
     existing = await get_db().hardware_checks.find_one({
@@ -1923,19 +1932,19 @@ async def get_hardware_check_status(
 ):
     """Check if hardware check has been completed for a kit in a specific shift
     
-    SHIFT-SPECIFIC: Each shift (morning/evening) requires its own hardware check.
+    SHIFT-SPECIFIC: Each shift (morning/night) requires its own hardware check.
     If shift_type is provided, checks for that specific shift.
     If not provided, returns status for both shifts.
     """
     deployment = await get_db().deployments.find_one({"id": deployment_id})
     if not deployment:
-        return {"completed": False, "morning_completed": False, "evening_completed": False}
+        return {"completed": False, "morning_completed": False, "night_completed": False}
     
     if shift_type:
         # Normalize shift_type
         normalized = shift_type if shift_type != "evening" else "night"
         
-        # Check for specific shift - support both names
+        # Check for specific shift - support both names for backward compat
         existing = await get_db().hardware_checks.find_one({
             "deployment_id": deployment_id,
             "kit": kit,
@@ -1945,7 +1954,7 @@ async def get_hardware_check_status(
         
         return {
             "completed": existing is not None, 
-            "shift_type": shift_type,
+            "shift_type": normalized,  # Return normalized shift type
             "check": existing
         }
     else:
@@ -1957,22 +1966,21 @@ async def get_hardware_check_status(
             "shift_type": "morning"
         }, {"_id": 0})
         
-        # Check for night shift - support both "evening" and "night" naming
-        evening_check = await get_db().hardware_checks.find_one({
+        # Check for night shift - support both "evening" and "night" naming for backward compat
+        night_check = await get_db().hardware_checks.find_one({
             "deployment_id": deployment_id,
             "kit": kit,
             "date": deployment["date"],
-            "shift_type": {"$in": ["evening", "night"]}  # Support both names
+            "shift_type": {"$in": ["evening", "night"]}  # Support legacy data
         }, {"_id": 0})
         
         return {
             "morning_completed": morning_check is not None,
-            "evening_completed": evening_check is not None,
-            "night_completed": evening_check is not None,  # Alias for clarity
+            "night_completed": night_check is not None,
             "morning_check": morning_check,
-            "evening_check": evening_check,
+            "night_check": night_check,
             # Backward compat: completed = true if either shift has check
-            "completed": morning_check is not None or evening_check is not None
+            "completed": morning_check is not None or night_check is not None
         }
 
 @app.get("/api/hardware-checks")
@@ -1992,7 +2000,7 @@ async def get_hardware_checks(
     - By default, excludes large image fields (include_images=False)
     - Supports pagination with skip/limit
     - Images can be fetched separately via /hardware-checks/{id}/images
-    - Can filter by shift_type (morning/evening)
+    - Can filter by shift_type (morning/night)
     """
     query = {}
     
@@ -2560,3 +2568,65 @@ async def setup_admin():
     except Exception as e:
         logger.error(f"Setup error: {e}")
         return {"error": str(e)}
+
+
+
+@app.post("/api/admin/migrate-evening-to-night")
+async def migrate_evening_to_night(user: dict = Depends(get_current_user_dep())):
+    """
+    Data migration: Convert all 'evening' shift references to 'night'.
+    This standardizes the shift naming across the entire system.
+    Admin only.
+    """
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    results = {
+        "shifts_updated": 0,
+        "hardware_checks_updated": 0,
+        "handovers_updated": 0,
+        "deployments_updated": 0
+    }
+    
+    # 1. Update shifts collection (shift and shift_type fields)
+    shifts_result = await get_db().shifts.update_many(
+        {"$or": [{"shift": "evening"}, {"shift_type": "evening"}]},
+        {"$set": {"shift": "night", "shift_type": "night"}}
+    )
+    results["shifts_updated"] = shifts_result.modified_count
+    
+    # 2. Update hardware_checks collection
+    hw_result = await get_db().hardware_checks.update_many(
+        {"shift_type": "evening"},
+        {"$set": {"shift_type": "night"}}
+    )
+    results["hardware_checks_updated"] = hw_result.modified_count
+    
+    # 3. Update handovers collection
+    handovers_result = await get_db().handovers.update_many(
+        {"shift_type": "evening"},
+        {"$set": {"shift_type": "night"}}
+    )
+    results["handovers_updated"] = handovers_result.modified_count
+    
+    # 4. Rename evening_managers to night_managers in deployments
+    # This is a field rename, so we need to use aggregation
+    deployments_with_evening = await get_db().deployments.find(
+        {"evening_managers": {"$exists": True}}
+    ).to_list(1000)
+    
+    for dep in deployments_with_evening:
+        if dep.get("evening_managers"):
+            await get_db().deployments.update_one(
+                {"id": dep["id"]},
+                {
+                    "$set": {"night_managers": dep["evening_managers"]},
+                    "$unset": {"evening_managers": ""}
+                }
+            )
+            results["deployments_updated"] += 1
+    
+    return {
+        "message": "Migration complete - 'evening' converted to 'night'",
+        "results": results
+    }
