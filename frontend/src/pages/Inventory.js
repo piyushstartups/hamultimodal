@@ -22,9 +22,43 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, Package, Search, Plus, Edit, Trash2, 
   ChevronDown, ChevronRight, ArrowRightLeft, AlertTriangle,
-  Warehouse, Box, MapPin, History, Clock, Grid3X3
+  Warehouse, Box, MapPin, History, Clock, Grid3X3, CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react';
 
+// Standard item categories for the system
+const STANDARD_CATEGORIES = [
+  { value: 'glove_left', label: 'Glove Left' },
+  { value: 'glove_right', label: 'Glove Right' },
+  { value: 'usb_hub', label: 'USB Hub' },
+  { value: 'imu', label: 'IMUs' },
+  { value: 'head_camera', label: 'Head Camera' },
+  { value: 'l_shaped_wire', label: 'L-Shaped Wire' },
+  { value: 'wrist_camera', label: 'Wrist Camera' },
+  { value: 'laptop', label: 'Laptop' },
+  { value: 'laptop_charger', label: 'Laptop Charger' },
+  { value: 'power_bank', label: 'Power Bank' },
+  { value: 'ssd', label: 'SSD' },
+  { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
+  { value: 'other', label: 'Other' },
+];
+
+// Kit Standard Composition (reference for completeness check)
+const KIT_STANDARD = {
+  glove_left: { required: 1, label: 'Glove Left' },
+  glove_right: { required: 1, label: 'Glove Right' },
+  usb_hub: { required: 1, label: 'USB Hub' },
+  imu: { required: 5, label: 'IMUs' },
+  head_camera: { required: 1, label: 'Head Camera' },
+  l_shaped_wire: { required: 1, label: 'L-Shaped Wire' },
+  wrist_camera: { required: 2, label: 'Wrist Camera' },
+  laptop: { required: 1, label: 'Laptop' },
+  laptop_charger: { required: 1, label: 'Laptop Charger' },
+  power_bank: { required: 1, label: 'Power Bank' },
+  ssd: { required: 1, label: 'SSD' },
+  bluetooth_adapter: { required: 1, label: 'Bluetooth Adapter' },
+};
+
+// Legacy categories for backward compatibility
 const CATEGORIES = [
   { value: 'ssd', label: 'SSDs' },
   { value: 'camera', label: 'Cameras' },
@@ -42,6 +76,7 @@ const LOCATION_TYPES = [
 
 const TABS = [
   { id: 'distribution', label: 'Distribution', icon: Grid3X3 },
+  { id: 'completeness', label: 'Kit Completeness', icon: CheckCircle2 },
   { id: 'hub', label: 'Hub', icon: Warehouse },
   { id: 'kits', label: 'Kit-wise', icon: Box },
   { id: 'bnbs', label: 'BnB-level', icon: MapPin },
@@ -572,6 +607,142 @@ export default function Inventory() {
                 <p className="text-xs text-slate-500 text-center">
                   This view is auto-calculated from item locations. Use transfers to move items between locations.
                 </p>
+              </div>
+            )}
+
+            {/* KIT COMPLETENESS TAB */}
+            {activeTab === 'completeness' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <h2 className="font-semibold">Kit Completeness Check</h2>
+                </div>
+                
+                {/* Standard Reference */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-blue-800 font-medium mb-2">Standard Kit Composition:</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-blue-700">
+                    {Object.entries(KIT_STANDARD).map(([key, val]) => (
+                      <span key={key}>{val.label}: {val.required}</span>
+                    ))}
+                  </div>
+                </div>
+                
+                {kits.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No kits configured
+                  </div>
+                ) : (
+                  <div className="grid gap-4">
+                    {kits.map(kit => {
+                      const kitItems = getKitItems(kit.kit_id).filter(i => i.status === 'active');
+                      
+                      // Calculate completeness for each category
+                      const completeness = Object.entries(KIT_STANDARD).map(([category, standard]) => {
+                        const currentCount = kitItems.filter(item => 
+                          item.category === category || 
+                          item.category?.toLowerCase().replace(/[^a-z]/g, '_') === category
+                        ).length;
+                        
+                        const status = currentCount >= standard.required 
+                          ? 'complete' 
+                          : currentCount > 0 
+                            ? 'partial' 
+                            : 'missing';
+                        
+                        return {
+                          category,
+                          label: standard.label,
+                          required: standard.required,
+                          current: currentCount,
+                          status,
+                          excess: currentCount > standard.required ? currentCount - standard.required : 0
+                        };
+                      });
+                      
+                      const completeCount = completeness.filter(c => c.status === 'complete').length;
+                      const totalCategories = completeness.length;
+                      const isComplete = completeCount === totalCategories;
+                      
+                      const sectionKey = `completeness-${kit.kit_id}`;
+                      const isExpanded = expandedSections[sectionKey] !== false;
+                      
+                      return (
+                        <div key={kit.kit_id} className="bg-white rounded-xl border overflow-hidden" data-testid={`kit-completeness-${kit.kit_id}`}>
+                          <button
+                            onClick={() => toggleSection(sectionKey)}
+                            className={`w-full px-4 py-3 flex items-center justify-between ${
+                              isComplete ? 'bg-green-600' : 'bg-amber-500'
+                            } text-white hover:opacity-90`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Box className="w-5 h-5" />
+                              <span className="font-bold">{kit.kit_id}</span>
+                              {isComplete ? (
+                                <span className="text-xs bg-white/20 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" /> Complete
+                                </span>
+                              ) : (
+                                <span className="text-xs bg-white/20 px-2 py-0.5 rounded flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3" /> {completeCount}/{totalCategories} categories
+                                </span>
+                              )}
+                            </div>
+                            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                          </button>
+                          
+                          {isExpanded && (
+                            <div className="p-4">
+                              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                {completeness.map(item => (
+                                  <div 
+                                    key={item.category}
+                                    className={`p-3 rounded-lg border ${
+                                      item.status === 'complete' 
+                                        ? 'bg-green-50 border-green-200' 
+                                        : item.status === 'partial'
+                                          ? 'bg-amber-50 border-amber-200'
+                                          : 'bg-red-50 border-red-200'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-medium text-slate-700">{item.label}</span>
+                                      {item.status === 'complete' ? (
+                                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                      ) : item.status === 'partial' ? (
+                                        <AlertCircle className="w-4 h-4 text-amber-600" />
+                                      ) : (
+                                        <XCircle className="w-4 h-4 text-red-500" />
+                                      )}
+                                    </div>
+                                    <div className="text-lg font-bold text-slate-900">
+                                      {item.current} / {item.required}
+                                    </div>
+                                    <div className={`text-xs ${
+                                      item.status === 'complete' 
+                                        ? 'text-green-700' 
+                                        : item.status === 'partial'
+                                          ? 'text-amber-700'
+                                          : 'text-red-600'
+                                    }`}>
+                                      {item.status === 'complete' && item.excess > 0 
+                                        ? `+${item.excess} excess`
+                                        : item.status === 'complete'
+                                          ? 'Complete'
+                                          : item.status === 'partial'
+                                            ? `Missing ${item.required - item.current}`
+                                            : 'Missing'}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

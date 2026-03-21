@@ -19,8 +19,41 @@ import {
 } from '../components/ui/dialog';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
-import { Plus, Edit, Trash2, Package, Search, Upload } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Search, Upload, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
 import Layout from '../components/Layout';
+
+// Standard item categories for dropdown
+const STANDARD_CATEGORIES = [
+  { value: 'glove_left', label: 'Glove Left' },
+  { value: 'glove_right', label: 'Glove Right' },
+  { value: 'usb_hub', label: 'USB Hub' },
+  { value: 'imu', label: 'IMUs' },
+  { value: 'head_camera', label: 'Head Camera' },
+  { value: 'l_shaped_wire', label: 'L-Shaped Wire' },
+  { value: 'wrist_camera', label: 'Wrist Camera' },
+  { value: 'laptop', label: 'Laptop' },
+  { value: 'laptop_charger', label: 'Laptop Charger' },
+  { value: 'power_bank', label: 'Power Bank' },
+  { value: 'ssd', label: 'SSD' },
+  { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
+  { value: 'other', label: 'Other' },
+];
+
+// Kit Standard Composition (reference for completeness check)
+const KIT_STANDARD = {
+  glove_left: { required: 1, label: 'Glove Left' },
+  glove_right: { required: 1, label: 'Glove Right' },
+  usb_hub: { required: 1, label: 'USB Hub' },
+  imu: { required: 5, label: 'IMUs' },
+  head_camera: { required: 1, label: 'Head Camera' },
+  l_shaped_wire: { required: 1, label: 'L-Shaped Wire' },
+  wrist_camera: { required: 2, label: 'Wrist Camera' },
+  laptop: { required: 1, label: 'Laptop' },
+  laptop_charger: { required: 1, label: 'Laptop Charger' },
+  power_bank: { required: 1, label: 'Power Bank' },
+  ssd: { required: 1, label: 'SSD' }, // Only 1 active at a time
+  bluetooth_adapter: { required: 1, label: 'Bluetooth Adapter' },
+};
 
 export default function InventoryManagement() {
   const { user } = useAuth();
@@ -370,13 +403,20 @@ export default function InventoryManagement() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Category</Label>
-                <Input
+                <Label>Category *</Label>
+                <Select
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  placeholder="e.g., ssd, glove, camera"
-                  className="mt-2"
-                />
+                  onValueChange={(val) => setFormData({ ...formData, category: val })}
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STANDARD_CATEGORIES.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Tracking Type *</Label>
@@ -505,11 +545,19 @@ export default function InventoryManagement() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Category</Label>
-                <Input
+                <Select
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="mt-2"
-                />
+                  onValueChange={(val) => setFormData({ ...formData, category: val })}
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STANDARD_CATEGORIES.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Status</Label>
