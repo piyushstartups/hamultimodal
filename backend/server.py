@@ -1835,19 +1835,24 @@ async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
     
-    # Validate shift_type
-    if data.shift_type not in ["morning", "evening"]:
-        raise HTTPException(status_code=400, detail="shift_type must be 'morning' or 'evening'")
+    # Normalize shift_type - accept both "evening" and "night", store as "night"
+    normalized_shift_type = data.shift_type
+    if data.shift_type == "evening":
+        normalized_shift_type = "night"  # Standardize to "night"
     
-    # Check if already submitted for this kit AND this shift_type
+    # Validate shift_type
+    if normalized_shift_type not in ["morning", "night"]:
+        raise HTTPException(status_code=400, detail="shift_type must be 'morning' or 'night' (or 'evening')")
+    
+    # Check if already submitted for this kit AND this shift_type (check both names)
     existing = await get_db().hardware_checks.find_one({
         "deployment_id": data.deployment_id,
         "kit": data.kit,
         "date": deployment["date"],
-        "shift_type": data.shift_type  # SHIFT-SPECIFIC check
+        "shift_type": {"$in": [normalized_shift_type, "evening" if normalized_shift_type == "night" else None]}
     })
     if existing:
-        raise HTTPException(status_code=400, detail=f"Hardware check already completed for this kit in {data.shift_type} shift")
+        raise HTTPException(status_code=400, detail=f"Hardware check already completed for this kit in {normalized_shift_type} shift")
     
     now = datetime.now(timezone.utc)
     
@@ -1860,7 +1865,7 @@ async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(
         "date": deployment["date"],
         "bnb": deployment["bnb"],
         "kit": data.kit,
-        "shift_type": data.shift_type,  # Store shift type
+        "shift_type": normalized_shift_type,  # Store normalized shift type ("night" not "evening")
         "user": user["id"],
         "user_name": user["name"],
         "checked_by": user["name"],  # Alias for clarity
@@ -1927,12 +1932,15 @@ async def get_hardware_check_status(
         return {"completed": False, "morning_completed": False, "evening_completed": False}
     
     if shift_type:
-        # Check for specific shift
+        # Normalize shift_type
+        normalized = shift_type if shift_type != "evening" else "night"
+        
+        # Check for specific shift - support both names
         existing = await get_db().hardware_checks.find_one({
             "deployment_id": deployment_id,
             "kit": kit,
             "date": deployment["date"],
-            "shift_type": shift_type
+            "shift_type": {"$in": [normalized, "evening" if normalized == "night" else None]}
         }, {"_id": 0})
         
         return {
@@ -1949,16 +1957,18 @@ async def get_hardware_check_status(
             "shift_type": "morning"
         }, {"_id": 0})
         
+        # Check for night shift - support both "evening" and "night" naming
         evening_check = await get_db().hardware_checks.find_one({
             "deployment_id": deployment_id,
             "kit": kit,
             "date": deployment["date"],
-            "shift_type": "evening"
+            "shift_type": {"$in": ["evening", "night"]}  # Support both names
         }, {"_id": 0})
         
         return {
             "morning_completed": morning_check is not None,
             "evening_completed": evening_check is not None,
+            "night_completed": evening_check is not None,  # Alias for clarity
             "morning_check": morning_check,
             "evening_check": evening_check,
             # Backward compat: completed = true if either shift has check
