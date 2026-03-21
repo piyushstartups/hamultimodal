@@ -2630,3 +2630,65 @@ async def migrate_evening_to_night(user: dict = Depends(get_current_user_dep()))
         "message": "Migration complete - 'evening' converted to 'night'",
         "results": results
     }
+
+
+
+@app.post("/api/admin/rollback-night-to-evening")
+async def rollback_night_to_evening(user: dict = Depends(get_current_user_dep())):
+    """
+    ROLLBACK: Convert all 'night' shift references back to 'evening'.
+    Use this if you need to revert the standardization.
+    Admin only.
+    """
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    results = {
+        "shifts_updated": 0,
+        "hardware_checks_updated": 0,
+        "handovers_updated": 0,
+        "deployments_updated": 0
+    }
+    
+    # 1. Update shifts collection (shift and shift_type fields)
+    shifts_result = await get_db().shifts.update_many(
+        {"$or": [{"shift": "night"}, {"shift_type": "night"}]},
+        {"$set": {"shift": "evening", "shift_type": "evening"}}
+    )
+    results["shifts_updated"] = shifts_result.modified_count
+    
+    # 2. Update hardware_checks collection
+    hw_result = await get_db().hardware_checks.update_many(
+        {"shift_type": "night"},
+        {"$set": {"shift_type": "evening"}}
+    )
+    results["hardware_checks_updated"] = hw_result.modified_count
+    
+    # 3. Update handovers collection
+    handovers_result = await get_db().handovers.update_many(
+        {"shift_type": "night"},
+        {"$set": {"shift_type": "evening"}}
+    )
+    results["handovers_updated"] = handovers_result.modified_count
+    
+    # 4. Rename night_managers back to evening_managers in deployments
+    deployments_with_night = await get_db().deployments.find(
+        {"night_managers": {"$exists": True}}
+    ).to_list(1000)
+    
+    for dep in deployments_with_night:
+        if dep.get("night_managers"):
+            await get_db().deployments.update_one(
+                {"id": dep["id"]},
+                {
+                    "$set": {"evening_managers": dep["night_managers"]},
+                    "$unset": {"night_managers": ""}
+                }
+            )
+            results["deployments_updated"] += 1
+    
+    return {
+        "message": "ROLLBACK complete - 'night' converted back to 'evening'",
+        "results": results,
+        "warning": "You will also need to rollback the frontend code to use 'evening' naming"
+    }
