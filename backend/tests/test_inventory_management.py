@@ -11,7 +11,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://shift-logic-fix.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://item-tracking-1.preview.emergentagent.com').rstrip('/')
 
 class TestAuth:
     """Authentication tests for different user roles"""

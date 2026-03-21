@@ -22,22 +22,25 @@ import { toast } from 'sonner';
 import { Plus, Edit, Trash2, Package, Search, Upload, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
 import Layout from '../components/Layout';
 
-// Standard item categories for dropdown
+// Standard item categories for dropdown (clean list, no vague categories)
 const STANDARD_CATEGORIES = [
-  { value: 'glove_left', label: 'Glove Left' },
-  { value: 'glove_right', label: 'Glove Right' },
-  { value: 'usb_hub', label: 'USB Hub' },
-  { value: 'imu', label: 'IMUs' },
-  { value: 'head_camera', label: 'Head Camera' },
-  { value: 'l_shaped_wire', label: 'L-Shaped Wire' },
-  { value: 'wrist_camera', label: 'Wrist Camera' },
-  { value: 'laptop', label: 'Laptop' },
-  { value: 'laptop_charger', label: 'Laptop Charger' },
-  { value: 'power_bank', label: 'Power Bank' },
-  { value: 'ssd', label: 'SSD' },
-  { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
-  { value: 'other', label: 'Other' },
+  { value: 'glove_left', label: 'Glove Left', unique: true },
+  { value: 'glove_right', label: 'Glove Right', unique: true },
+  { value: 'usb_hub', label: 'USB Hub', unique: false },
+  { value: 'imu', label: 'IMUs', unique: false },
+  { value: 'head_camera', label: 'Head Camera', unique: true },
+  { value: 'l_shaped_wire', label: 'L-Shaped Wire', unique: false },
+  { value: 'wrist_camera', label: 'Wrist Camera', unique: true },
+  { value: 'laptop', label: 'Laptop', unique: true },
+  { value: 'laptop_charger', label: 'Laptop Charger', unique: false },
+  { value: 'power_bank', label: 'Power Bank', unique: true },
+  { value: 'ssd', label: 'SSD', unique: true },
+  { value: 'bluetooth_adapter', label: 'Bluetooth Adapter', unique: false },
+  { value: 'hdd', label: 'HDD', unique: true },
 ];
+
+// Categories that require unique item IDs (individual tracking)
+const UNIQUE_CATEGORIES = ['glove_left', 'glove_right', 'head_camera', 'wrist_camera', 'laptop', 'power_bank', 'ssd', 'hdd'];
 
 // Kit Standard Composition (reference for completeness check)
 const KIT_STANDARD = {
@@ -51,7 +54,7 @@ const KIT_STANDARD = {
   laptop: { required: 1, label: 'Laptop' },
   laptop_charger: { required: 1, label: 'Laptop Charger' },
   power_bank: { required: 1, label: 'Power Bank' },
-  ssd: { required: 1, label: 'SSD' }, // Only 1 active at a time
+  ssd: { required: 1, label: 'SSD' },
   bluetooth_adapter: { required: 1, label: 'Bluetooth Adapter' },
 };
 

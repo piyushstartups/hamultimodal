@@ -9,7 +9,8 @@ import {
   Settings,
   LogOut,
   TrendingUp,
-  Cpu
+  Cpu,
+  HardDrive
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -41,6 +42,11 @@ export default function Dashboard() {
 
   // Hardware Dashboard - for everyone
   navItems.push({ href: '/hardware', icon: Cpu, label: 'Hardware', desc: 'Equipment health', color: 'bg-teal-500' });
+
+  // Data Offload - for admin only (SSD → HDD offload flow)
+  if (isAdmin) {
+    navItems.push({ href: '/offload', icon: HardDrive, label: 'Data Offload', desc: 'SSD to HDD transfer', color: 'bg-orange-500' });
+  }
 
   // Admin Panel - only for admin
   if (isAdmin) {

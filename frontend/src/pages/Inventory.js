@@ -25,8 +25,8 @@ import {
   Warehouse, Box, MapPin, History, Clock, Grid3X3, CheckCircle2, XCircle, AlertCircle, HardDrive
 } from 'lucide-react';
 
-// Standard item categories for the system
-const STANDARD_CATEGORIES = [
+// Standard item categories (user-specified list - NO vague categories)
+const ITEM_CATEGORIES = [
   { value: 'glove_left', label: 'Glove Left' },
   { value: 'glove_right', label: 'Glove Right' },
   { value: 'usb_hub', label: 'USB Hub' },
@@ -39,8 +39,14 @@ const STANDARD_CATEGORIES = [
   { value: 'power_bank', label: 'Power Bank' },
   { value: 'ssd', label: 'SSD' },
   { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
-  { value: 'other', label: 'Other' },
+  { value: 'hdd', label: 'HDD' },
 ];
+
+// Categories with UNIQUE items (show item ID dropdown)
+const UNIQUE_CATEGORIES = ['glove_left', 'glove_right', 'head_camera', 'wrist_camera', 'laptop', 'power_bank', 'ssd', 'hdd'];
+
+// Categories with NON-UNIQUE items (show quantity input)
+const NON_UNIQUE_CATEGORIES = ['usb_hub', 'imu', 'l_shaped_wire', 'laptop_charger', 'bluetooth_adapter'];
 
 // Kit Standard Composition (reference for completeness check)
 const KIT_STANDARD = {
@@ -58,15 +64,8 @@ const KIT_STANDARD = {
   bluetooth_adapter: { required: 1, label: 'Bluetooth Adapter' },
 };
 
-// Legacy categories for backward compatibility
-const CATEGORIES = [
-  { value: 'ssd', label: 'SSDs' },
-  { value: 'camera', label: 'Cameras' },
-  { value: 'imu', label: 'IMUs' },
-  { value: 'gloves', label: 'Gloves' },
-  { value: 'tools', label: 'Tools' },
-  { value: 'general', label: 'General' },
-];
+// Alias for backward compatibility in display
+const CATEGORIES = ITEM_CATEGORIES;
 
 const LOCATION_TYPES = [
   { prefix: 'kit', label: 'Kit' },
@@ -105,7 +104,7 @@ export default function Inventory() {
   // Form data
   const [formData, setFormData] = useState({
     item_name: '',
-    category: 'general',
+    category: '',
     tracking_type: 'individual',
     status: 'active',
     location_type: 'station',
@@ -115,7 +114,11 @@ export default function Inventory() {
     from_value: '',
     to_type: 'kit',
     to_value: '',
-    notes: ''
+    notes: '',
+    // Transfer-specific fields
+    transfer_category: '',
+    transfer_item: '',
+    transfer_quantity: 1,
   });
 
   useEffect(() => {
@@ -235,7 +238,7 @@ export default function Inventory() {
     setEditingItem(null);
     setFormData({
       item_name: '',
-      category: 'general',
+      category: '',
       tracking_type: 'individual',
       status: 'active',
       location_type: 'station',
@@ -245,7 +248,10 @@ export default function Inventory() {
       from_value: '',
       to_type: 'kit',
       to_value: '',
-      notes: ''
+      notes: '',
+      transfer_category: '',
+      transfer_item: '',
+      transfer_quantity: 1,
     });
     setDialogOpen(true);
   };
@@ -334,11 +340,17 @@ export default function Inventory() {
         const from_location = `${formData.from_type}:${formData.from_value}`;
         const to_location = `${formData.to_type}:${formData.to_value}`;
         
-        // For bulk transfer, item is selected from form; for transfer, it's the editingItem
-        const itemName = dialogType === 'bulk-transfer' ? formData.item_name : editingItem.item_name;
+        // For bulk transfer, item is selected from transfer_item; for transfer, it's the editingItem
+        const itemName = dialogType === 'bulk-transfer' ? formData.transfer_item : editingItem.item_name;
+        const transferQty = dialogType === 'bulk-transfer' ? formData.transfer_quantity : 1;
         
         if (!itemName) {
           toast.error('Please select an item');
+          return;
+        }
+        
+        if (!formData.from_value || !formData.to_value) {
+          toast.error('Please select From and To locations');
           return;
         }
         
@@ -347,7 +359,7 @@ export default function Inventory() {
           item: itemName,
           from_location,
           to_location,
-          quantity: 1,
+          quantity: transferQty,
           notes: formData.notes || null
         });
         toast.success('Transfer recorded');
@@ -476,7 +488,11 @@ export default function Inventory() {
                   Data Offload
                 </Button>
               </a>
-              <Button size="sm" variant="outline" onClick={() => { setDialogType('bulk-transfer'); setDialogOpen(true); }} data-testid="transfer-item-btn">
+              <Button size="sm" variant="outline" onClick={() => { 
+                setDialogType('bulk-transfer'); 
+                setFormData(prev => ({ ...prev, transfer_category: '', transfer_item: '', transfer_quantity: 1, from_type: 'station', from_value: '', to_type: 'kit', to_value: '', notes: '' }));
+                setDialogOpen(true); 
+              }} data-testid="transfer-item-btn">
                 <ArrowRightLeft className="w-4 h-4 mr-1" />
                 Transfer Item
               </Button>
@@ -912,7 +928,7 @@ export default function Inventory() {
                               <Clock className="w-3 h-3" />
                               {formatTime(evt.timestamp)}
                             </div>
-                            <p className="mt-0.5">by {evt.user_name}</p>
+                            <p className="mt-0.5 font-medium text-slate-700">Moved by {evt.user_name || 'Unknown'}</p>
                           </div>
                         </div>
                       </div>
@@ -968,11 +984,11 @@ export default function Inventory() {
                 </div>
                 
                 <div>
-                  <Label className="text-xs">Category</Label>
+                  <Label className="text-xs">Category *</Label>
                   <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
-                    <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="mt-1 h-9" data-testid="category-select"><SelectValue placeholder="Select category" /></SelectTrigger>
                     <SelectContent>
-                      {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      {ITEM_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1093,19 +1109,97 @@ export default function Inventory() {
               </>
             )}
             
-            {/* BULK TRANSFER DIALOG - Admin can select any item */}
+            {/* BULK TRANSFER DIALOG - Two-step: Category -> Item (ID or Quantity) */}
             {dialogType === 'bulk-transfer' && (
               <>
+                {/* Step 1: Select Category */}
                 <div>
-                  <Label className="text-xs">Select Item *</Label>
-                  <Select value={formData.item_name} onValueChange={(v) => setFormData({ ...formData, item_name: v })}>
-                    <SelectTrigger className="mt-1 h-9" data-testid="bulk-transfer-item-select"><SelectValue placeholder="Select an item" /></SelectTrigger>
+                  <Label className="text-xs font-semibold text-slate-700">Step 1: Select Category *</Label>
+                  <Select 
+                    value={formData.transfer_category} 
+                    onValueChange={(v) => setFormData({ ...formData, transfer_category: v, transfer_item: '', transfer_quantity: 1 })}
+                  >
+                    <SelectTrigger className="mt-1 h-9" data-testid="transfer-category-select">
+                      <SelectValue placeholder="Select item category" />
+                    </SelectTrigger>
                     <SelectContent>
-                      {items.map((item, idx) => <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>{item.item_name} ({item.current_location})</SelectItem>)}
+                      {ITEM_CATEGORIES.map(c => (
+                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 
+                {/* Step 2: Select Item (UNIQUE) or Quantity (NON-UNIQUE) */}
+                {formData.transfer_category && (
+                  <div className="bg-slate-50 p-3 rounded-lg border">
+                    {UNIQUE_CATEGORIES.includes(formData.transfer_category) ? (
+                      // UNIQUE category: Show dropdown of item IDs
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item ID *</Label>
+                        <Select 
+                          value={formData.transfer_item} 
+                          onValueChange={(v) => setFormData({ ...formData, transfer_item: v })}
+                        >
+                          <SelectTrigger className="mt-1 h-9" data-testid="transfer-item-select">
+                            <SelectValue placeholder="Select specific item" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {items
+                              .filter(item => item.category === formData.transfer_category && item.status === 'active')
+                              .map((item, idx) => (
+                                <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>
+                                  {item.item_name} ({formatLocation(item.current_location)})
+                                </SelectItem>
+                              ))
+                            }
+                          </SelectContent>
+                        </Select>
+                        {items.filter(item => item.category === formData.transfer_category && item.status === 'active').length === 0 && (
+                          <p className="text-xs text-amber-600 mt-1">No active items found in this category</p>
+                        )}
+                      </div>
+                    ) : (
+                      // NON-UNIQUE category: Show quantity input
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item *</Label>
+                          <Select 
+                            value={formData.transfer_item} 
+                            onValueChange={(v) => setFormData({ ...formData, transfer_item: v })}
+                          >
+                            <SelectTrigger className="mt-1 h-9" data-testid="transfer-item-select">
+                              <SelectValue placeholder="Select item" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {items
+                                .filter(item => item.category === formData.transfer_category && item.status === 'active')
+                                .map((item, idx) => (
+                                  <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>
+                                    {item.item_name} - Qty: {item.quantity || 1} ({formatLocation(item.current_location)})
+                                  </SelectItem>
+                                ))
+                              }
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold text-slate-700">Quantity to Transfer</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={formData.transfer_quantity}
+                            onChange={(e) => setFormData({ ...formData, transfer_quantity: parseInt(e.target.value) || 1 })}
+                            className="mt-1 h-9"
+                            data-testid="transfer-quantity-input"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Location: From and To */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label className="text-xs">From Type</Label>
