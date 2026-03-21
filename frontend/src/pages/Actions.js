@@ -20,6 +20,28 @@ import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
 import { ArrowLeft, ArrowRightLeft, AlertTriangle, XCircle } from 'lucide-react';
 
+// Master category list (same as Inventory.js - SINGLE SOURCE OF TRUTH)
+const ITEM_CATEGORIES = [
+  { value: 'glove_left', label: 'Glove Left' },
+  { value: 'glove_right', label: 'Glove Right' },
+  { value: 'usb_hub', label: 'USB Hub' },
+  { value: 'imu', label: 'IMUs' },
+  { value: 'head_camera', label: 'Head Camera' },
+  { value: 'l_shaped_wire', label: 'L-Shaped Wire' },
+  { value: 'wrist_camera', label: 'Wrist Camera' },
+  { value: 'laptop', label: 'Laptop' },
+  { value: 'laptop_charger', label: 'Laptop Charger' },
+  { value: 'power_bank', label: 'Power Bank' },
+  { value: 'ssd', label: 'SSD' },
+  { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
+];
+
+// Categories with UNIQUE items (require Item Code / ID)
+const UNIQUE_CATEGORIES = ['glove_left', 'glove_right', 'head_camera', 'wrist_camera', 'laptop', 'power_bank', 'ssd'];
+
+// Categories with NON-UNIQUE items (quantity-based)
+const NON_UNIQUE_CATEGORIES = ['usb_hub', 'imu', 'l_shaped_wire', 'laptop_charger', 'bluetooth_adapter'];
+
 const LOCATION_TYPES = [
   { prefix: 'kit', label: 'Kit' },
   { prefix: 'bnb', label: 'BnB' },
@@ -36,6 +58,7 @@ export default function QuickActions() {
   
   const [formData, setFormData] = useState({
     item: '',
+    category: '',  // NEW: Category selection for two-step flow
     from_type: 'kit',
     from_value: '',
     to_type: 'kit',
@@ -67,6 +90,7 @@ export default function QuickActions() {
     setActionType(type);
     setFormData({
       item: '',
+      category: '',  // Reset category for two-step flow
       from_type: 'kit',
       from_value: '',
       to_type: 'kit',
@@ -174,23 +198,110 @@ export default function QuickActions() {
 
   const renderForm = () => {
     if (actionType === 'transfer') {
+      // Get items filtered by selected category
+      const categoryItems = formData.category 
+        ? items.filter(i => i.category === formData.category && i.status === 'active')
+        : [];
+      
+      const isUniqueCategory = UNIQUE_CATEGORIES.includes(formData.category);
+      
+      // Helper to format location for display
+      const formatLocation = (location) => {
+        if (!location) return 'Hub';
+        if (location.includes(':')) {
+          const [type, value] = location.split(':');
+          return `${type.charAt(0).toUpperCase() + type.slice(1)}: ${value}`;
+        }
+        return location;
+      };
+      
       return (
         <>
+          {/* STEP 1: Select Category */}
           <div>
-            <Label>Item *</Label>
-            <Select value={formData.item} onValueChange={(v) => setFormData({ ...formData, item: v })}>
-              <SelectTrigger className="mt-1" data-testid="item-select"><SelectValue placeholder="Select item" /></SelectTrigger>
+            <Label className="text-xs font-semibold text-slate-700">Step 1: Select Category *</Label>
+            <Select 
+              value={formData.category} 
+              onValueChange={(v) => setFormData({ ...formData, category: v, item: '', quantity: 1 })}
+            >
+              <SelectTrigger className="mt-1" data-testid="transfer-category-select">
+                <SelectValue placeholder="Select item category" />
+              </SelectTrigger>
               <SelectContent>
-                {items.filter(i => i.status === 'active').map(i => (
-                  <SelectItem key={i.item_name} value={i.item_name}>{i.item_name}</SelectItem>
+                {ITEM_CATEGORIES.map(c => (
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           
+          {/* STEP 2: Select Item (conditional based on category type) */}
+          {formData.category && (
+            <div className="bg-slate-50 p-3 rounded-lg border">
+              {isUniqueCategory ? (
+                // UNIQUE category: Show dropdown of specific item IDs
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item ID *</Label>
+                  <Select 
+                    value={formData.item} 
+                    onValueChange={(v) => setFormData({ ...formData, item: v })}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="transfer-item-select">
+                      <SelectValue placeholder="Select specific item" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categoryItems.map((item, idx) => (
+                        <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>
+                          {item.item_name} ({formatLocation(item.current_location)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {categoryItems.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">No active items found in this category</p>
+                  )}
+                </div>
+              ) : (
+                // NON-UNIQUE category: Show item + quantity input
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item *</Label>
+                    <Select 
+                      value={formData.item} 
+                      onValueChange={(v) => setFormData({ ...formData, item: v })}
+                    >
+                      <SelectTrigger className="mt-1" data-testid="transfer-item-select">
+                        <SelectValue placeholder="Select item" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categoryItems.map((item, idx) => (
+                          <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>
+                            {item.item_name} - Qty: {item.quantity || 1} ({formatLocation(item.current_location)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700">Quantity to Transfer</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={formData.quantity}
+                      onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
+                      className="mt-1"
+                      data-testid="transfer-quantity-input"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Location: From and To */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>From Type</Label>
+              <Label className="text-xs">From Type</Label>
               <Select value={formData.from_type} onValueChange={(v) => setFormData({ ...formData, from_type: v, from_value: '' })}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -199,7 +310,7 @@ export default function QuickActions() {
               </Select>
             </div>
             <div>
-              <Label>From *</Label>
+              <Label className="text-xs">From *</Label>
               <Select value={formData.from_value} onValueChange={(v) => setFormData({ ...formData, from_value: v })}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>
@@ -211,7 +322,7 @@ export default function QuickActions() {
           
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>To Type</Label>
+              <Label className="text-xs">To Type</Label>
               <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -220,7 +331,7 @@ export default function QuickActions() {
               </Select>
             </div>
             <div>
-              <Label>To *</Label>
+              <Label className="text-xs">To *</Label>
               <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>
@@ -231,7 +342,7 @@ export default function QuickActions() {
           </div>
           
           <div>
-            <Label>Notes (optional)</Label>
+            <Label className="text-xs">Notes (optional)</Label>
             <Textarea
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}

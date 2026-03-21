@@ -296,6 +296,12 @@ Deployments → Date → BnB → Handover buttons
 - Kit Completeness shows all 12 master categories ✓
 - Movement Log shows "Moved by [User Name]" ✓
 
+2026-03-21 - Quick Actions Transfer Flow Unified:
+- Updated Actions.js (Quick Actions page for deployment managers) to match Admin's Inventory transfer flow
+- Two-step flow: Step 1 (Select Category) → Step 2 (Select Item ID for UNIQUE / Select Item + Quantity for NON-UNIQUE)
+- All 12 master categories available in both Admin and Manager transfer flows
+- User attribution captured via backend (user_name stored in event record)
+
 **ISOLATION CONFIRMED:** No changes to Deployments.js or shift/collection logic. Inventory system is completely isolated.
 
 2026-03-21 - Hardware Check Shift-Specific Logic Fix:
