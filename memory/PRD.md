@@ -283,4 +283,23 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - Simplified Data Offload system: Removed BnB/Date selection, added HDD storage tracking (capacity, used, available), auto-derive data from SSDs, added HDD reset for data centre returns.
+2026-03-21 - Inventory System Refactor:
+- Fixed category dropdown: 13 specific categories (Glove Left, Glove Right, USB Hub, IMUs, Head Camera, L-Shaped Wire, Wrist Camera, Laptop, Laptop Charger, Power Bank, SSD, Bluetooth Adapter, HDD)
+- Removed vague categories (General, Tools)
+- Improved Transfer UX: Two-step flow (Category → Item)
+- UNIQUE categories show item ID dropdown
+- NON-UNIQUE categories show item + quantity input
+- Added accountability: "Moved by [User Name]" in Movement Log
+- Added "Data Offload" button on Dashboard (admin only)
+
+## Inventory Categories
+### UNIQUE (individual item ID tracking)
+- Glove Left, Glove Right
+- Head Camera, Wrist Camera
+- Laptop, Power Bank
+- SSD, HDD
+
+### NON-UNIQUE (quantity-based tracking)
+- USB Hub, IMUs
+- L-Shaped Wire, Laptop Charger
+- Bluetooth Adapter
