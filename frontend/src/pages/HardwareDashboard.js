@@ -78,6 +78,16 @@ const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingI
             <Package className="w-4 h-4 text-slate-500" />
             <span className="font-bold">{check.kit}</span>
           </div>
+          {/* Shift Type Badge */}
+          {check.shift_type && (
+            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+              check.shift_type === 'morning' 
+                ? 'bg-amber-100 text-amber-700' 
+                : 'bg-indigo-100 text-indigo-700'
+            }`}>
+              {check.shift_type === 'morning' ? 'Morning' : 'Evening'}
+            </span>
+          )}
           <span className="text-slate-400">|</span>
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-slate-500" />

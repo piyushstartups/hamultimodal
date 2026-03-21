@@ -258,6 +258,7 @@ class RequestCreate(BaseModel):
 class HardwareCheckCreate(BaseModel):
     deployment_id: str
     kit: str
+    shift_type: str  # "morning" or "evening" - REQUIRED for shift-specific checks
     left_glove_image: Optional[str] = None  # Base64 or URL - now optional for async upload
     right_glove_image: Optional[str] = None
     head_camera_image: Optional[str] = None
@@ -1821,20 +1822,32 @@ async def get_live_dashboard(
 
 @app.post("/api/hardware-checks")
 async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(get_current_user_dep())):
-    """Create a hardware health check for a kit (required before first collection of the day)
-    Images can be uploaded immediately or async via separate endpoint"""
+    """Create a hardware health check for a kit (required before first collection of EACH SHIFT)
+    
+    Hardware check is SHIFT-SPECIFIC:
+    - Morning shift must complete check before first collection
+    - Evening/Night shift must ALSO complete check before first collection
+    - Each shift is independent (not tied to day or previous shift)
+    
+    Images can be uploaded immediately or async via separate endpoint
+    """
     deployment = await get_db().deployments.find_one({"id": data.deployment_id})
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
     
-    # Check if already submitted today for this kit
+    # Validate shift_type
+    if data.shift_type not in ["morning", "evening"]:
+        raise HTTPException(status_code=400, detail="shift_type must be 'morning' or 'evening'")
+    
+    # Check if already submitted for this kit AND this shift_type
     existing = await get_db().hardware_checks.find_one({
         "deployment_id": data.deployment_id,
         "kit": data.kit,
-        "date": deployment["date"]
+        "date": deployment["date"],
+        "shift_type": data.shift_type  # SHIFT-SPECIFIC check
     })
     if existing:
-        raise HTTPException(status_code=400, detail="Hardware check already completed for this kit today")
+        raise HTTPException(status_code=400, detail=f"Hardware check already completed for this kit in {data.shift_type} shift")
     
     now = datetime.now(timezone.utc)
     
@@ -1847,8 +1860,10 @@ async def create_hardware_check(data: HardwareCheckCreate, user: dict = Depends(
         "date": deployment["date"],
         "bnb": deployment["bnb"],
         "kit": data.kit,
+        "shift_type": data.shift_type,  # Store shift type
         "user": user["id"],
         "user_name": user["name"],
+        "checked_by": user["name"],  # Alias for clarity
         "left_glove_image": data.left_glove_image,
         "right_glove_image": data.right_glove_image,
         "head_camera_image": data.head_camera_image,
@@ -1895,25 +1910,67 @@ async def upload_hardware_check_images(check_id: str, data: HardwareCheckImageUp
     return updated
 
 @app.get("/api/hardware-checks/status/{deployment_id}/{kit}")
-async def get_hardware_check_status(deployment_id: str, kit: str, user: dict = Depends(get_current_user_dep())):
-    """Check if hardware check has been completed for a kit today"""
+async def get_hardware_check_status(
+    deployment_id: str, 
+    kit: str, 
+    shift_type: Optional[str] = None,  # Optional for backward compat, but should be provided
+    user: dict = Depends(get_current_user_dep())
+):
+    """Check if hardware check has been completed for a kit in a specific shift
+    
+    SHIFT-SPECIFIC: Each shift (morning/evening) requires its own hardware check.
+    If shift_type is provided, checks for that specific shift.
+    If not provided, returns status for both shifts.
+    """
     deployment = await get_db().deployments.find_one({"id": deployment_id})
     if not deployment:
-        return {"completed": False}
+        return {"completed": False, "morning_completed": False, "evening_completed": False}
     
-    existing = await get_db().hardware_checks.find_one({
-        "deployment_id": deployment_id,
-        "kit": kit,
-        "date": deployment["date"]
-    }, {"_id": 0})
-    
-    return {"completed": existing is not None, "check": existing}
+    if shift_type:
+        # Check for specific shift
+        existing = await get_db().hardware_checks.find_one({
+            "deployment_id": deployment_id,
+            "kit": kit,
+            "date": deployment["date"],
+            "shift_type": shift_type
+        }, {"_id": 0})
+        
+        return {
+            "completed": existing is not None, 
+            "shift_type": shift_type,
+            "check": existing
+        }
+    else:
+        # Return status for both shifts
+        morning_check = await get_db().hardware_checks.find_one({
+            "deployment_id": deployment_id,
+            "kit": kit,
+            "date": deployment["date"],
+            "shift_type": "morning"
+        }, {"_id": 0})
+        
+        evening_check = await get_db().hardware_checks.find_one({
+            "deployment_id": deployment_id,
+            "kit": kit,
+            "date": deployment["date"],
+            "shift_type": "evening"
+        }, {"_id": 0})
+        
+        return {
+            "morning_completed": morning_check is not None,
+            "evening_completed": evening_check is not None,
+            "morning_check": morning_check,
+            "evening_check": evening_check,
+            # Backward compat: completed = true if either shift has check
+            "completed": morning_check is not None or evening_check is not None
+        }
 
 @app.get("/api/hardware-checks")
 async def get_hardware_checks(
     date: Optional[str] = None,
     bnb: Optional[str] = None,
     kit: Optional[str] = None,
+    shift_type: Optional[str] = None,  # Filter by shift type
     skip: int = 0,
     limit: int = 20,
     include_images: bool = False,
@@ -1925,6 +1982,7 @@ async def get_hardware_checks(
     - By default, excludes large image fields (include_images=False)
     - Supports pagination with skip/limit
     - Images can be fetched separately via /hardware-checks/{id}/images
+    - Can filter by shift_type (morning/evening)
     """
     query = {}
     
@@ -1934,6 +1992,8 @@ async def get_hardware_checks(
         query["bnb"] = bnb
     if kit:
         query["kit"] = kit
+    if shift_type:
+        query["shift_type"] = shift_type
     
     # Projection: exclude images by default for faster loading
     projection = {"_id": 0}

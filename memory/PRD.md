@@ -283,6 +283,22 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-21 - Hardware Check Shift-Specific Logic Fix:
+**Backend:**
+- Added `shift_type` field to HardwareCheckCreate model (required: "morning" or "evening")
+- Updated POST /api/hardware-checks to store shift_type and validate
+- Updated GET /api/hardware-checks/status/{deployment_id}/{kit} to return shift-specific status
+- Updated GET /api/hardware-checks to support shift_type filtering
+
+**Frontend:**
+- Hardware check status now tracks per-shift: `{kit: {morning: bool, evening: bool}}`
+- Hardware check dialog shows shift type badge (Morning Shift / Evening Shift)
+- "Start Collection" checks hardware status for CURRENT shift only
+- Hardware check status badge shows "Morning ✓" / "Evening ✓" separately
+
+**Data Schema:**
+- hardware_checks: kit_id, shift_type (morning/evening), deployment_date, images, checked_by, timestamp
+
 2026-03-21 - Category Consistency Fix (SINGLE SOURCE OF TRUTH):
 **Backend:**
 - Created MASTER_CATEGORIES constant with 12 standard categories

@@ -157,11 +157,12 @@ export default function Deployments() {
   // Timer state
   const [elapsedTimes, setElapsedTimes] = useState({});
   
-  // Hardware check state
+  // Hardware check state - NOW SHIFT-SPECIFIC
   const [hardwareCheckDialog, setHardwareCheckDialog] = useState(false);
   const [hardwareCheckKit, setHardwareCheckKit] = useState(null);
   const [hardwareCheckDeployment, setHardwareCheckDeployment] = useState(null);
-  const [hardwareCheckStatus, setHardwareCheckStatus] = useState({}); // {kit: true/false}
+  const [hardwareCheckShiftType, setHardwareCheckShiftType] = useState(null); // Track which shift the check is for
+  const [hardwareCheckStatus, setHardwareCheckStatus] = useState({}); // {kit: {morning: bool, evening: bool}}
   const [hardwareImages, setHardwareImages] = useState({
     leftGlove: '',
     rightGlove: '',
@@ -311,17 +312,23 @@ export default function Deployments() {
       const response = await api.get(`/shifts/by-deployment/${deploymentId}`);
       setKitShifts(response.data);
       
-      // Also fetch hardware check status for all kits
+      // Also fetch hardware check status for all kits (SHIFT-SPECIFIC)
       const deployment = deployments.find(d => d.id === deploymentId);
       if (deployment?.assigned_kits) {
         const statusPromises = deployment.assigned_kits.map(kit =>
           api.get(`/hardware-checks/status/${deploymentId}/${kit}`)
-            .then(res => ({ kit, completed: res.data.completed }))
-            .catch(() => ({ kit, completed: false }))
+            .then(res => ({ 
+              kit, 
+              morning: res.data.morning_completed || false,
+              evening: res.data.evening_completed || false
+            }))
+            .catch(() => ({ kit, morning: false, evening: false }))
         );
         const statuses = await Promise.all(statusPromises);
         const statusMap = {};
-        statuses.forEach(s => { statusMap[s.kit] = s.completed; });
+        statuses.forEach(s => { 
+          statusMap[s.kit] = { morning: s.morning, evening: s.evening }; 
+        });
         setHardwareCheckStatus(statusMap);
       }
       
@@ -398,19 +405,20 @@ export default function Deployments() {
     }
   };
 
-  // Hardware check functions
-  const checkHardwareRequired = async (deployment, kit) => {
+  // Hardware check functions - SHIFT-SPECIFIC
+  const checkHardwareRequired = async (deployment, kit, shiftType) => {
     try {
-      const response = await api.get(`/hardware-checks/status/${deployment.id}/${kit}`);
+      const response = await api.get(`/hardware-checks/status/${deployment.id}/${kit}?shift_type=${shiftType}`);
       return !response.data.completed;
     } catch {
       return true;
     }
   };
 
-  const openHardwareCheckDialog = (deployment, kit) => {
+  const openHardwareCheckDialog = (deployment, kit, shiftType) => {
     setHardwareCheckDeployment(deployment);
     setHardwareCheckKit(kit);
+    setHardwareCheckShiftType(shiftType); // Store the shift type
     setHardwareImages({ leftGlove: '', rightGlove: '', headCamera: '' });
     setHardwareImageFiles({ leftGlove: null, rightGlove: null, headCamera: null });
     setHardwareNotes('');
@@ -503,11 +511,11 @@ export default function Deployments() {
     
     setHardwareLoading(true);
     try {
-      // Step 1: Create record immediately WITHOUT waiting for full upload
-      // Send compressed previews for immediate record creation
+      // Step 1: Create record with SHIFT-SPECIFIC data
       const response = await api.post('/hardware-checks', {
         deployment_id: hardwareCheckDeployment.id,
         kit: hardwareCheckKit,
+        shift_type: hardwareCheckShiftType, // Include shift type
         left_glove_image: hardwareImages.leftGlove,
         right_glove_image: hardwareImages.rightGlove,
         head_camera_image: hardwareImages.headCamera,
@@ -515,17 +523,23 @@ export default function Deployments() {
       });
       
       const checkId = response.data.id;
+      const shiftLabel = hardwareCheckShiftType === 'morning' ? 'Morning' : 'Evening';
       
-      // Step 2: Immediately update UI and allow user to proceed
-      toast.success('Hardware check submitted! You can start collection now.');
+      // Step 2: Immediately update UI with shift-specific status
+      toast.success(`Hardware check submitted for ${shiftLabel} shift! You can start collection now.`);
       setHardwareCheckDialog(false);
-      setHardwareCheckStatus(prev => ({ ...prev, [hardwareCheckKit]: true }));
+      
+      // Update shift-specific status
+      setHardwareCheckStatus(prev => ({
+        ...prev,
+        [hardwareCheckKit]: {
+          ...prev[hardwareCheckKit],
+          [hardwareCheckShiftType]: true
+        }
+      }));
       
       // Step 3: Open shift start dialog immediately (non-blocking)
       openStartShift(hardwareCheckDeployment, hardwareCheckKit);
-      
-      // Note: Images are already included in the initial request (compressed)
-      // No need for separate background upload since we're sending compressed images
       
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit hardware check');
@@ -610,15 +624,24 @@ export default function Deployments() {
     return `${h}h ${m}m`;
   };
 
-  // Shift control functions
+  // Shift control functions - SHIFT-SPECIFIC HARDWARE CHECK
   const openStartShift = async (dep, kit) => {
-    // Check if hardware check is required (first collection of the day for this kit)
-    const completedRecords = getCompletedRecords(kit);
-    const hasHardwareCheck = hardwareCheckStatus[kit];
+    // Determine current shift type from active tab
+    const currentShiftTab = activeShiftTab[dep?.id] || 'morning';
+    const shiftType = currentShiftTab === 'evening' ? 'evening' : 'morning';
     
-    // If no completed records yet and no hardware check, require hardware check first
-    if (completedRecords.length === 0 && !hasHardwareCheck) {
-      openHardwareCheckDialog(dep, kit);
+    // Check if hardware check is required for THIS SPECIFIC SHIFT
+    const kitStatus = hardwareCheckStatus[kit] || { morning: false, evening: false };
+    const hasHardwareCheck = kitStatus[shiftType];
+    
+    // Get records for this specific shift
+    const allKitRecords = kitShifts[kit] || [];
+    const shiftRecords = allKitRecords.filter(r => r.shift === shiftType);
+    const completedShiftRecords = shiftRecords.filter(r => r.status === 'completed');
+    
+    // If no completed records for THIS shift and no hardware check for THIS shift, require it
+    if (completedShiftRecords.length === 0 && !hasHardwareCheck) {
+      openHardwareCheckDialog(dep, kit, shiftType);
       return;
     }
     
@@ -1348,11 +1371,13 @@ export default function Deployments() {
                                     </span>
                                   </div>
                                   
-                                  {/* Hardware Check Status */}
-                                  {hardwareCheckStatus[kit] && (
+                                  {/* Hardware Check Status - SHIFT-SPECIFIC */}
+                                  {hardwareCheckStatus[kit] && (hardwareCheckStatus[kit].morning || hardwareCheckStatus[kit].evening) && (
                                     <div className="px-4 py-1 bg-teal-50 border-b border-teal-100 flex items-center gap-2 text-xs text-teal-700">
                                       <CheckCircle className="w-3 h-3" />
-                                      Hardware check completed
+                                      Hardware check: 
+                                      {hardwareCheckStatus[kit].morning && <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">Morning ✓</span>}
+                                      {hardwareCheckStatus[kit].evening && <span className="ml-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Evening ✓</span>}
                                     </div>
                                   )}
                                   
@@ -1739,20 +1764,27 @@ export default function Deployments() {
         </DialogContent>
       </Dialog>
 
-      {/* Hardware Check Dialog - Compact with sticky footer */}
+      {/* Hardware Check Dialog - SHIFT-SPECIFIC with sticky footer */}
       <Dialog open={hardwareCheckDialog} onOpenChange={setHardwareCheckDialog}>
         <DialogContent className="sm:max-w-md max-h-[80vh] flex flex-col p-0">
           <DialogHeader className="px-4 pt-4 pb-2 border-b">
             <DialogTitle className="flex items-center gap-2 text-base">
               <Cpu className="w-4 h-4 text-teal-500" />
               Hardware Check - {hardwareCheckKit}
+              <span className={`ml-2 text-xs px-2 py-0.5 rounded ${
+                hardwareCheckShiftType === 'morning' 
+                  ? 'bg-amber-100 text-amber-700' 
+                  : 'bg-indigo-100 text-indigo-700'
+              }`}>
+                {hardwareCheckShiftType === 'morning' ? 'Morning Shift' : 'Evening Shift'}
+              </span>
             </DialogTitle>
           </DialogHeader>
           
           {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
             <p className="text-xs text-slate-500">
-              Upload photos of equipment before starting collection.
+              Upload photos of equipment before starting {hardwareCheckShiftType} shift collection.
             </p>
             
             {/* Compact 3-column grid for image uploads */}
