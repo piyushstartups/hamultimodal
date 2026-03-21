@@ -310,7 +310,15 @@ Deployments → Date → BnB → Handover buttons
 - Backend validated: /api/hardware-checks/status returns shift-specific status
 - All 10 backend tests passed (iteration_18.json)
 
-**ISOLATION CONFIRMED:** No changes to Deployments.js shift/collection logic. Only restored hardware check flow that was bypassed by emergency fix.
+2026-03-21 - End Shift Button Logic Fixed:
+- Fixed bug where "End Shift" button was showing for Night Shift even when no night collections existed
+- Added shift-specific filtering: End Shift button now only appears if there are collections FOR THAT SPECIFIC SHIFT
+- Logic checks both active records AND completed records for matching shift type
+- Handles 'night'/'evening' alias correctly
+- Morning Shift: Shows "End Morning Shift" only if morning collections exist
+- Night Shift: Shows "End Evening Shift" only if evening/night collections exist
+
+**ISOLATION CONFIRMED:** Only fixed End Shift button visibility logic. No changes to collection start/stop/pause flows.
 
 2026-03-21 - Hardware Check Shift-Specific Logic Fix:
 **Backend:**

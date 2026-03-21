@@ -1353,6 +1353,40 @@ export default function Deployments() {
                           ? status?.morning_outgoing_complete 
                           : status?.night_outgoing_complete;
                         
+                        // Check if any collections have happened in THIS specific shift
+                        // Only show End Shift button if there are records for this shift type
+                        const shiftType = currentTab === 'morning' ? 'morning' : 'evening';
+                        const shiftHasCollections = (dep.assigned_kits || []).some(kit => {
+                          const kitData = kitShifts[kit];
+                          if (!kitData) return false;
+                          
+                          // Check for active record matching this shift type
+                          const hasActiveRecordForShift = kitData.active_record && 
+                            (kitData.active_record.status === 'active' || 
+                             kitData.active_record.status === 'paused') &&
+                            (kitData.active_record.shift === shiftType || 
+                             kitData.active_record.shift_type === shiftType ||
+                             // Handle 'night' as alias for 'evening'
+                             (shiftType === 'evening' && (kitData.active_record.shift === 'night' || kitData.active_record.shift_type === 'night')));
+                          
+                          // Check for completed records specifically for this shift
+                          const hasCompletedRecordsForShift = kitData.records?.some(r => {
+                            const recordShift = r.shift || r.shift_type;
+                            // Match shift type exactly (with night/evening alias)
+                            return recordShift === shiftType || 
+                              (shiftType === 'evening' && recordShift === 'night') ||
+                              (shiftType === 'morning' && recordShift === 'morning');
+                          });
+                          
+                          return hasActiveRecordForShift || hasCompletedRecordsForShift;
+                        });
+                        
+                        // If shift already completed, always show the completed status
+                        // If no collections for THIS shift, don't show End Shift button
+                        if (!shiftCompleted && !shiftHasCollections) {
+                          return null;
+                        }
+                        
                         return (
                           <div className="flex gap-2 mb-2">
                             {/* End Shift Button - checks active collections, then opens handover */}
