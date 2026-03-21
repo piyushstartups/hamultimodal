@@ -15,7 +15,7 @@ import os
 from datetime import datetime, timedelta
 import pytz
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://item-tracking-1.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://inventory-fix-56.preview.emergentagent.com').rstrip('/')
 
 # Test credentials
 ADMIN_CREDENTIALS = {"name": "Admin", "password": "admin123"}
