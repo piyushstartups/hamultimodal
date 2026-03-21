@@ -283,6 +283,21 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-21 - Inventory System Verification After Production Rollback:
+**VERIFIED (Testing Agent iteration_17):**
+- Backend /api/categories returns all 12 master categories with unique/non-unique classification ✓
+- Backend /api/items/distribution returns distribution matrix with all 12 categories ✓
+- Backend POST /api/items rejects invalid categories ✓
+- Backend POST /api/items requires item_name for UNIQUE categories ✓
+- Backend POST /api/items auto-generates name for NON-UNIQUE categories ✓
+- Frontend shows only 3 tabs: Distribution, Kit Completeness, Movement Log ✓
+- Add Item dialog has two-step flow (Category → Item ID/Quantity) ✓
+- Transfer Item dialog has two-step flow with category-based selection ✓
+- Kit Completeness shows all 12 master categories ✓
+- Movement Log shows "Moved by [User Name]" ✓
+
+**ISOLATION CONFIRMED:** No changes to Deployments.js or shift/collection logic. Inventory system is completely isolated.
+
 2026-03-21 - Hardware Check Shift-Specific Logic Fix:
 **Backend:**
 - Added `shift_type` field to HardwareCheckCreate model (required: "morning" or "evening")
