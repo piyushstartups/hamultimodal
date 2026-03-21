@@ -20,6 +20,78 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # ========================
+# MASTER CATEGORY DEFINITIONS (SINGLE SOURCE OF TRUTH)
+# ========================
+# These are the ONLY valid categories for inventory items
+# HDD is managed separately in HDD Dashboard
+
+MASTER_CATEGORIES = [
+    {"value": "glove_left", "label": "Glove Left"},
+    {"value": "glove_right", "label": "Glove Right"},
+    {"value": "usb_hub", "label": "USB Hub"},
+    {"value": "imu", "label": "IMUs"},
+    {"value": "head_camera", "label": "Head Camera"},
+    {"value": "l_shaped_wire", "label": "L-Shaped Wire"},
+    {"value": "wrist_camera", "label": "Wrist Camera"},
+    {"value": "laptop", "label": "Laptop"},
+    {"value": "laptop_charger", "label": "Laptop Charger"},
+    {"value": "power_bank", "label": "Power Bank"},
+    {"value": "ssd", "label": "SSD"},
+    {"value": "bluetooth_adapter", "label": "Bluetooth Adapter"},
+]
+
+# Extract just the values for validation
+VALID_CATEGORY_VALUES = [c["value"] for c in MASTER_CATEGORIES]
+
+# Categories that require unique item IDs
+UNIQUE_CATEGORIES = ["glove_left", "glove_right", "head_camera", "wrist_camera", "laptop", "power_bank", "ssd"]
+
+# Categories that are quantity-based (no unique ID required)
+NON_UNIQUE_CATEGORIES = ["usb_hub", "imu", "l_shaped_wire", "laptop_charger", "bluetooth_adapter"]
+
+# Category label lookup
+CATEGORY_LABELS = {c["value"]: c["label"] for c in MASTER_CATEGORIES}
+
+# Legacy category mapping (to normalize old/inconsistent data)
+CATEGORY_NORMALIZATION_MAP = {
+    # Old values -> new standardized values
+    "general": None,  # Remove general
+    "tools": None,    # Remove tools
+    "camera": "head_camera",  # Map generic camera to head_camera
+    "gloves": "glove_left",   # Map generic gloves to glove_left
+    "glove": "glove_left",
+    "adapter": "bluetooth_adapter",
+    "cable": "l_shaped_wire",
+    "charging": "laptop_charger",
+    "hub": "usb_hub",
+    "imus": "imu",
+    "power": "power_bank",
+    "other": None,
+}
+
+def normalize_category(category: str) -> str:
+    """Normalize a category value to the standard list"""
+    if not category:
+        return None
+    cat_lower = category.lower().strip()
+    
+    # If already in valid list, return as-is
+    if cat_lower in VALID_CATEGORY_VALUES:
+        return cat_lower
+    
+    # Try normalization map
+    if cat_lower in CATEGORY_NORMALIZATION_MAP:
+        return CATEGORY_NORMALIZATION_MAP[cat_lower]
+    
+    # Try partial matching
+    for valid_cat in VALID_CATEGORY_VALUES:
+        if valid_cat in cat_lower or cat_lower in valid_cat:
+            return valid_cat
+    
+    # Return None for unmapped categories
+    return None
+
+# ========================
 # TIMEZONE & OPERATIONAL DAY CONFIG
 # ========================
 IST = pytz.timezone('Asia/Kolkata')
@@ -453,45 +525,63 @@ async def get_items(user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/items/distribution")
 async def get_item_distribution(user: dict = Depends(get_current_user_dep())):
-    """Get item distribution across all locations grouped by category"""
+    """Get item distribution across all locations grouped by MASTER categories"""
     items = await get_db().items.find({}, {"_id": 0}).to_list(500)
     kits = await get_db().kits.find({}, {"_id": 0}).to_list(100)
     bnbs = await get_db().bnbs.find({}, {"_id": 0}).to_list(100)
     
-    # Get unique categories
-    categories = list(set(item.get("category", "general") for item in items))
+    # Use MASTER category list (single source of truth)
+    categories = VALID_CATEGORY_VALUES
     
     # Get all location columns
     locations = ["Hub"]
     locations.extend([k["kit_id"] for k in kits])
     locations.extend([b["name"] for b in bnbs])
     
-    # Build distribution matrix
+    # Build distribution matrix with ALL master categories
     distribution = {}
     for cat in categories:
         distribution[cat] = {loc: 0 for loc in locations}
     
-    # Count items by category and location
+    # Count items by category and location (normalize categories)
     for item in items:
-        cat = item.get("category", "general")
+        raw_cat = item.get("category", "")
+        normalized_cat = normalize_category(raw_cat)
+        
+        # Skip items with unmapped categories
+        if not normalized_cat or normalized_cat not in categories:
+            continue
+        
         loc = item.get("current_location", "")
         qty = item.get("quantity", 1) if item.get("tracking_type") == "quantity" else 1
         
         if not loc or loc.startswith("station:"):
-            distribution[cat]["Hub"] += qty
+            distribution[normalized_cat]["Hub"] += qty
         elif loc.startswith("kit:"):
             kit_id = loc.split(":")[1]
-            if kit_id in distribution[cat]:
-                distribution[cat][kit_id] += qty
+            if kit_id in distribution[normalized_cat]:
+                distribution[normalized_cat][kit_id] += qty
         elif loc.startswith("bnb:"):
             bnb_name = loc.split(":")[1]
-            if bnb_name in distribution[cat]:
-                distribution[cat][bnb_name] += qty
+            if bnb_name in distribution[normalized_cat]:
+                distribution[normalized_cat][bnb_name] += qty
     
+    # Return with category labels for display
     return {
         "categories": categories,
+        "category_labels": CATEGORY_LABELS,
         "locations": locations,
         "distribution": distribution
+    }
+
+@app.get("/api/categories")
+async def get_categories():
+    """Get master category list (SINGLE SOURCE OF TRUTH)"""
+    return {
+        "categories": MASTER_CATEGORIES,
+        "unique_categories": UNIQUE_CATEGORIES,
+        "non_unique_categories": NON_UNIQUE_CATEGORIES,
+        "category_labels": CATEGORY_LABELS
     }
 
 @app.post("/api/items")
@@ -499,14 +589,35 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    # Check for duplicate item name
-    existing = await get_db().items.find_one({"item_name": data.item_name})
-    if existing:
-        raise HTTPException(status_code=400, detail="Item already exists")
+    # Validate category against master list
+    normalized_category = normalize_category(data.category)
+    if not normalized_category or normalized_category not in VALID_CATEGORY_VALUES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid category '{data.category}'. Valid categories: {', '.join(VALID_CATEGORY_VALUES)}"
+        )
+    
+    # For unique categories, item_name is required
+    if normalized_category in UNIQUE_CATEGORIES:
+        if not data.item_name or data.item_name.strip() == "":
+            raise HTTPException(status_code=400, detail="Item name/ID is required for this category")
+        # Check for duplicate item name
+        existing = await get_db().items.find_one({"item_name": data.item_name})
+        if existing:
+            raise HTTPException(status_code=400, detail="Item already exists")
+        item_name = data.item_name.strip()
+    else:
+        # For non-unique categories, auto-generate name if not provided
+        if not data.item_name or data.item_name.strip() == "" or data.item_name == normalized_category:
+            count = await get_db().items.count_documents({"category": normalized_category})
+            item_name = f"{normalized_category.upper().replace('_', '-')}-BULK-{count + 1}"
+        else:
+            item_name = data.item_name.strip()
     
     doc = {
-        "item_name": data.item_name,
-        "category": data.category,
+        "item_name": item_name,
+        "item_id": item_name,  # Add item_id for consistency
+        "category": normalized_category,  # Use normalized category
         "tracking_type": data.tracking_type,
         "status": data.status,
         "current_location": data.current_location,
@@ -515,8 +626,9 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
     await get_db().items.insert_one(doc)
     # Return without _id
     return {
-        "item_name": data.item_name,
-        "category": data.category,
+        "item_name": item_name,
+        "item_id": item_name,
+        "category": normalized_category,
         "tracking_type": data.tracking_type,
         "status": data.status,
         "current_location": data.current_location,

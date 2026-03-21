@@ -283,6 +283,24 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-21 - Category Consistency Fix (SINGLE SOURCE OF TRUTH):
+**Backend:**
+- Created MASTER_CATEGORIES constant with 12 standard categories
+- Added /api/categories endpoint to expose master list
+- Added category normalization function for legacy data mapping
+- Updated /api/items/distribution to use master list (not derived from items)
+- Added category validation on item creation
+
+**Frontend:**
+- Item Distribution table now shows ALL 12 master categories
+- Kit Completeness uses same master categories
+- Transfer Item dialog uses same master categories
+- Add Item dialog uses same master categories
+
+**UNIQUE vs NON-UNIQUE logic preserved:**
+- UNIQUE (require ID): glove_left, glove_right, head_camera, wrist_camera, laptop, power_bank, ssd
+- NON-UNIQUE (quantity-based): usb_hub, imu, l_shaped_wire, laptop_charger, bluetooth_adapter
+
 2026-03-21 - Flow Cleanup (Data Offload, Inventory, Hardware Check):
 **Data Offload:**
 - Fixed SSD list to show ALL SSDs from inventory (no filters)

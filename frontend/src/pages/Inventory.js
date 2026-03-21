@@ -578,7 +578,8 @@ export default function Inventory() {
                           {distribution.categories.map(cat => {
                             const catData = distribution.distribution[cat] || {};
                             const total = Object.values(catData).reduce((sum, val) => sum + val, 0);
-                            const catLabel = CATEGORIES.find(c => c.value === cat)?.label || cat;
+                            // Use backend category_labels if available, otherwise fallback to frontend CATEGORIES
+                            const catLabel = distribution.category_labels?.[cat] || CATEGORIES.find(c => c.value === cat)?.label || cat;
                             
                             return (
                               <tr key={cat} className="border-b hover:bg-slate-50" data-testid={`dist-row-${cat}`}>
