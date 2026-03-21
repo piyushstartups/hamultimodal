@@ -668,15 +668,11 @@ export default function Deployments() {
 
   // Shift control functions - EMERGENCY: ALWAYS OPEN DIALOG
   const openStartShift = async (dep, kit) => {
-    // DEBUG: Log every step
-    console.log('[START_COLLECTION] EMERGENCY MODE - Opening dialog', { 
+    console.log('[START_COLLECTION] Opening dialog', { 
       deploymentId: dep?.id, 
       kit, 
       timestamp: new Date().toISOString() 
     });
-    
-    // EMERGENCY: Skip ALL checks - just open the form dialog directly
-    // Hardware check can be done separately if needed
     
     if (!dep || !kit) {
       console.error('[START_COLLECTION] ERROR: Missing dep or kit');
@@ -684,14 +680,35 @@ export default function Deployments() {
       return;
     }
     
-    // EMERGENCY FIX: Skip hardware check requirement, go straight to shift form
-    console.log('[START_COLLECTION] Opening shift form dialog directly');
-    toast.info('Opening collection form...');
+    // Determine current shift type from the active tab
+    const currentShiftTab = activeShiftTab[dep.id] || 'morning';
+    const shiftType = currentShiftTab === 'evening' ? 'evening' : 'morning';
     
-    setSelectedDeploymentForShift(dep);
-    setSelectedKit(kit);
-    setShiftFormData({ ssd_used: '', activity_type: '' });
-    setShiftDialogOpen(true);
+    // Check if hardware check is already done for THIS kit + THIS shift
+    const kitStatus = hardwareCheckStatus[kit] || {};
+    const isHardwareCheckDone = shiftType === 'morning' 
+      ? kitStatus.morning 
+      : (kitStatus.evening || kitStatus.night);
+    
+    console.log('[START_COLLECTION] Hardware check status', { 
+      kit, 
+      shiftType, 
+      kitStatus, 
+      isHardwareCheckDone 
+    });
+    
+    if (!isHardwareCheckDone) {
+      // Hardware check NOT done for this shift - open hardware check dialog first
+      console.log('[START_COLLECTION] Hardware check required - opening hardware check dialog');
+      openHardwareCheckDialog(dep, kit, shiftType);
+    } else {
+      // Hardware check already done - go directly to start collection form
+      console.log('[START_COLLECTION] Hardware check already done - opening shift form');
+      setSelectedDeploymentForShift(dep);
+      setSelectedKit(kit);
+      setShiftFormData({ ssd_used: '', activity_type: '' });
+      setShiftDialogOpen(true);
+    }
   };
 
   const handleStartShift = async (e) => {
