@@ -283,4 +283,4 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
-2026-03-21 - Implemented strict role-based access control and multi-device safety for kit collection actions. Only shift-assigned managers can control kits. Duplicate sessions prevented per kit per shift.
+2026-03-21 - Added SSD → HDD offload system with: Offload Batches, HDD Data View, full traceability (SSD → Batch → HDD → collection records → kits → managers), and SSD reset logic.

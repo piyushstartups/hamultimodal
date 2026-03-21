@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, Package, Search, Plus, Edit, Trash2, 
   ChevronDown, ChevronRight, ArrowRightLeft, AlertTriangle,
-  Warehouse, Box, MapPin, History, Clock, Grid3X3, CheckCircle2, XCircle, AlertCircle
+  Warehouse, Box, MapPin, History, Clock, Grid3X3, CheckCircle2, XCircle, AlertCircle, HardDrive
 } from 'lucide-react';
 
 // Standard item categories for the system
@@ -470,6 +470,12 @@ export default function Inventory() {
           </div>
           {isAdmin && (
             <div className="flex gap-2">
+              <a href="/offload">
+                <Button size="sm" variant="outline" data-testid="offload-btn">
+                  <HardDrive className="w-4 h-4 mr-1" />
+                  Data Offload
+                </Button>
+              </a>
               <Button size="sm" variant="outline" onClick={() => { setDialogType('bulk-transfer'); setDialogOpen(true); }} data-testid="transfer-item-btn">
                 <ArrowRightLeft className="w-4 h-4 mr-1" />
                 Transfer Item

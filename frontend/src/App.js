@@ -16,6 +16,7 @@ import Inventory from "./pages/Inventory";
 import Requests from "./pages/Requests";
 import AdminPanel from "./pages/AdminPanel";
 import HardwareDashboard from "./pages/HardwareDashboard";
+import OffloadManagement from "./pages/OffloadManagement";
 
 import "./App.css";
 
@@ -46,6 +47,7 @@ function App() {
           <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
           <Route path="/requests" element={<ProtectedRoute><Requests /></ProtectedRoute>} />
           <Route path="/hardware" element={<ProtectedRoute><HardwareDashboard /></ProtectedRoute>} />
+          <Route path="/offload" element={<ProtectedRoute><OffloadManagement /></ProtectedRoute>} />
           <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPanel /></ProtectedRoute>} />
           <Route path="/" element={<Navigate to="/dashboard" />} />
         </Routes>
