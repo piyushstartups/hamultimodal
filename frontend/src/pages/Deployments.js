@@ -354,20 +354,44 @@ export default function Deployments() {
   // NEW: Check if user belongs to a specific shift
   const getUserShiftAccess = (deployment) => {
     const userId = user?.id;
-    if (!userId || !deployment) return { canMorning: false, canNight: false };
+    console.log('[ACCESS_CHECK] getUserShiftAccess', { 
+      userId, 
+      isAdmin,
+      deploymentId: deployment?.id,
+      morningManagers: deployment?.morning_managers,
+      eveningManagers: deployment?.evening_managers,
+      deploymentManagers: deployment?.deployment_managers
+    });
+    
+    if (!userId || !deployment) {
+      console.log('[ACCESS_CHECK] No user or deployment');
+      return { canMorning: false, canNight: false };
+    }
     
     // Admins can access both shifts
-    if (isAdmin) return { canMorning: true, canNight: true };
+    if (isAdmin) {
+      console.log('[ACCESS_CHECK] Admin access granted');
+      return { canMorning: true, canNight: true };
+    }
     
     const isMorningManager = deployment.morning_managers?.includes(userId);
     const isNightManager = deployment.evening_managers?.includes(userId);
     // Legacy support
     const isLegacyManager = deployment.deployment_managers?.includes(userId);
     
-    return {
+    const access = {
       canMorning: isMorningManager || isLegacyManager,
       canNight: isNightManager || isLegacyManager
     };
+    
+    console.log('[ACCESS_CHECK] Access result', { 
+      isMorningManager, 
+      isNightManager, 
+      isLegacyManager, 
+      access 
+    });
+    
+    return access;
   };
 
   // NEW: Get current tab for a deployment (default based on user access)
@@ -416,6 +440,14 @@ export default function Deployments() {
   };
 
   const openHardwareCheckDialog = (deployment, kit, shiftType) => {
+    console.log('[HARDWARE_CHECK] Opening dialog', { deploymentId: deployment?.id, kit, shiftType });
+    
+    if (!deployment || !kit || !shiftType) {
+      console.error('[HARDWARE_CHECK] Missing required params', { deployment, kit, shiftType });
+      toast.error('Error opening hardware check');
+      return;
+    }
+    
     setHardwareCheckDeployment(deployment);
     setHardwareCheckKit(kit);
     setHardwareCheckShiftType(shiftType); // Store the shift type
@@ -423,6 +455,8 @@ export default function Deployments() {
     setHardwareImageFiles({ leftGlove: null, rightGlove: null, headCamera: null });
     setHardwareNotes('');
     setHardwareCheckDialog(true);
+    
+    console.log('[HARDWARE_CHECK] Dialog state set', { hardwareCheckDialog: true });
   };
 
   const handleImageUpload = async (field, e) => {
@@ -626,25 +660,68 @@ export default function Deployments() {
 
   // Shift control functions - SHIFT-SPECIFIC HARDWARE CHECK
   const openStartShift = async (dep, kit) => {
+    // DEBUG: Log every step to identify where execution stops
+    console.log('[START_COLLECTION] Button clicked', { 
+      deploymentId: dep?.id, 
+      kit, 
+      timestamp: new Date().toISOString() 
+    });
+    
+    // Validate inputs
+    if (!dep || !dep.id) {
+      console.error('[START_COLLECTION] ERROR: No deployment provided');
+      toast.error('Error: No deployment selected');
+      return;
+    }
+    
+    if (!kit) {
+      console.error('[START_COLLECTION] ERROR: No kit provided');
+      toast.error('Error: No kit selected');
+      return;
+    }
+    
     // Determine current shift type from active tab
-    const currentShiftTab = activeShiftTab[dep?.id] || 'morning';
+    const currentShiftTab = activeShiftTab[dep.id] || 'morning';
     const shiftType = currentShiftTab === 'evening' ? 'evening' : 'morning';
+    
+    console.log('[START_COLLECTION] Shift determination', { 
+      activeShiftTab: activeShiftTab[dep.id],
+      currentShiftTab, 
+      shiftType 
+    });
     
     // Check if hardware check is required for THIS SPECIFIC SHIFT
     const kitStatus = hardwareCheckStatus[kit] || { morning: false, evening: false };
     const hasHardwareCheck = kitStatus[shiftType];
+    
+    console.log('[START_COLLECTION] Hardware check status', { 
+      kitStatus, 
+      shiftType,
+      hasHardwareCheck 
+    });
     
     // Get records for this specific shift
     const allKitRecords = kitShifts[kit] || [];
     const shiftRecords = allKitRecords.filter(r => r.shift === shiftType);
     const completedShiftRecords = shiftRecords.filter(r => r.status === 'completed');
     
+    console.log('[START_COLLECTION] Records check', { 
+      allKitRecordsCount: allKitRecords.length,
+      shiftRecordsCount: shiftRecords.length,
+      completedCount: completedShiftRecords.length,
+      records: allKitRecords.map(r => ({ shift: r.shift, status: r.status }))
+    });
+    
     // If no completed records for THIS shift and no hardware check for THIS shift, require it
     if (completedShiftRecords.length === 0 && !hasHardwareCheck) {
+      console.log('[START_COLLECTION] Opening hardware check dialog', { shiftType });
+      toast.info(`Hardware check required for ${shiftType} shift`);
       openHardwareCheckDialog(dep, kit, shiftType);
       return;
     }
     
+    // Open shift form dialog
+    console.log('[START_COLLECTION] Opening shift form dialog');
     setSelectedDeploymentForShift(dep);
     setSelectedKit(kit);
     setShiftFormData({ ssd_used: '', activity_type: '' });
@@ -1399,8 +1476,15 @@ export default function Deployments() {
                                       <div>
                                         <Button 
                                           className={`w-full h-12 text-base ${canStart.allowed ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300 cursor-not-allowed'}`}
-                                          onClick={() => canStart.allowed && openStartShift(dep, kit)}
-                                          disabled={!canStart.allowed}
+                                          onClick={() => {
+                                            console.log('[BUTTON_CLICK] Start Collection clicked', { kit, canStart, currentTab });
+                                            if (canStart.allowed) {
+                                              openStartShift(dep, kit);
+                                            } else {
+                                              console.warn('[BUTTON_CLICK] Start blocked:', canStart.reason);
+                                              toast.error(canStart.reason || 'Cannot start collection');
+                                            }
+                                          }}
                                           data-testid={`start-${kit}`}
                                         >
                                           <Play className="w-5 h-5 mr-2" />
