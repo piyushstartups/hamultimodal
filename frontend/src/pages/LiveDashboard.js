@@ -275,13 +275,17 @@ export default function LiveDashboard() {
                                   <span>Manager: {bnb.morning_managers.join(', ')}</span>
                                 </div>
                               )}
-                              {/* Morning Kit Hours */}
+                              {/* Morning Kit Hours - SHIFT SCOPED */}
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                 {bnb.kits.map(kit => {
                                   const activeRecord = kit.active_record;
                                   const isActiveInMorning = activeRecord && activeRecord.shift === 'morning';
                                   const currentSessionSeconds = isActiveInMorning ? calculateElapsedTime(activeRecord) : 0;
+                                  // CRITICAL: Use morning_hours ONLY (not total_hours)
                                   const morningHours = kit.morning_hours || 0;
+                                  const morningSessions = kit.morning_sessions || 0;
+                                  // If there's an active morning session, add 1 to session count
+                                  const totalMorningSessions = morningSessions + (isActiveInMorning ? 1 : 0);
                                   
                                   return (
                                     <div 
@@ -289,8 +293,8 @@ export default function LiveDashboard() {
                                       className={`bg-white border rounded p-2 ${
                                         isActiveInMorning 
                                           ? activeRecord.status === 'active' 
-                                            ? 'border-green-400' 
-                                            : 'border-amber-400'
+                                            ? 'border-green-400 ring-1 ring-green-200' 
+                                            : 'border-amber-400 ring-1 ring-amber-200'
                                           : 'border-amber-200'
                                       }`}
                                     >
@@ -304,13 +308,20 @@ export default function LiveDashboard() {
                                           </span>
                                         )}
                                       </div>
+                                      {/* Shift-scoped time display */}
                                       <p className={`text-sm font-bold text-center ${
                                         isActiveInMorning 
                                           ? activeRecord.status === 'active' ? 'text-green-700' : 'text-amber-700'
-                                          : 'text-amber-800'
+                                          : morningHours > 0 ? 'text-amber-800' : 'text-slate-400'
                                       }`}>
                                         {formatDuration(morningHours)}
                                       </p>
+                                      {/* Session count for this shift */}
+                                      {totalMorningSessions > 0 && (
+                                        <p className="text-xs text-center text-slate-500 mt-0.5">
+                                          {totalMorningSessions} session{totalMorningSessions !== 1 ? 's' : ''}
+                                        </p>
+                                      )}
                                       {/* Live indicator for morning active session */}
                                       {isActiveInMorning && (
                                         <div className={`mt-1 flex items-center justify-center gap-1 text-xs ${
@@ -348,13 +359,17 @@ export default function LiveDashboard() {
                                   <span>Manager: {bnb.night_managers.join(', ')}</span>
                                 </div>
                               )}
-                              {/* Night Kit Hours */}
+                              {/* Night Kit Hours - SHIFT SCOPED */}
                               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                                 {bnb.kits.map(kit => {
                                   const activeRecord = kit.active_record;
                                   const isActiveInNight = activeRecord && activeRecord.shift !== 'morning';
                                   const currentSessionSeconds = isActiveInNight ? calculateElapsedTime(activeRecord) : 0;
+                                  // CRITICAL: Use night_hours ONLY (not total_hours)
                                   const nightHours = kit.night_hours || 0;
+                                  const nightSessions = kit.night_sessions || 0;
+                                  // If there's an active night session, add 1 to session count
+                                  const totalNightSessions = nightSessions + (isActiveInNight ? 1 : 0);
                                   
                                   return (
                                     <div 
@@ -362,8 +377,8 @@ export default function LiveDashboard() {
                                       className={`bg-white border rounded p-2 ${
                                         isActiveInNight 
                                           ? activeRecord.status === 'active' 
-                                            ? 'border-green-400' 
-                                            : 'border-amber-400'
+                                            ? 'border-green-400 ring-1 ring-green-200' 
+                                            : 'border-amber-400 ring-1 ring-amber-200'
                                           : 'border-indigo-200'
                                       }`}
                                     >
@@ -377,13 +392,20 @@ export default function LiveDashboard() {
                                           </span>
                                         )}
                                       </div>
+                                      {/* Shift-scoped time display */}
                                       <p className={`text-sm font-bold text-center ${
                                         isActiveInNight 
                                           ? activeRecord.status === 'active' ? 'text-green-700' : 'text-amber-700'
-                                          : 'text-indigo-800'
+                                          : nightHours > 0 ? 'text-indigo-800' : 'text-slate-400'
                                       }`}>
                                         {formatDuration(nightHours)}
                                       </p>
+                                      {/* Session count for this shift */}
+                                      {totalNightSessions > 0 && (
+                                        <p className="text-xs text-center text-slate-500 mt-0.5">
+                                          {totalNightSessions} session{totalNightSessions !== 1 ? 's' : ''}
+                                        </p>
+                                      )}
                                       {/* Live indicator for night active session */}
                                       {isActiveInNight && (
                                         <div className={`mt-1 flex items-center justify-center gap-1 text-xs ${

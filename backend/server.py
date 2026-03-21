@@ -1468,8 +1468,10 @@ async def get_live_dashboard(
                 bnb_data[bnb]["kits"][kit] = {
                     "kit_id": kit,
                     "total_hours": 0,
-                    "morning_hours": 0,  # NEW: shift-wise kit hours
-                    "night_hours": 0,    # NEW: shift-wise kit hours
+                    "morning_hours": 0,  # Shift-wise kit hours
+                    "night_hours": 0,    # Shift-wise kit hours
+                    "morning_sessions": 0,  # NEW: Session count per shift
+                    "night_sessions": 0,    # NEW: Session count per shift
                     "category_hours": {},
                     "shift": shift_type,
                     "active_record": None  # Will be populated if kit has active collection
@@ -1514,11 +1516,13 @@ async def get_live_dashboard(
                 bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
                     bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + hours
                 
-                # NEW: Add to kit's shift-wise hours
+                # Add to kit's shift-wise hours AND session count
                 if record_shift == "morning":
                     bnb_data[bnb]["kits"][kit]["morning_hours"] += hours
+                    bnb_data[bnb]["kits"][kit]["morning_sessions"] += 1
                 else:
                     bnb_data[bnb]["kits"][kit]["night_hours"] += hours
+                    bnb_data[bnb]["kits"][kit]["night_sessions"] += 1
             
             # Shift split based on RECORD's shift assignment (not inferred from time)
             if record_shift == "morning":
@@ -1549,9 +1553,10 @@ async def get_live_dashboard(
                 bnb_data[bnb]["kits"][kit]["category_hours"][activity] = \
                     bnb_data[bnb]["kits"][kit]["category_hours"].get(activity, 0) + live_hours
                 
-                # NEW: Add to kit's shift-wise hours
+                # Add to kit's shift-wise hours (active sessions count as +1 session)
                 if record_shift == "morning":
                     bnb_data[bnb]["kits"][kit]["morning_hours"] += live_hours
+                    # Active session counts as 1 session (will be added to completed count)
                 else:
                     bnb_data[bnb]["kits"][kit]["night_hours"] += live_hours
             
@@ -1599,8 +1604,10 @@ async def get_live_dashboard(
         kit_list = []
         for kit_id, kit_data in data["kits"].items():
             kit_data["total_hours"] = round(kit_data["total_hours"], 2)
-            kit_data["morning_hours"] = round(kit_data.get("morning_hours", 0), 2)  # NEW
-            kit_data["night_hours"] = round(kit_data.get("night_hours", 0), 2)      # NEW
+            kit_data["morning_hours"] = round(kit_data.get("morning_hours", 0), 2)
+            kit_data["night_hours"] = round(kit_data.get("night_hours", 0), 2)
+            kit_data["morning_sessions"] = kit_data.get("morning_sessions", 0)
+            kit_data["night_sessions"] = kit_data.get("night_sessions", 0)
             kit_data["category_hours"] = {k: round(v, 2) for k, v in kit_data["category_hours"].items()}
             kit_list.append(kit_data)
         data["kits"] = sorted(kit_list, key=lambda x: x["kit_id"])
