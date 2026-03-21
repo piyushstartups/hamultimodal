@@ -354,8 +354,11 @@ export default function Deployments() {
   // NEW: Check if user belongs to a specific shift
   const getUserShiftAccess = (deployment) => {
     const userId = user?.id;
-    console.log('[ACCESS_CHECK] getUserShiftAccess', { 
+    const userRole = user?.role;
+    
+    console.log('[ACCESS_CHECK] getUserShiftAccess called', { 
       userId, 
+      userRole,
       isAdmin,
       deploymentId: deployment?.id,
       morningManagers: deployment?.morning_managers,
@@ -364,13 +367,13 @@ export default function Deployments() {
     });
     
     if (!userId || !deployment) {
-      console.log('[ACCESS_CHECK] No user or deployment');
+      console.log('[ACCESS_CHECK] No user or deployment - DENYING');
       return { canMorning: false, canNight: false };
     }
     
     // Admins can access both shifts
     if (isAdmin) {
-      console.log('[ACCESS_CHECK] Admin access granted');
+      console.log('[ACCESS_CHECK] User is ADMIN - GRANTING both shifts');
       return { canMorning: true, canNight: true };
     }
     
@@ -384,7 +387,7 @@ export default function Deployments() {
       canNight: isNightManager || isLegacyManager
     };
     
-    console.log('[ACCESS_CHECK] Access result', { 
+    console.log('[ACCESS_CHECK] Non-admin access result', { 
       isMorningManager, 
       isNightManager, 
       isLegacyManager, 
@@ -1418,6 +1421,14 @@ export default function Deployments() {
                               
                               // Can start collection? Handover is independent - no restriction
                               const canStart = (() => {
+                                console.log('[CAN_START_CHECK]', { 
+                                  kit, 
+                                  currentTab, 
+                                  hasAccess, 
+                                  access,
+                                  status,
+                                  deploymentId: dep.id 
+                                });
                                 if (!hasAccess) return { allowed: false, reason: 'Not assigned to this shift' };
                                 return { allowed: true, reason: null };
                               })();
@@ -1475,14 +1486,21 @@ export default function Deployments() {
                                     {status === 'not_started' && (
                                       <div>
                                         <Button 
-                                          className={`w-full h-12 text-base ${canStart.allowed ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300 cursor-not-allowed'}`}
+                                          className={`w-full h-12 text-base ${canStart.allowed ? 'bg-green-500 hover:bg-green-600' : 'bg-slate-300'}`}
                                           onClick={() => {
-                                            console.log('[BUTTON_CLICK] Start Collection clicked', { kit, canStart, currentTab });
+                                            console.log('[BUTTON_CLICK] Start Collection clicked', { 
+                                              kit, 
+                                              canStart, 
+                                              currentTab,
+                                              deploymentId: dep?.id,
+                                              status,
+                                              hasAccess
+                                            });
                                             if (canStart.allowed) {
                                               openStartShift(dep, kit);
                                             } else {
                                               console.warn('[BUTTON_CLICK] Start blocked:', canStart.reason);
-                                              toast.error(canStart.reason || 'Cannot start collection');
+                                              toast.error(canStart.reason || 'Cannot start collection - access denied');
                                             }
                                           }}
                                           data-testid={`start-${kit}`}
