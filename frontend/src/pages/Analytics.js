@@ -106,7 +106,7 @@ export default function Analytics() {
             </a>
             <div>
               <h1 className="text-lg font-bold text-slate-900">Analytics</h1>
-              <p className="text-sm text-slate-600">Data collected from shift logs</p>
+              <p className="text-sm text-slate-600">Data calculated from collection records</p>
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={fetchData} data-testid="refresh-btn">
@@ -258,7 +258,7 @@ export default function Analytics() {
 
             {/* Info note */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
-              All data is automatically calculated from shift logs. No manual input is included.
+              All data is automatically calculated from collection records. No manual input is included.
             </div>
           </>
         ) : null}

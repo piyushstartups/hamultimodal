@@ -1871,18 +1871,28 @@ async def get_hardware_check_images(check_id: str, user: dict = Depends(get_curr
 async def get_analytics(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    debug: bool = False,
     user: dict = Depends(get_current_user_dep())
 ):
-    """Get analytics for a date range (defaults to last 7 days). Data baseline: 2026-03-20"""
-    today = datetime.now(timezone.utc)
+    """
+    Get analytics for a date range (defaults to last 7 days). 
+    Data baseline: 2026-03-20
     
+    SINGLE SOURCE OF TRUTH: collection_records (shifts table)
+    - Uses deployment_date for date filtering
+    - Includes BOTH completed AND active records
+    - Proper pause handling: duration = end_time - start_time - paused_time
+    """
     # Analytics baseline date - ignore all data before this
     ANALYTICS_BASELINE = "2026-03-20"
     
     if not end_date:
-        end_date = today.strftime("%Y-%m-%d")
+        end_date = get_operational_date()  # Use operational date, not UTC
     if not start_date:
-        start_date = (today - timedelta(days=6)).strftime("%Y-%m-%d")
+        # Calculate 6 days before end_date
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        start_dt = end_dt - timedelta(days=6)
+        start_date = start_dt.strftime("%Y-%m-%d")
     
     # Ensure start_date is not before baseline
     if start_date < ANALYTICS_BASELINE:
@@ -1897,62 +1907,139 @@ async def get_analytics(
             "total_collection_records": 0,
             "total_deployments": 0,
             "hours_per_activity": [],
-            "daily_trend": []
+            "daily_trend": [],
+            "debug_info": None
         }
     
-    # Get all completed shifts in date range
-    shifts = await get_db().shifts.find(
-        {
-            "date": {"$gte": start_date, "$lte": end_date},
-            "status": "completed"
-        },
-        {"_id": 0}
-    ).to_list(2000)
+    # ========================================
+    # STEP 1: Get ALL collection_records (shifts) in date range
+    # Use deployment_date as the source of truth for date filtering
+    # ========================================
     
-    # Get total deployments in date range
-    total_deployments = await get_db().deployments.count_documents({
-        "date": {"$gte": start_date, "$lte": end_date}
-    })
+    # First, get all deployments in the date range to get deployment_ids
+    deployments_in_range = await get_db().deployments.find(
+        {"date": {"$gte": start_date, "$lte": end_date}},
+        {"_id": 0, "id": 1, "date": 1}
+    ).to_list(500)
     
-    # Total hours
-    total_hours = sum(s.get("total_duration_hours", 0) or 0 for s in shifts)
+    deployment_ids = [d["id"] for d in deployments_in_range]
+    deployment_date_map = {d["id"]: d["date"] for d in deployments_in_range}
     
-    # Hours per activity type
+    # Get all collection_records for these deployments
+    all_records = []
+    if deployment_ids:
+        all_records = await get_db().shifts.find(
+            {"deployment_id": {"$in": deployment_ids}},
+            {"_id": 0}
+        ).to_list(2000)
+    
+    # ========================================
+    # STEP 2: Calculate duration for EACH record
+    # - Completed: use stored total_duration_hours
+    # - Active/Paused: calculate live duration
+    # ========================================
+    
+    def get_record_duration(record):
+        """Get duration in hours for a single record"""
+        status = record.get("status", "")
+        
+        if status == "completed":
+            # Use stored duration
+            return record.get("total_duration_hours", 0) or 0
+        elif status in ["active", "paused"]:
+            # Calculate live duration
+            return calculate_live_duration_hours(record)
+        else:
+            return 0
+    
+    # ========================================
+    # STEP 3: Calculate totals - include ALL records
+    # ========================================
+    
+    total_hours = 0
     hours_per_activity = {}
-    for shift in shifts:
-        activity = shift.get("activity_type", "other")
+    daily_hours = {}
+    
+    debug_records = [] if debug else None
+    
+    for record in all_records:
+        duration = get_record_duration(record)
+        
+        # Get the deployment_date from the record's deployment
+        dep_id = record.get("deployment_id")
+        record_date = deployment_date_map.get(dep_id) or record.get("date", "")
+        
+        # Skip if no valid date
+        if not record_date:
+            continue
+        
+        # Accumulate total hours
+        total_hours += duration
+        
+        # Accumulate hours per activity
+        activity = record.get("activity_type", "other")
         if activity not in hours_per_activity:
             hours_per_activity[activity] = 0
-        hours_per_activity[activity] += shift.get("total_duration_hours", 0) or 0
+        hours_per_activity[activity] += duration
+        
+        # Accumulate daily hours (grouped by deployment_date)
+        if record_date not in daily_hours:
+            daily_hours[record_date] = 0
+        daily_hours[record_date] += duration
+        
+        # Debug info
+        if debug:
+            debug_records.append({
+                "id": record.get("id"),
+                "kit": record.get("kit"),
+                "bnb": record.get("bnb"),
+                "date": record_date,
+                "activity_type": activity,
+                "status": record.get("status"),
+                "duration_hours": round(duration, 4),
+                "stored_duration": record.get("total_duration_hours"),
+                "total_paused_seconds": record.get("total_paused_seconds", 0)
+            })
     
-    # Daily trend
-    daily_hours = {}
-    for shift in shifts:
-        day = shift.get("date", "")
-        if day not in daily_hours:
-            daily_hours[day] = 0
-        daily_hours[day] += shift.get("total_duration_hours", 0) or 0
+    # ========================================
+    # STEP 4: Format response
+    # ========================================
     
-    # Sort and format
+    # Sort daily trend by date
     daily_trend = [
         {"date": day, "hours": round(hours, 2)}
         for day, hours in sorted(daily_hours.items())
     ]
     
+    # Sort activities by hours (descending)
     activity_breakdown = [
         {"activity": act, "hours": round(hours, 2)}
         for act, hours in sorted(hours_per_activity.items(), key=lambda x: -x[1])
     ]
     
-    return {
+    # Total deployments
+    total_deployments = len(deployments_in_range)
+    
+    response = {
         "start_date": start_date,
         "end_date": end_date,
         "total_hours": round(total_hours, 2),
-        "total_collection_records": len(shifts),
+        "total_collection_records": len(all_records),
         "total_deployments": total_deployments,
         "hours_per_activity": activity_breakdown,
         "daily_trend": daily_trend
     }
+    
+    # Add debug info if requested
+    if debug:
+        response["debug_info"] = {
+            "record_count": len(all_records),
+            "records": debug_records,
+            "deployment_ids": deployment_ids,
+            "calculation_method": "collection_records with live duration for active/paused"
+        }
+    
+    return response
 
 # ========================
 # SIMPLIFIED OFFLOAD ROUTES (SSD → HDD Data Transfer)

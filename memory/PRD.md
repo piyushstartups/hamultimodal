@@ -283,6 +283,15 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-21 - Analytics Calculations Fix:
+- Single source of truth: collection_records (shifts table) only
+- Uses deployment_date for date filtering (respects operational day 11AM-5AM)
+- Includes BOTH completed AND active/paused records
+- Proper pause handling: duration = end_time - start_time - paused_time
+- No double counting between shifts
+- Added debug mode (?debug=true) for validation
+- Now matches Live Dashboard exactly
+
 2026-03-21 - HDD Status Tracking:
 - Added status workflow: In Hub → Sent to DC → At Data Centre → Returned
 - Status summary cards on HDD Dashboard showing count per status
