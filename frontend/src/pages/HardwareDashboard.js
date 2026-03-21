@@ -12,12 +12,47 @@ import {
 } from '../components/ui/select';
 import { 
   ArrowLeft, Camera, Hand, RefreshCw, Package, MapPin, Calendar, User,
-  ChevronDown, ChevronUp, Loader2, ImageIcon
+  ChevronDown, ChevronUp, Loader2, ImageIcon, Sun, Moon, X
 } from 'lucide-react';
 
-// Hardware check card component with lazy image loading
-// Expansion state controlled by parent for proper isolation
-const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingImages }) => {
+// Image Lightbox Modal Component
+const ImageLightbox = ({ isOpen, imageUrl, imageLabel, onClose }) => {
+  if (!isOpen || !imageUrl) return null;
+  
+  return (
+    <div 
+      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="relative max-w-4xl max-h-[90vh] w-full">
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+          data-testid="lightbox-close"
+        >
+          <X className="w-8 h-8" />
+        </button>
+        
+        {/* Image label */}
+        {imageLabel && (
+          <p className="absolute -top-10 left-0 text-white text-sm">{imageLabel}</p>
+        )}
+        
+        {/* Image */}
+        <img
+          src={imageUrl}
+          alt={imageLabel || 'Hardware check image'}
+          className="w-full h-auto max-h-[85vh] object-contain rounded-lg"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    </div>
+  );
+};
+
+// Hardware check card component with proper expansion isolation
+const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingImages, onImageClick }) => {
   const formatTime = (isoString) => {
     if (!isoString) return '-';
     return new Date(isoString).toLocaleTimeString('en-US', { 
@@ -43,7 +78,7 @@ const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingI
             <Package className="w-4 h-4 text-slate-500" />
             <span className="font-bold">{check.kit}</span>
           </div>
-          <span className="text-slate-400">•</span>
+          <span className="text-slate-400">|</span>
           <div className="flex items-center gap-2">
             <MapPin className="w-4 h-4 text-slate-500" />
             <span className="text-sm text-slate-600">{check.bnb}</span>
@@ -85,8 +120,11 @@ const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingI
                     <img 
                       src={images.left_glove_image} 
                       alt="Left Glove" 
-                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                      onClick={(e) => { e.stopPropagation(); window.open(images.left_glove_image, '_blank'); }}
+                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        onImageClick(images.left_glove_image, 'Left Glove'); 
+                      }}
                       loading="lazy"
                     />
                   ) : (
@@ -105,8 +143,11 @@ const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingI
                     <img 
                       src={images.right_glove_image} 
                       alt="Right Glove" 
-                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                      onClick={(e) => { e.stopPropagation(); window.open(images.right_glove_image, '_blank'); }}
+                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        onImageClick(images.right_glove_image, 'Right Glove'); 
+                      }}
                       loading="lazy"
                     />
                   ) : (
@@ -125,8 +166,11 @@ const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingI
                     <img 
                       src={images.head_camera_image} 
                       alt="Head Camera" 
-                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80"
-                      onClick={(e) => { e.stopPropagation(); window.open(images.head_camera_image, '_blank'); }}
+                      className="w-full h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        onImageClick(images.head_camera_image, 'Head Camera'); 
+                      }}
                       loading="lazy"
                     />
                   ) : (
@@ -158,6 +202,48 @@ const HardwareCheckCard = ({ check, isExpanded, onToggleExpand, images, loadingI
   );
 };
 
+// Shift Section Component
+const ShiftSection = ({ title, icon: Icon, iconColor, bgColor, borderColor, checks, expandedCheckId, onToggleExpand, imageCache, loadingImagesFor, onImageClick }) => {
+  // Sort checks by kit number (KIT-01, KIT-02, etc.)
+  const sortedChecks = [...checks].sort((a, b) => {
+    const numA = parseInt(a.kit.replace(/\D/g, '')) || 0;
+    const numB = parseInt(b.kit.replace(/\D/g, '')) || 0;
+    return numA - numB;
+  });
+
+  return (
+    <div className={`${bgColor} border ${borderColor} rounded-xl overflow-hidden`}>
+      {/* Section Header */}
+      <div className={`px-4 py-3 flex items-center gap-2 border-b ${borderColor}`}>
+        <Icon className={`w-5 h-5 ${iconColor}`} />
+        <span className="font-semibold text-slate-800">{title}</span>
+        <span className="text-sm text-slate-500">({checks.length} checks)</span>
+      </div>
+      
+      {/* Checks Grid */}
+      <div className="p-4">
+        {checks.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-4">No hardware checks for this shift</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {sortedChecks.map(check => (
+              <HardwareCheckCard
+                key={check.id}
+                check={check}
+                isExpanded={expandedCheckId === check.id}
+                onToggleExpand={onToggleExpand}
+                images={imageCache[check.id]}
+                loadingImages={loadingImagesFor === check.id}
+                onImageClick={onImageClick}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function HardwareDashboard() {
   const [checks, setChecks] = useState([]);
   const [bnbs, setBnbs] = useState([]);
@@ -169,20 +255,23 @@ export default function HardwareDashboard() {
   const [totalChecks, setTotalChecks] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [currentSkip, setCurrentSkip] = useState(0);
-  const ITEMS_PER_PAGE = 20;
+  const ITEMS_PER_PAGE = 50; // Increased to get all checks for grouping
   
-  // Filters - filterDate will be set from backend
+  // Filters
   const [filterDate, setFilterDate] = useState('');
   const [filterBnb, setFilterBnb] = useState('all');
   const [filterKit, setFilterKit] = useState('all');
 
-  // Image cache to avoid refetching
+  // Image cache
   const [imageCache, setImageCache] = useState({});
   
-  // FIXED: Expansion state managed at parent level for proper isolation
-  // Only one card can be expanded at a time (accordion style)
+  // Expansion state - only one card expanded at a time
   const [expandedCheckId, setExpandedCheckId] = useState(null);
-  const [loadingImagesFor, setLoadingImagesFor] = useState(null); // Track which check is loading images
+  const [loadingImagesFor, setLoadingImagesFor] = useState(null);
+  
+  // Lightbox state
+  const [lightboxImage, setLightboxImage] = useState(null);
+  const [lightboxLabel, setLightboxLabel] = useState('');
 
   // Fetch operational date from backend on mount
   useEffect(() => {
@@ -200,9 +289,9 @@ export default function HardwareDashboard() {
 
   useEffect(() => {
     if (filterDate) {
-      // Reset pagination when filters change
       setCurrentSkip(0);
       setChecks([]);
+      setExpandedCheckId(null);
       fetchChecks(0, true);
     }
   }, [filterDate, filterBnb, filterKit]);
@@ -260,34 +349,64 @@ export default function HardwareDashboard() {
     setCurrentSkip(0);
     setChecks([]);
     setImageCache({});
-    setExpandedCheckId(null); // Reset expansion on refresh
+    setExpandedCheckId(null);
     fetchChecks(0, true);
   };
 
-  // Toggle expansion for a specific check (accordion style - only one open at a time)
+  // Toggle expansion - only one card at a time (accordion)
   const handleToggleExpand = useCallback(async (checkId) => {
     if (expandedCheckId === checkId) {
-      // Clicking the same card - collapse it
       setExpandedCheckId(null);
     } else {
-      // Expanding a different card
       setExpandedCheckId(checkId);
       
-      // Load images if not cached
       if (!imageCache[checkId]) {
         setLoadingImagesFor(checkId);
         try {
           const response = await api.get(`/hardware-checks/${checkId}/images`);
-          const images = response.data;
-          setImageCache(prev => ({ ...prev, [checkId]: images }));
+          setImageCache(prev => ({ ...prev, [checkId]: response.data }));
         } catch (error) {
-          console.error('Failed to load images for check:', checkId, error);
+          console.error('Failed to load images:', error);
         } finally {
           setLoadingImagesFor(null);
         }
       }
     }
   }, [expandedCheckId, imageCache]);
+
+  // Open lightbox
+  const handleImageClick = (imageUrl, label) => {
+    setLightboxImage(imageUrl);
+    setLightboxLabel(label);
+  };
+
+  // Close lightbox
+  const closeLightbox = () => {
+    setLightboxImage(null);
+    setLightboxLabel('');
+  };
+
+  // Group checks by shift
+  const groupChecksByShift = (allChecks) => {
+    const morning = [];
+    const evening = [];
+    
+    allChecks.forEach(check => {
+      // Determine shift based on creation time (before 2pm = morning, after = evening)
+      const createdAt = new Date(check.created_at);
+      const hour = createdAt.getHours();
+      
+      if (hour < 14) {
+        morning.push(check);
+      } else {
+        evening.push(check);
+      }
+    });
+    
+    return { morning, evening };
+  };
+
+  const { morning: morningChecks, evening: eveningChecks } = groupChecksByShift(checks);
 
   const displayDate = filterDate 
     ? new Date(filterDate + 'T12:00:00').toLocaleDateString('en-US', { 
@@ -297,6 +416,14 @@ export default function HardwareDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-100">
+      {/* Lightbox Modal */}
+      <ImageLightbox
+        isOpen={!!lightboxImage}
+        imageUrl={lightboxImage}
+        imageLabel={lightboxLabel}
+        onClose={closeLightbox}
+      />
+      
       {/* Header */}
       <header className="bg-slate-900 text-white">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -369,7 +496,7 @@ export default function HardwareDashboard() {
             </div>
             <div className="flex items-end">
               <p className="text-sm text-slate-600">
-                Showing <strong>{checks.length}</strong> of <strong>{totalChecks}</strong> checks
+                <strong>{totalChecks}</strong> total checks
               </p>
             </div>
           </div>
@@ -381,12 +508,7 @@ export default function HardwareDashboard() {
           <h2 className="font-semibold">{displayDate}</h2>
         </div>
 
-        {/* Info Banner */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-700">
-          Click on a card to expand and view images
-        </div>
-
-        {/* Checks List */}
+        {/* Content */}
         {loading ? (
           <div className="flex items-center justify-center py-12 text-slate-500">
             <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -397,19 +519,36 @@ export default function HardwareDashboard() {
             No hardware checks found for this date/filters
           </div>
         ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {checks.map(check => (
-                <HardwareCheckCard 
-                  key={check.id} 
-                  check={check} 
-                  isExpanded={expandedCheckId === check.id}
-                  onToggleExpand={handleToggleExpand}
-                  images={imageCache[check.id]}
-                  loadingImages={loadingImagesFor === check.id}
-                />
-              ))}
-            </div>
+          <div className="space-y-6">
+            {/* Morning Shift Section */}
+            <ShiftSection
+              title="Morning Shift"
+              icon={Sun}
+              iconColor="text-amber-500"
+              bgColor="bg-amber-50"
+              borderColor="border-amber-200"
+              checks={morningChecks}
+              expandedCheckId={expandedCheckId}
+              onToggleExpand={handleToggleExpand}
+              imageCache={imageCache}
+              loadingImagesFor={loadingImagesFor}
+              onImageClick={handleImageClick}
+            />
+            
+            {/* Evening Shift Section */}
+            <ShiftSection
+              title="Evening Shift"
+              icon={Moon}
+              iconColor="text-indigo-500"
+              bgColor="bg-indigo-50"
+              borderColor="border-indigo-200"
+              checks={eveningChecks}
+              expandedCheckId={expandedCheckId}
+              onToggleExpand={handleToggleExpand}
+              imageCache={imageCache}
+              loadingImagesFor={loadingImagesFor}
+              onImageClick={handleImageClick}
+            />
             
             {/* Load More Button */}
             {hasMore && (
@@ -434,7 +573,7 @@ export default function HardwareDashboard() {
                 </Button>
               </div>
             )}
-          </>
+          </div>
         )}
       </main>
     </div>
