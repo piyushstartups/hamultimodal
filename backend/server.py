@@ -11,13 +11,18 @@ import os
 import logging
 import secrets
 import pytz
+import hashlib
 
 # Configure logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Log startup for debugging production issues
+logger.info("=== SERVER MODULE LOADING ===")
+
 # Load environment variables from .env file (won't override existing env vars)
 load_dotenv()
+logger.info("Environment variables loaded")
 
 # ========================
 # DEFAULT CATEGORY DEFINITIONS (used for initial seeding)
@@ -213,10 +218,9 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
     # FALLBACK: Generate a deterministic key based on DB_NAME
     # This ensures all pods use the same key even if SECRET_KEY env var is missing
-    import hashlib
     fallback_key = hashlib.sha256(f"emergent-app-{DB_NAME}-secret".encode()).hexdigest()
     SECRET_KEY = fallback_key
-    logger.warning(f"SECRET_KEY not set in environment! Using deterministic fallback. Set SECRET_KEY env var for production.")
+    logger.warning("SECRET_KEY not set in environment! Using deterministic fallback. Set SECRET_KEY env var for production.")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -2101,7 +2105,7 @@ async def get_handover_status(deployment_id: str, date: str, user: dict = Depend
                 elif h.get("handover_type") == "incoming":
                     if not is_morning:
                         night_incoming_complete = True
-            except:
+            except Exception:
                 pass
     
     return {
