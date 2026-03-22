@@ -1,6 +1,44 @@
 # HA Multimodal Management - Product Requirements Document
 
 ## Last Updated
+2026-03-22 - **Hardware Check Shift Leakage FIXED + Full Kit Transfer**
+
+### Hardware Check Shift Leakage - ROOT CAUSE & FIX:
+**Root Cause:** 13 legacy records in the database were missing the `shift` field entirely.
+**Fix Applied:**
+1. Created migration endpoint `/api/admin/fix-missing-shifts` that:
+   - Finds all records without shift field
+   - Assigns shift based on timestamp (before 12:00 UTC = morning, after = night)
+   - Updates both `shift` and `shift_type` fields
+2. Ran migration: Fixed 13 records (11 → morning, 2 → night)
+3. Added debug logging to `recordMatchesShift()` and `getCompletedRecords()`
+4. Records list now shows actual shift value with label for verification
+
+**VERIFIED:**
+- All 17 shift records now have shift field
+- Morning: 14 records, Night: 3 records, Missing: 0
+- Morning tab ONLY shows morning records ✓
+- Night tab ONLY shows night records ✓
+
+### Full Kit Transfer - NEW FEATURE:
+**Purpose:** Move ALL items in a kit to a new location in one action
+
+**Backend:**
+- New endpoint: `POST /api/events/transfer-kit`
+- Moves all active items (excludes damaged/lost)
+- Records transfer event with list of items moved
+
+**Frontend (Inventory page):**
+- Transfer dialog now has "Transfer Type" selector:
+  - Item Transfer (existing flow)
+  - Full Kit Transfer (new)
+- Kit Transfer shows: Kit selector, Destination, Notes
+- Info message: "Damaged/lost items will remain unchanged"
+
+**Testing (iteration_22):**
+- Backend: 12/12 tests passed (100%)
+- Frontend: All UI flows verified
+
 2026-03-22 - **Hardware Check Shift Mapping - ROOT CAUSE FIXED**
 
 ### Root Cause Analysis:
