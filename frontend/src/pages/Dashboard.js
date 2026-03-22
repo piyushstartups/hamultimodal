@@ -18,18 +18,13 @@ export default function Dashboard() {
   const isAdmin = user?.role === 'admin';
   const isManager = user?.role === 'deployment_manager';
 
-  // Admin sees: Deployments (calendar), Live Dashboard, Analytics, Inventory, Hardware, Requests, Admin Panel
-  // Manager sees: Deployments (calendar), Actions, Live Dashboard, Analytics, Inventory, Hardware, Requests
+  // Admin sees: Deployments (calendar), Live Dashboard, Analytics, Inventory, Data Offload, Hardware, Admin Panel
+  // Manager sees: Deployments (calendar), Live Dashboard, Analytics, Inventory, Data Offload, Hardware
 
   const navItems = [];
 
   // Deployments (calendar) - for everyone
   navItems.push({ href: '/deployments', icon: Calendar, label: 'Deployments', desc: 'Plan & view deployments', color: 'bg-blue-500' });
-
-  // Actions - only for deployment managers
-  if (isManager) {
-    navItems.push({ href: '/actions', icon: Zap, label: 'Quick Actions', desc: 'Transfer & damage', color: 'bg-green-500' });
-  }
 
   // Live Dashboard - for everyone
   navItems.push({ href: '/live', icon: BarChart3, label: 'Live Dashboard', desc: "Today's hours", color: 'bg-purple-500' });
@@ -37,16 +32,14 @@ export default function Dashboard() {
   // Analytics - for everyone
   navItems.push({ href: '/analytics', icon: TrendingUp, label: 'Analytics', desc: 'Historical data', color: 'bg-indigo-500' });
 
-  // Inventory - for everyone
-  navItems.push({ href: '/inventory', icon: Package, label: 'Inventory', desc: 'View items & status', color: 'bg-amber-500' });
+  // Inventory - for everyone (handles Transfer, Report Damage, Report Lost, Add Item)
+  navItems.push({ href: '/inventory', icon: Package, label: 'Inventory', desc: 'Items, transfers & reports', color: 'bg-amber-500' });
+
+  // Data Offload - for EVERYONE (not admin only)
+  navItems.push({ href: '/offload', icon: HardDrive, label: 'Data Offload', desc: 'SSD to HDD transfer', color: 'bg-orange-500' });
 
   // Hardware Dashboard - for everyone
   navItems.push({ href: '/hardware', icon: Cpu, label: 'Hardware', desc: 'Equipment health', color: 'bg-teal-500' });
-
-  // Data Offload - for admin only (SSD → HDD offload flow)
-  if (isAdmin) {
-    navItems.push({ href: '/offload', icon: HardDrive, label: 'Data Offload', desc: 'SSD to HDD transfer', color: 'bg-orange-500' });
-  }
 
   // Admin Panel - only for admin
   if (isAdmin) {

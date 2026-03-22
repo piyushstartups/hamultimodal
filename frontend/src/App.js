@@ -9,7 +9,6 @@ import Dashboard from "./pages/Dashboard";
 import MyDeployments from "./pages/MyDeployments";
 import Deployments from "./pages/Deployments";
 import BnbDayView from "./pages/BnbDayView";
-import Actions from "./pages/Actions";
 import LiveDashboard from "./pages/LiveDashboard";
 import Analytics from "./pages/Analytics";
 import Inventory from "./pages/Inventory";
@@ -41,7 +40,6 @@ function App() {
           <Route path="/my-deployments" element={<ProtectedRoute><MyDeployments /></ProtectedRoute>} />
           <Route path="/deployments" element={<ProtectedRoute><Deployments /></ProtectedRoute>} />
           <Route path="/deployments/:deploymentId/day-view" element={<ProtectedRoute><BnbDayView /></ProtectedRoute>} />
-          <Route path="/actions" element={<ProtectedRoute><Actions /></ProtectedRoute>} />
           <Route path="/live" element={<ProtectedRoute><LiveDashboard /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />

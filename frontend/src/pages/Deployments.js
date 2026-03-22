@@ -352,10 +352,11 @@ export default function Deployments() {
   };
 
   // NEW: Get shift access for a user (with view-only support)
-  // SYMMETRIC ACCESS:
+  // SYMMETRIC ACCESS - STRICT ENFORCEMENT:
   // - Morning managers: FULL access to Morning, VIEW-ONLY to Night
   // - Night managers: FULL access to Night, VIEW-ONLY to Morning
   // - Admins: FULL access to both
+  // - NO legacy fallback - must be explicitly assigned to morning_managers or night_managers
   const getUserShiftAccess = (deployment) => {
     const userId = user?.id;
     const userRole = user?.role;
@@ -366,8 +367,7 @@ export default function Deployments() {
       isAdmin,
       deploymentId: deployment?.id,
       morningManagers: deployment?.morning_managers,
-      nightManagers: deployment?.night_managers || deployment?.evening_managers,
-      deploymentManagers: deployment?.deployment_managers
+      nightManagers: deployment?.night_managers || deployment?.evening_managers
     });
     
     if (!userId || !deployment) {
@@ -387,36 +387,38 @@ export default function Deployments() {
       };
     }
     
+    // Check explicit shift assignments (NO LEGACY FALLBACK)
     const isMorningManager = deployment.morning_managers?.includes(userId);
     const isNightManager = (deployment.night_managers || deployment.evening_managers)?.includes(userId);
-    // Legacy support
-    const isLegacyManager = deployment.deployment_managers?.includes(userId);
     
-    // SYMMETRIC ACCESS LOGIC:
-    // - If you're a morning manager: FULL morning, VIEW-ONLY night
-    // - If you're a night manager: FULL night, VIEW-ONLY morning
-    // - If you're both: FULL access to both
-    // - Legacy managers get FULL access to both for backward compat
+    // STRICT SYMMETRIC ACCESS:
+    // - Morning manager: FULL morning, VIEW-ONLY night (can see but not control)
+    // - Night manager: FULL night, VIEW-ONLY morning (can see but not control)
+    // - If assigned to neither: NO ACCESS at all
+    // - If assigned to both: FULL access to both
+    
+    const hasAnyAssignment = isMorningManager || isNightManager;
+    
     const access = {
-      // Can VIEW the shift tab
-      canMorning: isMorningManager || isNightManager || isLegacyManager,
-      canNight: isMorningManager || isNightManager || isLegacyManager,
-      // VIEW-ONLY flags (cannot perform actions)
-      morningViewOnly: !isMorningManager && !isLegacyManager && isNightManager,
-      nightViewOnly: !isNightManager && !isLegacyManager && isMorningManager
+      // Can VIEW the shift tab (if assigned to at least one shift on this deployment)
+      canMorning: hasAnyAssignment,
+      canNight: hasAnyAssignment,
+      // VIEW-ONLY flags (cannot perform actions) - STRICT enforcement
+      morningViewOnly: !isMorningManager && isNightManager,  // Night manager viewing morning = view-only
+      nightViewOnly: !isNightManager && isMorningManager     // Morning manager viewing night = view-only
     };
     
-    console.log('[ACCESS_CHECK] Non-admin access result', { 
+    console.log('[ACCESS_CHECK] Deployment manager access result', { 
       isMorningManager, 
       isNightManager, 
-      isLegacyManager, 
+      hasAnyAssignment,
       access 
     });
     
     return access;
   };
 
-  // NEW: Check if user can perform actions on a shift (not view-only)
+  // Check if user can perform actions on a shift (not view-only)
   const canPerformActionsOnShift = (deployment, shiftTab) => {
     const access = getUserShiftAccess(deployment);
     if (shiftTab === 'morning') {

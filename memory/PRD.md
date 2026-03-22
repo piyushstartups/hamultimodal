@@ -330,35 +330,42 @@ Deployments → Date → BnB → Handover buttons
 - All new data will be stored with "night" not "evening"
 
 2026-03-22 - Shift Permissions Fix (SYMMETRIC ACCESS):
-**Made shift permissions symmetric between Morning and Night managers**
+**Made shift permissions symmetric between Morning and Night managers - NOW ENFORCED**
+- Removed legacy `deployment_managers` fallback that was giving full access to both shifts
+- STRICT enforcement: managers MUST be explicitly in morning_managers OR night_managers
 - Morning managers: FULL access to Morning shift, VIEW-ONLY access to Night shift
 - Night managers: FULL access to Night shift, VIEW-ONLY access to Morning shift
 - Admins: FULL access to both shifts
 - View-only mode: Can see kits/data/status, but cannot Start/Pause/Resume/Stop
-- Added view-only banner notification when in view-only mode
-- Updated UI to hide action buttons for view-only users
+- Added view-only banner notification: "You can view this shift's data but cannot perform actions"
+- Kit cards show: "View only - you cannot start collections on this shift"
+- Backend already enforces permissions on API endpoints
 
 2026-03-22 - Inventory & Data Offload Improvements:
 **Inventory Access:**
 - Removed admin-only restriction for adding items - all users can now add items
 - Admin retains edit/delete permissions
 
+**Data Offload Page Access - NOW VISIBLE TO ALL USERS:**
+- Removed admin-only restriction from Dashboard navigation
+- Data Offload page now accessible to deployment managers
+- Managers can: select SSD, select HDD, perform offload
+
+**Removed Quick Actions (SIMPLIFICATION):**
+- Removed Quick Actions page from deployment manager view
+- Removed /actions route from App.js
+- All actions now handled through Inventory page only
+- Inventory handles: Transfer Item, Report Damage, Report Lost, Add Item
+
 **Data Offload SSD Selection Bug Fix:**
 - Fixed: All SSDs are now selectable (removed condition that only allowed pending data SSDs)
 - Fixed: Checkboxes now visible on ALL SSDs, not just ones with pending data
-- Improved: Click anywhere on SSD card to toggle selection
 
 **New Feature: SSD Tracker Tab**
 - Added new "SSD Tracker" tab to Data Offload page
 - Shows: SSD ID, Current Location, Status, Last Offloaded, Pending Data, BnBs Used
-- View-only tracking derived from existing collection_records
 
-**Files Updated:**
-- Backend: server.py (removed admin-only for POST /api/items)
-- Frontend: Deployments.js (symmetric shift permissions, view-only logic)
-- Frontend: OffloadManagement.js (SSD selection fix, SSD Tracker tab)
-
-**ZERO BREAKING CHANGES:** All existing flows preserved.
+**ZERO BREAKING CHANGES:** All existing flows preserved, permissions now stricter.
 
 **ISOLATION CONFIRMED:** Only fixed shift naming. No changes to collection start/stop/pause flows.
 
