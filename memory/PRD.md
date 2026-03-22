@@ -1,6 +1,30 @@
 # HA Multimodal Management - Product Requirements Document
 
 ## Last Updated
+2026-03-22 - **Task Categories & Hardware Check Shift Mapping Fix**
+
+### Task Categories System (Database-Driven) ✅
+- Task categories now stored in MongoDB `task_categories` collection
+- CRUD API endpoints: GET/POST/PUT/DELETE /api/task-categories
+- Admin Panel: New "Task Categories" tab with Add/Edit/Delete functionality
+- Default categories seeded: Cooking, Cleaning, Organizing, Outdoor, Other
+- All dropdowns (Deployments, EventDialog) now fetch from API
+- Past records keep old category name (only future affected by edits)
+
+### Hardware Check Shift Mapping Fix (Critical Bug) ✅
+- Fixed: Morning shift checks were appearing under Night shift
+- Root cause: Kit status/records were not filtered by shift_type
+- Fix: Added `recordMatchesShift()` helper function
+- Fix: Updated `getKitStatus()`, `getActiveRecord()`, `getCompletedRecords()`, `getTotalKitHours()` to accept optional `shiftType` parameter
+- Kit cards now strictly filter records by current shift tab
+- No cross-shift data leakage
+- Hardware check status display only shows current shift's completion
+
+### Testing (iteration_21) ✅
+- Backend: 13/13 tests passed (100%)
+- Frontend: All UI flows verified
+- Bug fixed: AdminPanel.js `openAddDialog` function was incorrectly handling 'task-categories' tab name
+
 2026-03-22 - **MAJOR: Inventory System Overhaul Complete (Phases 1-5)**
 
 ### Phase 1: Category Management Backend ✅
