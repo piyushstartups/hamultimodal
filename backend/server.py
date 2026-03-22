@@ -51,27 +51,38 @@ async def refresh_category_cache():
     """Refresh the in-memory category cache from database"""
     global CACHED_CATEGORIES, VALID_CATEGORY_VALUES, UNIQUE_CATEGORIES, NON_UNIQUE_CATEGORIES, CATEGORY_LABELS
     
-    categories = await get_db().categories.find({}, {"_id": 0}).to_list(100)
-    
-    if not categories:
-        # Seed with defaults if empty
-        for cat in DEFAULT_CATEGORIES:
-            cat_doc = {
-                "value": cat["value"],
-                "label": cat["label"],
-                "type": cat["type"],
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await get_db().categories.insert_one(cat_doc)
+    try:
         categories = await get_db().categories.find({}, {"_id": 0}).to_list(100)
-    
-    CACHED_CATEGORIES = categories
-    VALID_CATEGORY_VALUES = [c["value"] for c in categories]
-    UNIQUE_CATEGORIES = [c["value"] for c in categories if c.get("type") == "unique"]
-    NON_UNIQUE_CATEGORIES = [c["value"] for c in categories if c.get("type") == "non_unique"]
-    CATEGORY_LABELS = {c["value"]: c["label"] for c in categories}
-    
-    return categories
+        
+        if not categories:
+            # Seed with defaults if empty
+            for cat in DEFAULT_CATEGORIES:
+                cat_doc = {
+                    "value": cat["value"],
+                    "label": cat["label"],
+                    "type": cat["type"],
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await get_db().categories.insert_one(cat_doc)
+            categories = await get_db().categories.find({}, {"_id": 0}).to_list(100)
+        
+        CACHED_CATEGORIES = categories
+        VALID_CATEGORY_VALUES = [c["value"] for c in categories]
+        UNIQUE_CATEGORIES = [c["value"] for c in categories if c.get("type") == "unique"]
+        NON_UNIQUE_CATEGORIES = [c["value"] for c in categories if c.get("type") == "non_unique"]
+        CATEGORY_LABELS = {c["value"]: c["label"] for c in categories}
+        
+        return categories
+    except Exception as e:
+        logger.error(f"Failed to refresh category cache: {e}")
+        # Use defaults if database is unavailable
+        if not CACHED_CATEGORIES:
+            CACHED_CATEGORIES = DEFAULT_CATEGORIES
+            VALID_CATEGORY_VALUES = [c["value"] for c in DEFAULT_CATEGORIES]
+            UNIQUE_CATEGORIES = [c["value"] for c in DEFAULT_CATEGORIES if c.get("type") == "unique"]
+            NON_UNIQUE_CATEGORIES = [c["value"] for c in DEFAULT_CATEGORIES if c.get("type") == "non_unique"]
+            CATEGORY_LABELS = {c["value"]: c["label"] for c in DEFAULT_CATEGORIES}
+        return CACHED_CATEGORIES
 
 # Legacy category mapping (to normalize old/inconsistent data)
 CATEGORY_NORMALIZATION_MAP = {
@@ -424,23 +435,31 @@ def get_current_user_dep():
 @app.on_event("startup")
 async def startup():
     logger.info("App started successfully - DB will connect on first request")
-    # Initialize category cache from database
-    await refresh_category_cache()
-    logger.info(f"Loaded {len(CACHED_CATEGORIES)} categories from database")
     
-    # Seed task categories if empty
-    task_cats = await get_db().task_categories.find({}, {"_id": 0}).to_list(100)
-    if not task_cats:
-        for cat in DEFAULT_TASK_CATEGORIES:
-            cat_doc = {
-                "value": cat["value"],
-                "label": cat["label"],
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-            await get_db().task_categories.insert_one(cat_doc)
-        logger.info(f"Seeded {len(DEFAULT_TASK_CATEGORIES)} task categories")
-    else:
-        logger.info(f"Found {len(task_cats)} existing task categories")
+    # Wrap all database operations in try-catch to prevent startup crashes
+    # This is critical for production where MongoDB may take longer to initialize
+    try:
+        # Initialize category cache from database
+        await refresh_category_cache()
+        logger.info(f"Loaded {len(CACHED_CATEGORIES)} categories from database")
+        
+        # Seed task categories if empty
+        task_cats = await get_db().task_categories.find({}, {"_id": 0}).to_list(100)
+        if not task_cats:
+            for cat in DEFAULT_TASK_CATEGORIES:
+                cat_doc = {
+                    "value": cat["value"],
+                    "label": cat["label"],
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await get_db().task_categories.insert_one(cat_doc)
+            logger.info(f"Seeded {len(DEFAULT_TASK_CATEGORIES)} task categories")
+        else:
+            logger.info(f"Found {len(task_cats)} existing task categories")
+    except Exception as e:
+        logger.error(f"Database initialization failed during startup: {e}")
+        logger.warning("App will continue - categories will load on first request")
+        # Don't crash - let the app start and handle DB connection lazily
 
 # ========================
 # AUTH ROUTES
