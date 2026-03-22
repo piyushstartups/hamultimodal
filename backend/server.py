@@ -195,11 +195,16 @@ def get_db():
         db = client[DB_NAME]
     return db
 
-# Auth - generate a random key if not provided
+# Auth - CRITICAL: SECRET_KEY must be consistent across all pods
+# If not set, we use a deterministic fallback based on DB_NAME to ensure consistency
 SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
-    SECRET_KEY = secrets.token_urlsafe(32)
-    logger.warning("SECRET_KEY not set, using auto-generated key.")
+    # FALLBACK: Generate a deterministic key based on DB_NAME
+    # This ensures all pods use the same key even if SECRET_KEY env var is missing
+    import hashlib
+    fallback_key = hashlib.sha256(f"emergent-app-{DB_NAME}-secret".encode()).hexdigest()
+    SECRET_KEY = fallback_key
+    logger.warning(f"SECRET_KEY not set in environment! Using deterministic fallback. Set SECRET_KEY env var for production.")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
