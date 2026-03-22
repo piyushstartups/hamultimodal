@@ -9,7 +9,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://damage-lost-flow.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://kit-inventory-deploy.preview.emergentagent.com').rstrip('/')
 
 class TestInventoryRefactor:
     """Tests for inventory system refactor features"""

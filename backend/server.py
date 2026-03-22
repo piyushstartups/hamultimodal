@@ -3203,18 +3203,19 @@ async def migrate_evening_to_night(user: dict = Depends(get_current_user_dep()))
     }
 
 @app.post("/api/admin/fix-missing-shifts")
-async def fix_missing_shifts(user: dict = Depends(get_current_user_dep())):
+async def fix_missing_shifts(force_recheck: bool = False, user: dict = Depends(get_current_user_dep())):
     """
-    Data migration: Fix records that are missing the 'shift' field.
+    Data migration: Fix records that are missing the 'shift' field OR have incorrect values.
     
     LOGIC (Based on deployment assignments, NOT timestamps):
     1. Find the deployment for the record using deployment_id
     2. Check if the user who created the record is in morning_managers or night_managers
     3. If not found, check deployment's shift field
     4. If deployment has only morning_managers or only night_managers, use that
-    5. If deployment has legacy deployment_managers (pre-split), check if user is admin
-       - Admins default to morning
-       - Non-admins default to the first non-empty manager list
+    5. If deployment has legacy deployment_managers (pre-split), use deployment.shift
+    
+    Query params:
+    - force_recheck: If true, re-evaluate ALL records (not just missing ones)
     
     Admin only.
     """
@@ -3225,27 +3226,33 @@ async def fix_missing_shifts(user: dict = Depends(get_current_user_dep())):
         "shifts_fixed": 0,
         "shifts_details": [],
         "errors": [],
-        "skipped": []
+        "already_correct": 0
     }
     
-    # Find all shifts records missing the 'shift' field or with invalid values
-    missing_shift_records = await get_db().shifts.find({
-        "$or": [
-            {"shift": {"$exists": False}},
-            {"shift": None},
-            {"shift": ""}
-        ]
-    }).to_list(1000)
-    
-    logger.info(f"Found {len(missing_shift_records)} records missing shift field")
+    # Find records to process
+    if force_recheck:
+        # Re-check ALL records
+        records_to_check = await get_db().shifts.find({}).to_list(1000)
+        logger.info(f"Force recheck: checking ALL {len(records_to_check)} records")
+    else:
+        # Only check records missing shift field
+        records_to_check = await get_db().shifts.find({
+            "$or": [
+                {"shift": {"$exists": False}},
+                {"shift": None},
+                {"shift": ""}
+            ]
+        }).to_list(1000)
+        logger.info(f"Found {len(records_to_check)} records missing shift field")
     
     # Cache deployments to avoid repeated queries
     deployments_cache = {}
     
-    for record in missing_shift_records:
+    for record in records_to_check:
         record_id = record.get("id", str(record.get("_id")))
         deployment_id = record.get("deployment_id")
         record_user = record.get("user")
+        current_shift = record.get("shift")
         assigned_shift = None
         derivation_method = "unknown"
         
@@ -3287,17 +3294,11 @@ async def fix_missing_shifts(user: dict = Depends(get_current_user_dep())):
                         derivation_method = "deployment has only night_managers"
                 
                 # Method 4: Legacy deployment with deployment_managers but no split
-                # Check if user is in legacy managers - if admin-001, likely morning
+                # Use deployment.shift if available, otherwise flag for review
                 if not assigned_shift and record_user in legacy_managers:
-                    # Look up user role
-                    user_doc = await get_db().users.find_one({"id": record_user})
-                    if user_doc and user_doc.get("role") == "admin":
-                        assigned_shift = "morning"
-                        derivation_method = f"admin user in legacy deployment_managers, defaulting to morning"
-                    else:
-                        # For non-admin managers in legacy deployments, we can't determine
-                        # Mark as error for manual review
-                        pass
+                    if dep_shift:
+                        assigned_shift = "night" if dep_shift == "evening" else dep_shift
+                        derivation_method = f"user in legacy deployment_managers, using deployment.shift={dep_shift}"
         
         # If still no shift assigned, log for manual review
         if not assigned_shift:
@@ -3306,8 +3307,14 @@ async def fix_missing_shifts(user: dict = Depends(get_current_user_dep())):
                 "kit": record.get("kit"),
                 "deployment_id": deployment_id,
                 "user": record_user,
+                "current_shift": current_shift,
                 "reason": "Could not derive shift from deployment data - needs manual review"
             })
+            continue
+        
+        # Check if update is needed
+        if current_shift == assigned_shift:
+            results["already_correct"] += 1
             continue
         
         # Update the record
@@ -3322,13 +3329,14 @@ async def fix_missing_shifts(user: dict = Depends(get_current_user_dep())):
             "kit": record.get("kit"),
             "deployment_id": deployment_id,
             "user": record_user,
+            "previous_shift": current_shift,
             "assigned_shift": assigned_shift,
             "derivation_method": derivation_method
         })
     
     return {
         "status": "success",
-        "message": f"Fixed {results['shifts_fixed']} records based on deployment assignments. {len(results['errors'])} records need manual review.",
+        "message": f"Fixed {results['shifts_fixed']} records. {results['already_correct']} already correct. {len(results['errors'])} need manual review.",
         "details": results
     }
 
