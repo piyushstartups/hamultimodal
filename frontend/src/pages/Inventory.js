@@ -399,15 +399,48 @@ export default function Inventory() {
             return;
           }
           
-          await api.post('/events', {
-            event_type: 'transfer',
-            item: itemName,
-            from_location,
-            to_location,
-            quantity: transferQty,
-            notes: formData.notes || null
-          });
-          toast.success('Transfer recorded');
+          // Check for SSD transfer with reason
+          const isSsdTransfer = formData.transfer_category === 'ssd' || 
+            (editingItem && editingItem.category === 'ssd');
+          
+          if (isSsdTransfer && formData.ssd_transfer_reason === 'ssd_full') {
+            // Mark SSD as "ready_for_offload" when transferred due to being full
+            await api.post('/events', {
+              event_type: 'transfer',
+              item: itemName,
+              from_location,
+              to_location,
+              quantity: transferQty,
+              notes: `SSD Full - Ready for Offload. ${formData.notes || ''}`.trim()
+            });
+            await api.put(`/items/${itemName}`, { status: 'ready_for_offload' });
+            toast.success('SSD transferred and marked as Ready for Offload');
+          } else if (isSsdTransfer && formData.ssd_transfer_reason === 'issue_damage') {
+            // Mark SSD as damaged when transferred due to issue
+            await api.post('/events', {
+              event_type: 'transfer',
+              item: itemName,
+              from_location,
+              to_location,
+              quantity: transferQty,
+              notes: `Issue/Damage. ${formData.notes || ''}`.trim()
+            });
+            await api.put(`/items/${itemName}`, { status: 'damaged' });
+            toast.success('SSD transferred and marked as Damaged');
+          } else {
+            // Regular transfer
+            await api.post('/events', {
+              event_type: 'transfer',
+              item: itemName,
+              from_location,
+              to_location,
+              quantity: transferQty,
+              notes: formData.ssd_transfer_reason 
+                ? `Reason: ${formData.ssd_transfer_reason}. ${formData.notes || ''}`.trim()
+                : (formData.notes || null)
+            });
+            toast.success('Transfer recorded');
+          }
         }
       } else if (dialogType === 'damage') {
         // Single item damage report (from item row)
@@ -432,43 +465,61 @@ export default function Inventory() {
         }
         
         if (isUnique) {
-          // UNIQUE: Must select specific item
+          // UNIQUE: Must select specific item (location auto-detected from item)
           if (!formData.report_item) {
             toast.error('Please select an item');
             return;
           }
+          const selectedItem = items.find(i => i.item_name === formData.report_item);
           await api.post('/events', {
             event_type: newStatus === 'damaged' ? 'damage' : 'lost',
             item: formData.report_item,
+            from_location: selectedItem?.current_location || null,
             quantity: 1,
             notes: formData.notes || null
           });
           await api.put(`/items/${formData.report_item}`, { status: newStatus });
           toast.success(`Item marked as ${newStatus}`);
         } else {
-          // NON-UNIQUE: Enter quantity
+          // NON-UNIQUE: User selects location + quantity
           const qty = formData.report_quantity || 1;
-          // Find items of this category that are active
-          const categoryItems = items.filter(i => 
-            i.category === formData.report_category && i.status === 'active'
-          );
+          const sourceLocation = formData.report_location_type && formData.report_location_value
+            ? `${formData.report_location_type}:${formData.report_location_value}`
+            : null;
           
-          if (categoryItems.length === 0) {
-            toast.error('No active items found in this category');
+          if (!sourceLocation) {
+            toast.error('Please select a source location');
             return;
           }
           
-          // For quantity-based items, we need to reduce quantity or mark as damaged
-          for (const item of categoryItems.slice(0, qty)) {
-            await api.post('/events', {
-              event_type: newStatus === 'damaged' ? 'damage' : 'lost',
-              item: item.item_name,
-              quantity: 1,
-              notes: formData.notes || null
-            });
-            await api.put(`/items/${item.item_name}`, { status: newStatus });
+          // Find items of this category at the specified location
+          const locationItems = items.filter(i => 
+            i.category === formData.report_category && 
+            i.status === 'active' &&
+            i.current_location === sourceLocation
+          );
+          
+          if (locationItems.length === 0) {
+            toast.error(`No active ${categoryLabels[formData.report_category] || 'items'} found at this location`);
+            return;
           }
-          toast.success(`${qty} item(s) marked as ${newStatus}`);
+          
+          // Calculate total available at location
+          const totalAvailable = locationItems.reduce((sum, i) => sum + (i.quantity || 1), 0);
+          if (totalAvailable < qty) {
+            toast.error(`Only ${totalAvailable} available at this location`);
+            return;
+          }
+          
+          // Use the new quantity-based damage/lost endpoint
+          await api.post('/events/damage-lost-quantity', {
+            category: formData.report_category,
+            from_location: sourceLocation,
+            quantity: qty,
+            status: newStatus,
+            notes: formData.notes || null
+          });
+          toast.success(`${qty} ${categoryLabels[formData.report_category] || 'item(s)'} marked as ${newStatus}`);
         }
       }
       
@@ -1243,21 +1294,59 @@ export default function Inventory() {
                         )}
                       </div>
                     ) : (
-                      // NON-UNIQUE: Enter quantity
-                      <div>
-                        <Label className="text-xs font-semibold text-slate-700">Step 2: Quantity *</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          max={items.filter(i => i.category === formData.report_category && i.status === 'active').length || 1}
-                          value={formData.report_quantity}
-                          onChange={(e) => setFormData({ ...formData, report_quantity: parseInt(e.target.value) || 1 })}
-                          className="mt-1 h-9"
-                          data-testid="report-quantity-input"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Available: {items.filter(i => i.category === formData.report_category && i.status === 'active').length} items
-                        </p>
+                      // NON-UNIQUE: Select location + quantity
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-xs font-semibold text-slate-700">Step 2: Select Source Location *</Label>
+                          <div className="grid grid-cols-2 gap-2 mt-1">
+                            <Select 
+                              value={formData.report_location_type || ''} 
+                              onValueChange={(v) => setFormData({ ...formData, report_location_type: v, report_location_value: '' })}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                            <Select 
+                              value={formData.report_location_value || ''} 
+                              onValueChange={(v) => setFormData({ ...formData, report_location_value: v })}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Location" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getLocationOptions(formData.report_location_type).map(o => (
+                                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold text-slate-700">Quantity *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={formData.report_quantity}
+                            onChange={(e) => setFormData({ ...formData, report_quantity: parseInt(e.target.value) || 1 })}
+                            className="mt-1 h-9"
+                            data-testid="report-quantity-input"
+                          />
+                          {formData.report_location_type && formData.report_location_value && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              Available at {formData.report_location_type}:{formData.report_location_value}: {
+                                items.filter(i => 
+                                  i.category === formData.report_category && 
+                                  i.status === 'active' &&
+                                  i.current_location === `${formData.report_location_type}:${formData.report_location_value}`
+                                ).reduce((sum, i) => sum + (i.quantity || 1), 0)
+                              } items
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1495,6 +1584,31 @@ export default function Inventory() {
                         </p>
                       </div>
                     )}
+                  </div>
+                )}
+                
+                {/* SSD Transfer Reason (only for SSD category) */}
+                {formData.transfer_category === 'ssd' && formData.transfer_item && (
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <Label className="text-xs font-semibold text-blue-700">Reason for SSD Transfer *</Label>
+                    <Select 
+                      value={formData.ssd_transfer_reason || ''} 
+                      onValueChange={(v) => setFormData({ ...formData, ssd_transfer_reason: v })}
+                    >
+                      <SelectTrigger className="mt-1 h-9" data-testid="ssd-transfer-reason">
+                        <SelectValue placeholder="Select reason" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ssd_full">SSD Full (Mark as Ready for Offload)</SelectItem>
+                        <SelectItem value="routine_return">Routine Return</SelectItem>
+                        <SelectItem value="issue_damage">Issue/Damage</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {formData.ssd_transfer_reason === 'ssd_full' && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        This SSD will be marked as "Ready for Offload" and appear in the Data Offload page.
+                      </p>
                     )}
                   </div>
                 )}

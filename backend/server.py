@@ -217,7 +217,7 @@ class ItemCreate(BaseModel):
     item_name: str
     category: str = "general"  # ssd, camera, gloves, etc.
     tracking_type: str  # individual / quantity
-    status: str = "active"  # active / damaged / lost / repair
+    status: str = "active"  # active / damaged / lost / repair / ready_for_offload
     current_location: Optional[str] = None  # e.g., "kit:KIT-01" or "bnb:BnB-01" or "station:Storage"
     quantity: int = 1  # For quantity-tracked items
 
@@ -240,7 +240,7 @@ class DeploymentUpdate(BaseModel):
 class ItemUpdate(BaseModel):
     category: Optional[str] = None
     tracking_type: str  # individual / quantity
-    status: str = "active"  # active / damaged / lost / repair
+    status: str = "active"  # active / damaged / lost / repair / ready_for_offload
     current_location: Optional[str] = None
     quantity: Optional[int] = None
 
@@ -281,6 +281,14 @@ class QuantityTransferCreate(BaseModel):
     from_location: str  # Source location (e.g., "kit:KIT-01")
     to_location: str  # Destination location (e.g., "station:Storage")
     quantity: int = 1  # Number of items to transfer
+    notes: Optional[str] = None
+
+# Quantity-based damage/lost model (for NON-UNIQUE categories)
+class QuantityDamageLostCreate(BaseModel):
+    category: str  # Category (e.g., "usb_hub")
+    from_location: str  # Location where items are damaged/lost
+    quantity: int = 1  # Number of items affected
+    status: str  # "damaged" or "lost"
     notes: Optional[str] = None
 
 # Hardware Health Check models
@@ -1307,6 +1315,112 @@ async def transfer_quantity(data: QuantityTransferCreate, user: dict = Depends(g
         "category": data.category,
         "from": data.from_location,
         "to": data.to_location,
+        "event": event_doc
+    }
+
+@app.post("/api/events/damage-lost-quantity")
+async def damage_lost_quantity(data: QuantityDamageLostCreate, user: dict = Depends(get_current_user_dep())):
+    """
+    Mark quantity-based items (NON-UNIQUE categories) as damaged or lost at a specific location.
+    This reduces the quantity at the source location.
+    """
+    # Validate category
+    if data.category not in NON_UNIQUE_CATEGORIES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Category '{data.category}' is not a quantity-based category"
+        )
+    
+    # Validate status
+    if data.status not in ["damaged", "lost"]:
+        raise HTTPException(status_code=400, detail="Status must be 'damaged' or 'lost'")
+    
+    # Find items of this category at the source location
+    source_items = await get_db().items.find({
+        "category": data.category,
+        "current_location": data.from_location,
+        "status": "active"
+    }).to_list(100)
+    
+    if not source_items:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"No {data.category} items found at {data.from_location}"
+        )
+    
+    # Calculate total available quantity at source
+    total_available = sum(item.get("quantity", 1) for item in source_items)
+    
+    if total_available < data.quantity:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Not enough items. Available: {total_available}, Requested: {data.quantity}"
+        )
+    
+    # Reduce quantity from source item(s) and mark as damaged/lost
+    remaining_to_mark = data.quantity
+    affected_items = []
+    
+    for item in source_items:
+        if remaining_to_mark <= 0:
+            break
+        
+        item_qty = item.get("quantity", 1)
+        if item_qty <= remaining_to_mark:
+            # Mark entire item as damaged/lost
+            await get_db().items.update_one(
+                {"item_name": item["item_name"]},
+                {"$set": {"status": data.status}}
+            )
+            affected_items.append({"item": item["item_name"], "quantity": item_qty})
+            remaining_to_mark -= item_qty
+        else:
+            # Split: reduce source quantity, create a new item marked as damaged/lost
+            new_source_qty = item_qty - remaining_to_mark
+            await get_db().items.update_one(
+                {"item_name": item["item_name"]},
+                {"$set": {"quantity": new_source_qty}}
+            )
+            
+            # Create new item record for the damaged/lost portion
+            count = await get_db().items.count_documents({"category": data.category})
+            new_item_name = f"{data.category.upper().replace('_', '-')}-{data.status.upper()}-{count + 1}"
+            await get_db().items.insert_one({
+                "item_name": new_item_name,
+                "item_id": new_item_name,
+                "category": data.category,
+                "tracking_type": "quantity",
+                "status": data.status,
+                "current_location": data.from_location,
+                "quantity": remaining_to_mark
+            })
+            affected_items.append({"item": new_item_name, "quantity": remaining_to_mark})
+            remaining_to_mark = 0
+    
+    # Record the event
+    event_doc = {
+        "id": f"evt-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "event_type": data.status,  # "damaged" or "lost"
+        "user": user["id"],
+        "user_name": user["name"],
+        "item": f"{data.category} (x{data.quantity})",
+        "from_location": data.from_location,
+        "to_location": None,
+        "quantity": data.quantity,
+        "notes": data.notes,
+        "deployment_date": get_operational_date(),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    await get_db().events.insert_one(event_doc)
+    event_doc.pop("_id", None)
+    
+    return {
+        "status": "success",
+        "marked_as": data.status,
+        "quantity": data.quantity,
+        "category": data.category,
+        "location": data.from_location,
+        "affected_items": affected_items,
         "event": event_doc
     }
 

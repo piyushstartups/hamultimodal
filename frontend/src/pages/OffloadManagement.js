@@ -270,44 +270,83 @@ export default function OffloadManagement() {
                     No SSDs found in inventory
                   </p>
                 ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {ssds.map(ssd => (
-                      <div 
-                        key={ssd.item_id}
-                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                          selectedSsds.includes(ssd.item_id)
-                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                            : ssd.has_pending_data
-                              ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
-                              : 'border-slate-200 bg-slate-50 hover:border-slate-300'
-                        }`}
-                        onClick={() => handleSsdToggle(ssd.item_id)}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium text-sm">{ssd.item_id}</span>
-                          <Checkbox 
-                            checked={selectedSsds.includes(ssd.item_id)}
-                            onCheckedChange={() => handleSsdToggle(ssd.item_id)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
+                  <>
+                    {/* Ready for Offload SSDs - Highlighted at top */}
+                    {ssds.filter(ssd => ssd.status === 'ready_for_offload').length > 0 && (
+                      <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertCircle className="w-4 h-4 text-amber-600" />
+                          <span className="text-sm font-medium text-amber-800">
+                            {ssds.filter(ssd => ssd.status === 'ready_for_offload').length} SSD(s) Ready for Offload
+                          </span>
                         </div>
-                        {ssd.has_pending_data ? (
-                          <div className="text-xs">
-                            <p className="text-amber-700 font-medium">
-                              {ssd.pending_record_count} records • {formatDuration(ssd.pending_hours)}
-                            </p>
-                            <p className="text-slate-500 truncate">
-                              {ssd.pending_bnbs?.join(', ') || 'No BnB data'}
-                            </p>
-                          </div>
-                        ) : (
-                          <p className="text-xs text-green-600 flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> Available
-                          </p>
-                        )}
+                        <p className="text-xs text-amber-700">
+                          These SSDs were marked as full and need to be offloaded to an HDD.
+                        </p>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {/* Sort: ready_for_offload first, then those with data, then available */}
+                      {[...ssds]
+                        .sort((a, b) => {
+                          if (a.status === 'ready_for_offload' && b.status !== 'ready_for_offload') return -1;
+                          if (b.status === 'ready_for_offload' && a.status !== 'ready_for_offload') return 1;
+                          if (a.has_pending_data && !b.has_pending_data) return -1;
+                          if (b.has_pending_data && !a.has_pending_data) return 1;
+                          return 0;
+                        })
+                        .map(ssd => (
+                        <div 
+                          key={ssd.item_id}
+                          className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                            selectedSsds.includes(ssd.item_id)
+                              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                              : ssd.status === 'ready_for_offload'
+                                ? 'border-amber-400 bg-amber-100 hover:border-amber-500 ring-1 ring-amber-300'
+                                : ssd.has_pending_data
+                                  ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
+                                  : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                          }`}
+                          onClick={() => handleSsdToggle(ssd.item_id)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{ssd.item_id}</span>
+                              {ssd.status === 'ready_for_offload' && (
+                                <span className="text-xs px-1.5 py-0.5 bg-amber-500 text-white rounded font-medium">
+                                  FULL
+                                </span>
+                              )}
+                            </div>
+                            <Checkbox 
+                              checked={selectedSsds.includes(ssd.item_id)}
+                              onCheckedChange={() => handleSsdToggle(ssd.item_id)}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          {ssd.status === 'ready_for_offload' ? (
+                            <p className="text-xs text-amber-700 font-medium">
+                              Ready for offload
+                            </p>
+                          ) : ssd.has_pending_data ? (
+                            <div className="text-xs">
+                              <p className="text-amber-700 font-medium">
+                                {ssd.pending_record_count} records • {formatDuration(ssd.pending_hours)}
+                              </p>
+                              <p className="text-slate-500 truncate">
+                                {ssd.pending_bnbs?.join(', ') || 'No BnB data'}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-green-600 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Available
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             </div>
