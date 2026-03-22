@@ -283,6 +283,22 @@ Deployments → Date → BnB → Handover buttons
 ```
 
 ## Last Updated
+2026-03-22 - Damage/Lost Item Flow Verified & Actions.js Cleanup:
+**VERIFIED (Testing Agent iteration_19):**
+- Backend /api/items/distribution excludes items with status 'damaged' or 'lost' ✓
+- Distribution tab shows only active items in the count ✓
+- Kit Completeness calculation filters items with status 'active' only ✓
+- Transfer Item dialog only shows items with status 'active' in dropdown ✓
+- Report Damage dialog (UNIQUE category): select specific item → marks as 'damaged' ✓
+- Report Lost dialog (NON-UNIQUE category): enter quantity → marks items as 'lost' ✓
+- After marking item as damaged, it disappears from Distribution count ✓
+- After marking item as damaged, Kit Completeness shows 'missing' for that category ✓
+- Damaged items cannot be selected in Transfer Item dialog ✓
+
+**CLEANUP:**
+- Deleted orphaned file: /app/frontend/src/pages/Actions.js (Quick Actions page was removed)
+- No references to Actions.js remain in App.js or Dashboard.js
+
 2026-03-21 - Inventory System Verification After Production Rollback:
 **VERIFIED (Testing Agent iteration_17):**
 - Backend /api/categories returns all 12 master categories with unique/non-unique classification ✓
