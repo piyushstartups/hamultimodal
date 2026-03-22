@@ -40,12 +40,20 @@ DEFAULT_CATEGORIES = [
     {"value": "bluetooth_adapter", "label": "Bluetooth Adapter", "type": "non_unique"},
 ]
 
-# These will be populated from database at startup
+# These will be populated lazily on first request
 CACHED_CATEGORIES = []
 VALID_CATEGORY_VALUES = []
 UNIQUE_CATEGORIES = []
 NON_UNIQUE_CATEGORIES = []
 CATEGORY_LABELS = {}
+_categories_initialized = False
+
+async def ensure_categories_loaded():
+    """Ensure categories are loaded (call this before using category data)"""
+    global _categories_initialized
+    if not _categories_initialized:
+        await refresh_category_cache()
+        _categories_initialized = True
 
 async def refresh_category_cache():
     """Refresh the in-memory category cache from database"""
@@ -186,11 +194,15 @@ def get_db():
     global client, db
     if client is None:
         logger.info(f"Connecting to MongoDB: {DB_NAME}")
+        # IMPORTANT: Use shorter timeouts for production MongoDB Atlas
+        # This prevents the app from hanging if DB is slow to respond
         client = AsyncIOMotorClient(
             MONGO_URL,
-            serverSelectionTimeoutMS=30000,
-            connectTimeoutMS=30000,
-            socketTimeoutMS=30000,
+            serverSelectionTimeoutMS=10000,  # 10 seconds (was 30)
+            connectTimeoutMS=10000,           # 10 seconds (was 30)
+            socketTimeoutMS=20000,            # 20 seconds (was 30)
+            maxPoolSize=10,                   # Limit connection pool
+            retryWrites=True,                 # Enable retry for writes
         )
         db = client[DB_NAME]
     return db
@@ -434,37 +446,18 @@ def get_current_user_dep():
     return dependency
 
 # ========================
-# STARTUP - Minimal, no DB connection
+# STARTUP - MUST BE FAST (< 5 seconds)
 # ========================
+# CRITICAL: Do NOT connect to MongoDB during startup!
+# Production uses MongoDB Atlas which may take 10-30+ seconds to connect.
+# Health checks timeout at 60s, so startup must complete quickly.
+# All DB operations happen lazily on first request.
 
 @app.on_event("startup")
 async def startup():
     logger.info("App started successfully - DB will connect on first request")
-    
-    # Wrap all database operations in try-catch to prevent startup crashes
-    # This is critical for production where MongoDB may take longer to initialize
-    try:
-        # Initialize category cache from database
-        await refresh_category_cache()
-        logger.info(f"Loaded {len(CACHED_CATEGORIES)} categories from database")
-        
-        # Seed task categories if empty
-        task_cats = await get_db().task_categories.find({}, {"_id": 0}).to_list(100)
-        if not task_cats:
-            for cat in DEFAULT_TASK_CATEGORIES:
-                cat_doc = {
-                    "value": cat["value"],
-                    "label": cat["label"],
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                await get_db().task_categories.insert_one(cat_doc)
-            logger.info(f"Seeded {len(DEFAULT_TASK_CATEGORIES)} task categories")
-        else:
-            logger.info(f"Found {len(task_cats)} existing task categories")
-    except Exception as e:
-        logger.error(f"Database initialization failed during startup: {e}")
-        logger.warning("App will continue - categories will load on first request")
-        # Don't crash - let the app start and handle DB connection lazily
+    # DO NOT call any database operations here!
+    # Categories and task categories will be loaded on first request.
 
 # ========================
 # AUTH ROUTES
