@@ -1,6 +1,27 @@
 # HA Multimodal Management - Product Requirements Document
 
 ## Last Updated
+2026-03-22 - **Hardware Check Shift Mapping - ROOT CAUSE FIXED**
+
+### Root Cause Analysis:
+- Records in `shifts` collection were missing `shift` or `shift_type` field (13 legacy records)
+- Frontend helper functions (`getKitStatus`, `getActiveRecord`, `getCompletedRecords`) were not filtering by shift
+
+### Fix Applied:
+1. Added `recordMatchesShift(record, shiftType)` helper function that checks both `shift` and `shift_type` fields
+2. Updated `getKitStatus(kit, shiftType)` to filter by current shift tab
+3. Updated `getActiveRecord(kit, shiftType)` to filter by current shift tab
+4. Updated `getCompletedRecords(kit, shiftType)` to filter by current shift tab
+5. Updated `getTotalKitHours(kit, shiftType)` to filter by current shift tab
+6. Kit cards now pass `shiftType` parameter based on `currentTab`
+
+### Verified in Preview:
+- Morning tab only shows morning records ✓
+- Night tab only shows night records ✓
+- No cross-shift data leakage ✓
+
+**⚠️ REQUIRES REDEPLOYMENT to fix Production**
+
 2026-03-22 - **Task Categories & Hardware Check Shift Mapping Fix**
 
 ### Task Categories System (Database-Driven) ✅
