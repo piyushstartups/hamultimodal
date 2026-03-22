@@ -27,7 +27,8 @@ import {
   Camera, Hand, CheckCircle, Cpu, Sun, Moon
 } from 'lucide-react';
 
-const ACTIVITY_TYPES = [
+// Task categories will be loaded from API - this is the fallback
+const DEFAULT_ACTIVITY_TYPES = [
   { value: 'cooking', label: 'Cooking' },
   { value: 'cleaning', label: 'Cleaning' },
   { value: 'organizing', label: 'Organizing' },
@@ -182,6 +183,7 @@ export default function Deployments() {
   const [kits, setKits] = useState([]);
   const [managers, setManagers] = useState([]);
   const [items, setItems] = useState([]);
+  const [activityTypes, setActivityTypes] = useState(DEFAULT_ACTIVITY_TYPES); // Task categories from API
   
   // Admin deployment dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -292,16 +294,21 @@ export default function Deployments() {
 
   const fetchOptions = async () => {
     try {
-      const [bnbsRes, kitsRes, usersRes, itemsRes] = await Promise.all([
+      const [bnbsRes, kitsRes, usersRes, itemsRes, taskCatsRes] = await Promise.all([
         api.get('/bnbs'),
         api.get('/kits'),
         api.get('/users'),
-        api.get('/items')
+        api.get('/items'),
+        api.get('/task-categories')
       ]);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
       setManagers(usersRes.data.filter(u => u.role === 'deployment_manager'));
       setItems(itemsRes.data);
+      // Set task categories from API (fallback to defaults if empty)
+      if (taskCatsRes.data && taskCatsRes.data.length > 0) {
+        setActivityTypes(taskCatsRes.data);
+      }
     } catch (error) {
       console.error(error);
     }
@@ -1045,25 +1052,66 @@ export default function Deployments() {
   const getUserName = (userId) => managers.find(m => m.id === userId)?.name || userId;
   
   // Get kit status from the new data structure
-  const getKitStatus = (kit) => {
+  // Helper to check if a record belongs to a specific shift type
+  const recordMatchesShift = (record, shiftType) => {
+    const recordShift = record?.shift || record?.shift_type;
+    if (shiftType === 'morning') {
+      return recordShift === 'morning';
+    } else if (shiftType === 'night') {
+      // Support legacy 'evening' data
+      return recordShift === 'night' || recordShift === 'evening';
+    }
+    return false;
+  };
+
+  // Get current shift type based on deployment's active tab
+  const getCurrentShiftType = (dep) => {
+    return getActiveTab(dep) === 'morning' ? 'morning' : 'night';
+  };
+
+  const getKitStatus = (kit, shiftType = null) => {
     const kitData = kitShifts[kit];
     if (!kitData) return 'not_started';
+    
+    // If shiftType is provided, filter by that shift
+    if (shiftType) {
+      const activeRecord = kitData.active_record;
+      if (activeRecord && recordMatchesShift(activeRecord, shiftType)) {
+        return activeRecord.status || 'not_started';
+      }
+      // Check if there's a completed record for this shift
+      const completedForShift = kitData.records?.some(r => 
+        r.status === 'completed' && recordMatchesShift(r, shiftType)
+      );
+      return completedForShift ? 'completed' : 'not_started';
+    }
+    
     return kitData.active_record?.status || 'not_started';
   };
   
-  // Get the active record for a kit
-  const getActiveRecord = (kit) => kitShifts[kit]?.active_record || null;
-  
-  // Get all completed records for a kit
-  const getCompletedRecords = (kit) => {
-    const kitData = kitShifts[kit];
-    if (!kitData) return [];
-    return kitData.records?.filter(r => r.status === 'completed') || [];
+  // Get the active record for a kit (optionally filtered by shift)
+  const getActiveRecord = (kit, shiftType = null) => {
+    const activeRecord = kitShifts[kit]?.active_record || null;
+    if (shiftType && activeRecord) {
+      return recordMatchesShift(activeRecord, shiftType) ? activeRecord : null;
+    }
+    return activeRecord;
   };
   
-  // Get total hours for a kit (sum of all completed records)
-  const getTotalKitHours = (kit) => {
-    const completed = getCompletedRecords(kit);
+  // Get all completed records for a kit (optionally filtered by shift)
+  const getCompletedRecords = (kit, shiftType = null) => {
+    const kitData = kitShifts[kit];
+    if (!kitData) return [];
+    let records = kitData.records?.filter(r => r.status === 'completed') || [];
+    if (shiftType) {
+      records = records.filter(r => recordMatchesShift(r, shiftType));
+    }
+    return records;
+  };
+  
+  // Get total hours for a kit (sum of all completed records, optionally filtered by shift)
+  const getTotalKitHours = (kit, shiftType = null) => {
+    const completed = getCompletedRecords(kit, shiftType);
     return completed.reduce((sum, r) => sum + (r.total_duration_hours || 0), 0);
   };
   
@@ -1472,10 +1520,13 @@ export default function Deployments() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {dep.assigned_kits.map(kit => {
                               const currentTab = getActiveTab(dep);
-                              const status = getKitStatus(kit);
-                              const activeRecord = getActiveRecord(kit);
-                              const completedRecords = getCompletedRecords(kit);
-                              const totalHours = getTotalKitHours(kit);
+                              const shiftType = currentTab === 'morning' ? 'morning' : 'night';
+                              
+                              // SHIFT-SPECIFIC: Filter by current shift tab
+                              const status = getKitStatus(kit, shiftType);
+                              const activeRecord = getActiveRecord(kit, shiftType);
+                              const completedRecords = getCompletedRecords(kit, shiftType);
+                              const totalHours = getTotalKitHours(kit, shiftType);
                               
                               // Access control - with view-only support
                               const access = getUserShiftAccess(dep);
@@ -1489,7 +1540,8 @@ export default function Deployments() {
                               const canStart = (() => {
                                 console.log('[CAN_START_CHECK]', { 
                                   kit, 
-                                  currentTab, 
+                                  currentTab,
+                                  shiftType,
                                   hasAccess,
                                   isViewOnly,
                                   canPerformActions,
@@ -1527,13 +1579,20 @@ export default function Deployments() {
                                     </span>
                                   </div>
                                   
-                                  {/* Hardware Check Status - SHIFT-SPECIFIC */}
-                                  {hardwareCheckStatus[kit] && (hardwareCheckStatus[kit].morning || hardwareCheckStatus[kit].night) && (
+                                  {/* Hardware Check Status - SHIFT-SPECIFIC: Only show current shift's status */}
+                                  {hardwareCheckStatus[kit] && (
+                                    (currentTab === 'morning' && hardwareCheckStatus[kit].morning) ||
+                                    (currentTab === 'night' && hardwareCheckStatus[kit].night)
+                                  ) && (
                                     <div className="px-4 py-1 bg-teal-50 border-b border-teal-100 flex items-center gap-2 text-xs text-teal-700">
                                       <CheckCircle className="w-3 h-3" />
                                       Hardware check: 
-                                      {hardwareCheckStatus[kit].morning && <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">Morning ✓</span>}
-                                      {hardwareCheckStatus[kit].night && <span className="ml-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Night ✓</span>}
+                                      {currentTab === 'morning' && hardwareCheckStatus[kit].morning && (
+                                        <span className="ml-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">Morning ✓</span>
+                                      )}
+                                      {currentTab === 'night' && hardwareCheckStatus[kit].night && (
+                                        <span className="ml-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded">Night ✓</span>
+                                      )}
                                     </div>
                                   )}
                                   
@@ -1713,7 +1772,7 @@ export default function Deployments() {
                 <Select value={shiftFormData.activity_type} onValueChange={(v) => setShiftFormData({ ...shiftFormData, activity_type: v })}>
                   <SelectTrigger className="mt-1" data-testid="activity-select"><SelectValue placeholder="Select activity" /></SelectTrigger>
                   <SelectContent>
-                    {ACTIVITY_TYPES.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
+                    {activityTypes.map(a => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

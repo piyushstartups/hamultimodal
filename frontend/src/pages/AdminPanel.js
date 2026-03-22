@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Trash2, Users, MapPin, Box, Edit } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Users, MapPin, Box, Edit, Tag } from 'lucide-react';
 
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('users');
@@ -29,6 +29,7 @@ export default function AdminPanel() {
   const [users, setUsers] = useState([]);
   const [bnbs, setBnbs] = useState([]);
   const [kits, setKits] = useState([]);
+  const [taskCategories, setTaskCategories] = useState([]);
   
   // Form data
   const [formData, setFormData] = useState({});
@@ -39,14 +40,16 @@ export default function AdminPanel() {
 
   const fetchAll = async () => {
     try {
-      const [usersRes, bnbsRes, kitsRes] = await Promise.all([
+      const [usersRes, bnbsRes, kitsRes, taskCatsRes] = await Promise.all([
         api.get('/users'),
         api.get('/bnbs'),
-        api.get('/kits')
+        api.get('/kits'),
+        api.get('/task-categories')
       ]);
       setUsers(usersRes.data);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
+      setTaskCategories(taskCatsRes.data || []);
     } catch (error) {
       console.error(error);
     }
@@ -94,6 +97,9 @@ export default function AdminPanel() {
           } else {
             toast.info('No changes made');
           }
+        } else if (dialogType === 'task-category') {
+          await api.put(`/task-categories/${editingItem.value}`, { label: formData.label });
+          toast.success('Task category updated');
         }
       } else {
         // Create new
@@ -106,6 +112,14 @@ export default function AdminPanel() {
             break;
           case 'kit':
             await api.post('/kits', formData);
+            break;
+          case 'task-category':
+            await api.post('/task-categories', {
+              value: formData.value,
+              label: formData.label
+            });
+            break;
+          default:
             break;
         }
         toast.success('Created successfully');
@@ -132,6 +146,7 @@ export default function AdminPanel() {
     { id: 'users', label: 'Users', icon: Users },
     { id: 'bnbs', label: 'BnBs', icon: MapPin },
     { id: 'kits', label: 'Kits', icon: Box },
+    { id: 'task-categories', label: 'Task Categories', icon: Tag },
   ];
 
   const renderForm = () => {
@@ -233,6 +248,37 @@ export default function AdminPanel() {
       );
     }
     
+    if (dialogType === 'task-category') {
+      return (
+        <>
+          <div>
+            <Label>Category ID *</Label>
+            <Input 
+              value={formData.value || ''} 
+              onChange={(e) => setFormData({ ...formData, value: e.target.value.toLowerCase().replace(/\s+/g, '_') })} 
+              className="mt-1" 
+              placeholder="cooking" 
+              required 
+              disabled={!!editingItem}
+              data-testid="task-cat-id-input"
+            />
+            <p className="text-xs text-slate-500 mt-1">Lowercase, no spaces (e.g., cooking, cleaning)</p>
+          </div>
+          <div>
+            <Label>Display Name *</Label>
+            <Input 
+              value={formData.label || ''} 
+              onChange={(e) => setFormData({ ...formData, label: e.target.value })} 
+              className="mt-1" 
+              placeholder="Cooking" 
+              required 
+              data-testid="task-cat-label-input"
+            />
+          </div>
+        </>
+      );
+    }
+    
     return null;
   };
 
@@ -275,7 +321,7 @@ export default function AdminPanel() {
           {/* Header */}
           <div className="px-4 py-3 border-b flex items-center justify-between">
             <h2 className="font-semibold capitalize">{activeTab}</h2>
-            <Button size="sm" onClick={() => openAddDialog(activeTab.slice(0, -1))} data-testid={`add-${activeTab.slice(0, -1)}-btn`}>
+            <Button size="sm" onClick={() => openAddDialog(activeTab === 'task-categories' ? 'task-category' : activeTab.slice(0, -1))} data-testid={`add-${activeTab === 'task-categories' ? 'task-category' : activeTab.slice(0, -1)}-btn`}>
               <Plus className="w-4 h-4 mr-1" />
               Add
             </Button>
@@ -324,9 +370,51 @@ export default function AdminPanel() {
               </div>
             ))}
 
+            {activeTab === 'task-categories' && taskCategories.map((cat) => (
+              <div key={cat.value} className="px-4 py-3 flex items-center justify-between" data-testid={`task-cat-${cat.value}`}>
+                <div>
+                  <p className="font-medium">{cat.label}</p>
+                  <p className="text-xs text-slate-500">ID: {cat.value}</p>
+                </div>
+                <div className="flex gap-1">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => {
+                      setDialogType('task-category');
+                      setEditingItem(cat);
+                      setFormData({ value: cat.value, label: cat.label });
+                      setDialogOpen(true);
+                    }}
+                    data-testid={`edit-task-cat-${cat.value}`}
+                  >
+                    <Edit className="w-4 h-4 text-slate-500" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={async () => {
+                      if (!confirm(`Delete task category "${cat.label}"?`)) return;
+                      try {
+                        await api.delete(`/task-categories/${cat.value}`);
+                        toast.success('Task category deleted');
+                        fetchAll();
+                      } catch (error) {
+                        toast.error(error.response?.data?.detail || 'Failed to delete');
+                      }
+                    }} 
+                    data-testid={`delete-task-cat-${cat.value}`}
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+
             {activeTab === 'users' && users.length === 0 && <p className="p-4 text-center text-slate-500">No users</p>}
             {activeTab === 'bnbs' && bnbs.length === 0 && <p className="p-4 text-center text-slate-500">No BnBs</p>}
             {activeTab === 'kits' && kits.length === 0 && <p className="p-4 text-center text-slate-500">No kits</p>}
+            {activeTab === 'task-categories' && taskCategories.length === 0 && <p className="p-4 text-center text-slate-500">No task categories</p>}
           </div>
         </div>
       </main>

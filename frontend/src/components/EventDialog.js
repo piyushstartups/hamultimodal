@@ -30,6 +30,7 @@ export const EventDialog = ({ open, onClose, eventType, onSuccess }) => {
   const [items, setItems] = useState([]);
   const [ssds, setSsds] = useState([]);
   const [filteredSsds, setFilteredSsds] = useState([]);
+  const [taskCategories, setTaskCategories] = useState([]); // Task categories from API
   
   const [formData, setFormData] = useState({
     from_kit: user?.default_kit || '',
@@ -82,14 +83,16 @@ export const EventDialog = ({ open, onClose, eventType, onSuccess }) => {
 
   const fetchData = async () => {
     try {
-      const [kitsRes, itemsRes, ssdsRes] = await Promise.all([
+      const [kitsRes, itemsRes, ssdsRes, taskCatsRes] = await Promise.all([
         api.get('/kits'),
         api.get('/items'),
         api.get('/items/ssds'),
+        api.get('/task-categories'),
       ]);
       setKits(kitsRes.data);
       setItems(itemsRes.data);
       setSsds(ssdsRes.data);
+      setTaskCategories(taskCatsRes.data || []);
       if (user?.default_kit) {
         setFormData(prev => ({ ...prev, from_kit: user.default_kit }));
       }
@@ -273,11 +276,18 @@ export const EventDialog = ({ open, onClose, eventType, onSuccess }) => {
                       <SelectValue placeholder="Select" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="cooking">Cooking</SelectItem>
-                      <SelectItem value="cleaning">Cleaning</SelectItem>
-                      <SelectItem value="organizing">Organizing</SelectItem>
+                      {taskCategories.length > 0 ? (
+                        taskCategories.map(cat => (
+                          <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                        ))
+                      ) : (
+                        <>
+                          <SelectItem value="cooking">Cooking</SelectItem>
+                          <SelectItem value="cleaning">Cleaning</SelectItem>
+                          <SelectItem value="organizing">Organizing</SelectItem>
+                        </>
+                      )}
                       <SelectItem value="mixed">Mixed Activities</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -423,8 +433,16 @@ export const EventDialog = ({ open, onClose, eventType, onSuccess }) => {
                   <SelectValue placeholder="Select activity" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cooking">Cooking</SelectItem>
-                  <SelectItem value="cleaning">Cleaning</SelectItem>
+                  {taskCategories.length > 0 ? (
+                    taskCategories.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="cooking">Cooking</SelectItem>
+                      <SelectItem value="cleaning">Cleaning</SelectItem>
+                    </>
+                  )}
                   <SelectItem value="charging">Charging</SelectItem>
                   <SelectItem value="idle">Idle</SelectItem>
                 </SelectContent>

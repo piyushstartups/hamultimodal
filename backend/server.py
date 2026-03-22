@@ -291,6 +291,23 @@ class QuantityDamageLostCreate(BaseModel):
     status: str  # "damaged" or "lost"
     notes: Optional[str] = None
 
+# Task Categories (Activity Types for Collections)
+class TaskCategoryCreate(BaseModel):
+    value: str  # Unique identifier (e.g., "cooking", "cleaning")
+    label: str  # Display name (e.g., "Cooking", "Cleaning")
+
+class TaskCategoryUpdate(BaseModel):
+    label: Optional[str] = None
+
+# Default task categories (seeded on first run)
+DEFAULT_TASK_CATEGORIES = [
+    {"value": "cooking", "label": "Cooking"},
+    {"value": "cleaning", "label": "Cleaning"},
+    {"value": "organizing", "label": "Organizing"},
+    {"value": "outdoor", "label": "Outdoor"},
+    {"value": "other", "label": "Other"},
+]
+
 # Hardware Health Check models
 class HardwareCheckCreate(BaseModel):
     deployment_id: str
@@ -404,6 +421,20 @@ async def startup():
     # Initialize category cache from database
     await refresh_category_cache()
     logger.info(f"Loaded {len(CACHED_CATEGORIES)} categories from database")
+    
+    # Seed task categories if empty
+    task_cats = await get_db().task_categories.find({}, {"_id": 0}).to_list(100)
+    if not task_cats:
+        for cat in DEFAULT_TASK_CATEGORIES:
+            cat_doc = {
+                "value": cat["value"],
+                "label": cat["label"],
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await get_db().task_categories.insert_one(cat_doc)
+        logger.info(f"Seeded {len(DEFAULT_TASK_CATEGORIES)} task categories")
+    else:
+        logger.info(f"Found {len(task_cats)} existing task categories")
 
 # ========================
 # AUTH ROUTES
@@ -766,6 +797,75 @@ async def get_category_items(category_value: str, user: dict = Depends(get_curre
         "damaged_count": len([i for i in items if i.get("status") == "damaged"]),
         "lost_count": len([i for i in items if i.get("status") == "lost"])
     }
+
+# ========================
+# TASK CATEGORIES (Activity Types for Collections)
+# ========================
+
+@app.get("/api/task-categories")
+async def get_task_categories(user: dict = Depends(get_current_user_dep())):
+    """Get all task categories (activity types for collections)"""
+    categories = await get_db().task_categories.find({}, {"_id": 0}).to_list(100)
+    return categories
+
+@app.post("/api/task-categories")
+async def create_task_category(data: TaskCategoryCreate, user: dict = Depends(get_current_user_dep())):
+    """Create a new task category (admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Normalize value (lowercase, replace spaces with underscores)
+    value = data.value.lower().strip().replace(" ", "_").replace("-", "_")
+    
+    # Check if category already exists
+    existing = await get_db().task_categories.find_one({"value": value})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Task category '{value}' already exists")
+    
+    cat_doc = {
+        "value": value,
+        "label": data.label.strip(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await get_db().task_categories.insert_one(cat_doc)
+    
+    return {"value": value, "label": data.label.strip()}
+
+@app.put("/api/task-categories/{category_value}")
+async def update_task_category(category_value: str, data: TaskCategoryUpdate, user: dict = Depends(get_current_user_dep())):
+    """Update a task category (admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Check if category exists
+    existing = await get_db().task_categories.find_one({"value": category_value})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Task category not found")
+    
+    update_data = {}
+    if data.label is not None:
+        update_data["label"] = data.label.strip()
+    
+    if update_data:
+        await get_db().task_categories.update_one({"value": category_value}, {"$set": update_data})
+    
+    updated = await get_db().task_categories.find_one({"value": category_value}, {"_id": 0})
+    return updated
+
+@app.delete("/api/task-categories/{category_value}")
+async def delete_task_category(category_value: str, user: dict = Depends(get_current_user_dep())):
+    """Delete a task category (admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Check if category exists
+    existing = await get_db().task_categories.find_one({"value": category_value})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Task category not found")
+    
+    await get_db().task_categories.delete_one({"value": category_value})
+    
+    return {"status": "deleted", "category": category_value}
 
 @app.post("/api/items")
 async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_dep())):
