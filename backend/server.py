@@ -3156,12 +3156,29 @@ async def get_ssds_for_offload(user: dict = Depends(get_current_user_dep())):
 
 
 # ========================
-# HEALTH CHECK
+# HEALTH CHECK - Multiple endpoints for maximum compatibility
 # ========================
+# Production deployment checks for backend readiness at various paths
+# We provide multiple health check endpoints to ensure compatibility
+
+@app.get("/")
+async def root():
+    """Root endpoint - also serves as health check"""
+    return {"status": "ok", "version": "2.0", "service": "backend"}
 
 @app.get("/health")
 async def health_root():
     """Health check endpoint for production deployment (without /api prefix)"""
+    return {"status": "ok", "version": "2.0"}
+
+@app.get("/healthz")
+async def health_k8s():
+    """Kubernetes-style health check endpoint"""
+    return {"status": "ok", "version": "2.0"}
+
+@app.get("/readyz")  
+async def ready_k8s():
+    """Kubernetes-style readiness check endpoint"""
     return {"status": "ok", "version": "2.0"}
 
 @app.get("/api/health")
