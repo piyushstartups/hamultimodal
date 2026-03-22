@@ -361,6 +361,7 @@ export default function Inventory() {
         });
         toast.success('Transfer recorded');
       } else if (dialogType === 'damage') {
+        // Single item damage report (from item row)
         await api.post('/events', {
           event_type: 'damage',
           item: editingItem.item_name,
@@ -368,7 +369,58 @@ export default function Inventory() {
           quantity: 1,
           notes: formData.notes || null
         });
-        toast.success('Damage reported');
+        // Update item status to 'damaged'
+        await api.put(`/items/${editingItem.item_name}`, { status: 'damaged' });
+        toast.success('Item marked as damaged');
+      } else if (dialogType === 'report-damage' || dialogType === 'report-lost') {
+        // Bulk damage/lost report with UNIQUE vs NON-UNIQUE logic
+        const isUnique = UNIQUE_CATEGORIES.includes(formData.report_category);
+        const newStatus = dialogType === 'report-damage' ? 'damaged' : 'lost';
+        
+        if (!formData.report_category) {
+          toast.error('Please select a category');
+          return;
+        }
+        
+        if (isUnique) {
+          // UNIQUE: Must select specific item
+          if (!formData.report_item) {
+            toast.error('Please select an item');
+            return;
+          }
+          await api.post('/events', {
+            event_type: newStatus === 'damaged' ? 'damage' : 'lost',
+            item: formData.report_item,
+            quantity: 1,
+            notes: formData.notes || null
+          });
+          await api.put(`/items/${formData.report_item}`, { status: newStatus });
+          toast.success(`Item marked as ${newStatus}`);
+        } else {
+          // NON-UNIQUE: Enter quantity
+          const qty = formData.report_quantity || 1;
+          // Find items of this category that are active
+          const categoryItems = items.filter(i => 
+            i.category === formData.report_category && i.status === 'active'
+          );
+          
+          if (categoryItems.length === 0) {
+            toast.error('No active items found in this category');
+            return;
+          }
+          
+          // For quantity-based items, we need to reduce quantity or mark as damaged
+          for (const item of categoryItems.slice(0, qty)) {
+            await api.post('/events', {
+              event_type: newStatus === 'damaged' ? 'damage' : 'lost',
+              item: item.item_name,
+              quantity: 1,
+              notes: formData.notes || null
+            });
+            await api.put(`/items/${item.item_name}`, { status: newStatus });
+          }
+          toast.success(`${qty} item(s) marked as ${newStatus}`);
+        }
       }
       
       setDialogOpen(false);
@@ -485,20 +537,39 @@ export default function Inventory() {
                   Data Offload
                 </Button>
               </a>
-              <Button size="sm" variant="outline" onClick={() => { 
-                setDialogType('bulk-transfer'); 
-                setFormData(prev => ({ ...prev, transfer_category: '', transfer_item: '', transfer_quantity: 1, from_type: 'station', from_value: '', to_type: 'kit', to_value: '', notes: '' }));
-                setDialogOpen(true); 
-              }} data-testid="transfer-item-btn">
-                <ArrowRightLeft className="w-4 h-4 mr-1" />
-                Transfer Item
-              </Button>
-              <Button size="sm" onClick={openAddDialog} data-testid="add-item-btn">
-                <Plus className="w-4 h-4 mr-1" />
-                Add Item
-              </Button>
             </div>
           )}
+          {/* Action buttons for ALL users */}
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => { 
+              setDialogType('bulk-transfer'); 
+              setFormData(prev => ({ ...prev, transfer_category: '', transfer_item: '', transfer_quantity: 1, from_type: 'station', from_value: '', to_type: 'kit', to_value: '', notes: '' }));
+              setDialogOpen(true); 
+            }} data-testid="transfer-item-btn">
+              <ArrowRightLeft className="w-4 h-4 mr-1" />
+              Transfer Item
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              setDialogType('report-damage');
+              setFormData(prev => ({ ...prev, report_category: '', report_item: '', report_quantity: 1, notes: '' }));
+              setDialogOpen(true);
+            }} data-testid="report-damage-btn">
+              <AlertTriangle className="w-4 h-4 mr-1" />
+              Report Damage
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => {
+              setDialogType('report-lost');
+              setFormData(prev => ({ ...prev, report_category: '', report_item: '', report_quantity: 1, notes: '' }));
+              setDialogOpen(true);
+            }} data-testid="report-lost-btn">
+              <XCircle className="w-4 h-4 mr-1" />
+              Report Lost
+            </Button>
+            <Button size="sm" onClick={openAddDialog} data-testid="add-item-btn">
+              <Plus className="w-4 h-4 mr-1" />
+              Add Item
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -815,7 +886,7 @@ export default function Inventory() {
               <div className="bg-white rounded-xl border p-8 text-center">
                 <Package className="w-12 h-12 text-slate-300 mx-auto mb-4" />
                 <p className="text-slate-600">{search ? 'No items found' : 'No items yet'}</p>
-                {isAdmin && !search && (
+                {!search && (
                   <Button className="mt-4" onClick={openAddDialog}>
                     <Plus className="w-4 h-4 mr-1" />
                     Add First Item
@@ -836,11 +907,104 @@ export default function Inventory() {
                dialogType === 'edit' ? 'Edit Item' : 
                dialogType === 'transfer' ? `Transfer: ${editingItem?.item_name}` : 
                dialogType === 'bulk-transfer' ? 'Transfer Item' :
+               dialogType === 'report-damage' ? 'Report Damaged Item' :
+               dialogType === 'report-lost' ? 'Report Lost Item' :
                `Report Damage: ${editingItem?.item_name}`}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            
+            {/* REPORT DAMAGE / LOST DIALOG - with UNIQUE vs NON-UNIQUE logic */}
+            {(dialogType === 'report-damage' || dialogType === 'report-lost') && (
+              <>
+                <div className={`p-3 rounded-lg ${dialogType === 'report-damage' ? 'bg-amber-50 border border-amber-200' : 'bg-red-50 border border-red-200'}`}>
+                  <p className="text-sm font-medium ${dialogType === 'report-damage' ? 'text-amber-700' : 'text-red-700'}">
+                    {dialogType === 'report-damage' 
+                      ? 'Mark item as damaged. It will be removed from usable inventory.'
+                      : 'Mark item as lost. It will be removed from usable inventory.'}
+                  </p>
+                </div>
+                
+                {/* Step 1: Select Category */}
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Step 1: Select Category *</Label>
+                  <Select 
+                    value={formData.report_category} 
+                    onValueChange={(v) => setFormData({ ...formData, report_category: v, report_item: '', report_quantity: 1 })}
+                  >
+                    <SelectTrigger className="mt-1 h-9" data-testid="report-category-select">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ITEM_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {/* Step 2: Based on UNIQUE vs NON-UNIQUE */}
+                {formData.report_category && (
+                  <div className="bg-slate-50 p-3 rounded-lg border">
+                    {UNIQUE_CATEGORIES.includes(formData.report_category) ? (
+                      // UNIQUE: Select specific item
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item *</Label>
+                        <Select 
+                          value={formData.report_item} 
+                          onValueChange={(v) => setFormData({ ...formData, report_item: v })}
+                        >
+                          <SelectTrigger className="mt-1 h-9" data-testid="report-item-select">
+                            <SelectValue placeholder="Select item" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {items
+                              .filter(i => i.category === formData.report_category && i.status === 'active')
+                              .map(i => (
+                                <SelectItem key={i.item_name} value={i.item_name}>
+                                  {i.item_name} ({formatLocation(i.current_location)})
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        {items.filter(i => i.category === formData.report_category && i.status === 'active').length === 0 && (
+                          <p className="text-xs text-amber-600 mt-1">No active items found in this category</p>
+                        )}
+                      </div>
+                    ) : (
+                      // NON-UNIQUE: Enter quantity
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-700">Step 2: Quantity *</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max={items.filter(i => i.category === formData.report_category && i.status === 'active').length || 1}
+                          value={formData.report_quantity}
+                          onChange={(e) => setFormData({ ...formData, report_quantity: parseInt(e.target.value) || 1 })}
+                          className="mt-1 h-9"
+                          data-testid="report-quantity-input"
+                        />
+                        <p className="text-xs text-slate-500 mt-1">
+                          Available: {items.filter(i => i.category === formData.report_category && i.status === 'active').length} items
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Notes */}
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Notes (optional)</Label>
+                  <Textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Describe the damage or circumstances..."
+                    className="mt-1"
+                    rows={2}
+                  />
+                </div>
+              </>
+            )}
+            
             {(dialogType === 'add' || dialogType === 'edit') && (
               <>
                 {/* STEP 1: Select Category FIRST */}

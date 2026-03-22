@@ -526,8 +526,15 @@ async def get_items(user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/items/distribution")
 async def get_item_distribution(user: dict = Depends(get_current_user_dep())):
-    """Get item distribution across all locations grouped by MASTER categories"""
-    items = await get_db().items.find({}, {"_id": 0}).to_list(500)
+    """Get item distribution across all locations grouped by MASTER categories
+    
+    IMPORTANT: Only counts ACTIVE items (excludes damaged/lost)
+    """
+    # Only fetch ACTIVE items (exclude damaged/lost)
+    items = await get_db().items.find(
+        {"status": {"$nin": ["damaged", "lost"]}}, 
+        {"_id": 0}
+    ).to_list(500)
     kits = await get_db().kits.find({}, {"_id": 0}).to_list(100)
     bnbs = await get_db().bnbs.find({}, {"_id": 0}).to_list(100)
     
