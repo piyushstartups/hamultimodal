@@ -20,37 +20,58 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # ========================
-# MASTER CATEGORY DEFINITIONS (SINGLE SOURCE OF TRUTH)
+# DEFAULT CATEGORY DEFINITIONS (used for initial seeding)
 # ========================
-# These are the ONLY valid categories for inventory items
-# HDD is managed separately in HDD Dashboard
+# Categories are now stored in MongoDB for dynamic management
+# These defaults are used to seed the database on first run
 
-MASTER_CATEGORIES = [
-    {"value": "glove_left", "label": "Glove Left"},
-    {"value": "glove_right", "label": "Glove Right"},
-    {"value": "usb_hub", "label": "USB Hub"},
-    {"value": "imu", "label": "IMUs"},
-    {"value": "head_camera", "label": "Head Camera"},
-    {"value": "l_shaped_wire", "label": "L-Shaped Wire"},
-    {"value": "wrist_camera", "label": "Wrist Camera"},
-    {"value": "laptop", "label": "Laptop"},
-    {"value": "laptop_charger", "label": "Laptop Charger"},
-    {"value": "power_bank", "label": "Power Bank"},
-    {"value": "ssd", "label": "SSD"},
-    {"value": "bluetooth_adapter", "label": "Bluetooth Adapter"},
+DEFAULT_CATEGORIES = [
+    {"value": "glove_left", "label": "Glove Left", "type": "unique"},
+    {"value": "glove_right", "label": "Glove Right", "type": "unique"},
+    {"value": "usb_hub", "label": "USB Hub", "type": "non_unique"},
+    {"value": "imu", "label": "IMUs", "type": "non_unique"},
+    {"value": "head_camera", "label": "Head Camera", "type": "unique"},
+    {"value": "l_shaped_wire", "label": "L-Shaped Wire", "type": "non_unique"},
+    {"value": "wrist_camera", "label": "Wrist Camera", "type": "unique"},
+    {"value": "laptop", "label": "Laptop", "type": "unique"},
+    {"value": "laptop_charger", "label": "Laptop Charger", "type": "non_unique"},
+    {"value": "power_bank", "label": "Power Bank", "type": "unique"},
+    {"value": "ssd", "label": "SSD", "type": "unique"},
+    {"value": "bluetooth_adapter", "label": "Bluetooth Adapter", "type": "non_unique"},
 ]
 
-# Extract just the values for validation
-VALID_CATEGORY_VALUES = [c["value"] for c in MASTER_CATEGORIES]
+# These will be populated from database at startup
+CACHED_CATEGORIES = []
+VALID_CATEGORY_VALUES = []
+UNIQUE_CATEGORIES = []
+NON_UNIQUE_CATEGORIES = []
+CATEGORY_LABELS = {}
 
-# Categories that require unique item IDs
-UNIQUE_CATEGORIES = ["glove_left", "glove_right", "head_camera", "wrist_camera", "laptop", "power_bank", "ssd"]
-
-# Categories that are quantity-based (no unique ID required)
-NON_UNIQUE_CATEGORIES = ["usb_hub", "imu", "l_shaped_wire", "laptop_charger", "bluetooth_adapter"]
-
-# Category label lookup
-CATEGORY_LABELS = {c["value"]: c["label"] for c in MASTER_CATEGORIES}
+async def refresh_category_cache():
+    """Refresh the in-memory category cache from database"""
+    global CACHED_CATEGORIES, VALID_CATEGORY_VALUES, UNIQUE_CATEGORIES, NON_UNIQUE_CATEGORIES, CATEGORY_LABELS
+    
+    categories = await get_db().categories.find({}, {"_id": 0}).to_list(100)
+    
+    if not categories:
+        # Seed with defaults if empty
+        for cat in DEFAULT_CATEGORIES:
+            cat_doc = {
+                "value": cat["value"],
+                "label": cat["label"],
+                "type": cat["type"],
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await get_db().categories.insert_one(cat_doc)
+        categories = await get_db().categories.find({}, {"_id": 0}).to_list(100)
+    
+    CACHED_CATEGORIES = categories
+    VALID_CATEGORY_VALUES = [c["value"] for c in categories]
+    UNIQUE_CATEGORIES = [c["value"] for c in categories if c.get("type") == "unique"]
+    NON_UNIQUE_CATEGORIES = [c["value"] for c in categories if c.get("type") == "non_unique"]
+    CATEGORY_LABELS = {c["value"]: c["label"] for c in categories}
+    
+    return categories
 
 # Legacy category mapping (to normalize old/inconsistent data)
 CATEGORY_NORMALIZATION_MAP = {
@@ -254,6 +275,14 @@ class RequestCreate(BaseModel):
     quantity: int = 1
     notes: Optional[str] = None
 
+# Quantity-based transfer model (for NON-UNIQUE categories)
+class QuantityTransferCreate(BaseModel):
+    category: str  # Category to transfer (e.g., "usb_hub")
+    from_location: str  # Source location (e.g., "kit:KIT-01")
+    to_location: str  # Destination location (e.g., "station:Storage")
+    quantity: int = 1  # Number of items to transfer
+    notes: Optional[str] = None
+
 # Hardware Health Check models
 class HardwareCheckCreate(BaseModel):
     deployment_id: str
@@ -314,6 +343,16 @@ class HDDCreate(BaseModel):
 class HDDReset(BaseModel):
     reason: str = "returned_from_data_centre"  # reason for reset
 
+# Category Management Models
+class CategoryCreate(BaseModel):
+    value: str  # unique identifier (e.g., "laptop", "usb_hub")
+    label: str  # display name (e.g., "Laptop", "USB Hub")
+    type: str   # "unique" or "non_unique"
+
+class CategoryUpdate(BaseModel):
+    label: Optional[str] = None
+    type: Optional[str] = None
+
 # ========================
 # AUTH HELPERS
 # ========================
@@ -354,6 +393,9 @@ def get_current_user_dep():
 @app.on_event("startup")
 async def startup():
     logger.info("App started successfully - DB will connect on first request")
+    # Initialize category cache from database
+    await refresh_category_cache()
+    logger.info(f"Loaded {len(CACHED_CATEGORIES)} categories from database")
 
 # ========================
 # AUTH ROUTES
@@ -584,12 +626,137 @@ async def get_item_distribution(user: dict = Depends(get_current_user_dep())):
 
 @app.get("/api/categories")
 async def get_categories():
-    """Get master category list (SINGLE SOURCE OF TRUTH)"""
+    """Get master category list from database (SINGLE SOURCE OF TRUTH)"""
+    # Refresh cache to ensure we have latest data
+    if not CACHED_CATEGORIES:
+        await refresh_category_cache()
+    
+    # Get item counts per category
+    items = await get_db().items.find({"status": "active"}, {"_id": 0, "category": 1, "quantity": 1, "tracking_type": 1}).to_list(1000)
+    category_counts = {}
+    for item in items:
+        cat = item.get("category", "")
+        qty = item.get("quantity", 1) if item.get("tracking_type") == "quantity" else 1
+        category_counts[cat] = category_counts.get(cat, 0) + qty
+    
+    # Enrich categories with counts
+    enriched_categories = []
+    for cat in CACHED_CATEGORIES:
+        enriched_categories.append({
+            **cat,
+            "item_count": category_counts.get(cat["value"], 0)
+        })
+    
     return {
-        "categories": MASTER_CATEGORIES,
+        "categories": enriched_categories,
         "unique_categories": UNIQUE_CATEGORIES,
         "non_unique_categories": NON_UNIQUE_CATEGORIES,
         "category_labels": CATEGORY_LABELS
+    }
+
+@app.post("/api/categories")
+async def create_category(data: CategoryCreate, user: dict = Depends(get_current_user_dep())):
+    """Create a new category (admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Validate type
+    if data.type not in ["unique", "non_unique"]:
+        raise HTTPException(status_code=400, detail="Type must be 'unique' or 'non_unique'")
+    
+    # Normalize value (lowercase, replace spaces with underscores)
+    value = data.value.lower().strip().replace(" ", "_").replace("-", "_")
+    
+    # Check if category already exists
+    existing = await get_db().categories.find_one({"value": value})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Category '{value}' already exists")
+    
+    cat_doc = {
+        "value": value,
+        "label": data.label.strip(),
+        "type": data.type,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await get_db().categories.insert_one(cat_doc)
+    
+    # Refresh cache
+    await refresh_category_cache()
+    
+    return {"value": value, "label": data.label.strip(), "type": data.type}
+
+@app.put("/api/categories/{category_value}")
+async def update_category(category_value: str, data: CategoryUpdate, user: dict = Depends(get_current_user_dep())):
+    """Update a category (admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Check if category exists
+    existing = await get_db().categories.find_one({"value": category_value})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    update_data = {}
+    if data.label is not None:
+        update_data["label"] = data.label.strip()
+    if data.type is not None:
+        if data.type not in ["unique", "non_unique"]:
+            raise HTTPException(status_code=400, detail="Type must be 'unique' or 'non_unique'")
+        update_data["type"] = data.type
+    
+    if update_data:
+        await get_db().categories.update_one({"value": category_value}, {"$set": update_data})
+        # Refresh cache
+        await refresh_category_cache()
+    
+    updated = await get_db().categories.find_one({"value": category_value}, {"_id": 0})
+    return updated
+
+@app.delete("/api/categories/{category_value}")
+async def delete_category(category_value: str, user: dict = Depends(get_current_user_dep())):
+    """Delete a category (admin only) - blocked if items exist"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Check if category exists
+    existing = await get_db().categories.find_one({"value": category_value})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Check if any items exist in this category
+    item_count = await get_db().items.count_documents({"category": category_value})
+    if item_count > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete category '{category_value}': {item_count} item(s) exist. Please remove or reassign items first."
+        )
+    
+    await get_db().categories.delete_one({"value": category_value})
+    
+    # Refresh cache
+    await refresh_category_cache()
+    
+    return {"status": "deleted", "category": category_value}
+
+@app.get("/api/categories/{category_value}/items")
+async def get_category_items(category_value: str, user: dict = Depends(get_current_user_dep())):
+    """Get all items in a specific category"""
+    # Validate category exists
+    if category_value not in VALID_CATEGORY_VALUES:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    items = await get_db().items.find({"category": category_value}, {"_id": 0}).to_list(500)
+    
+    # Get category info
+    cat_info = next((c for c in CACHED_CATEGORIES if c["value"] == category_value), None)
+    
+    return {
+        "category": cat_info,
+        "items": items,
+        "total_count": len(items),
+        "active_count": len([i for i in items if i.get("status") == "active"]),
+        "damaged_count": len([i for i in items if i.get("status") == "damaged"]),
+        "lost_count": len([i for i in items if i.get("status") == "lost"])
     }
 
 @app.post("/api/items")
@@ -1030,6 +1197,118 @@ async def create_event(data: EventCreate, user: dict = Depends(get_current_user_
     await get_db().events.insert_one(doc)
     doc.pop("_id", None)
     return doc
+
+@app.post("/api/events/transfer-quantity")
+async def transfer_quantity(data: QuantityTransferCreate, user: dict = Depends(get_current_user_dep())):
+    """
+    Transfer quantity-based items (NON-UNIQUE categories) between locations.
+    This reduces quantity at source and increases at destination.
+    """
+    # Validate category
+    if data.category not in NON_UNIQUE_CATEGORIES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Category '{data.category}' is not a quantity-based category"
+        )
+    
+    # Find items of this category at the source location
+    source_items = await get_db().items.find({
+        "category": data.category,
+        "current_location": data.from_location,
+        "status": "active"
+    }).to_list(100)
+    
+    if not source_items:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"No {data.category} items found at {data.from_location}"
+        )
+    
+    # Calculate total available quantity at source
+    total_available = sum(item.get("quantity", 1) for item in source_items)
+    
+    if total_available < data.quantity:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Not enough items. Available: {total_available}, Requested: {data.quantity}"
+        )
+    
+    # Reduce quantity from source item(s)
+    remaining_to_transfer = data.quantity
+    for item in source_items:
+        if remaining_to_transfer <= 0:
+            break
+        
+        item_qty = item.get("quantity", 1)
+        if item_qty <= remaining_to_transfer:
+            # Transfer entire item (or delete if qty becomes 0)
+            await get_db().items.update_one(
+                {"item_name": item["item_name"]},
+                {"$set": {"current_location": data.to_location}}
+            )
+            remaining_to_transfer -= item_qty
+        else:
+            # Split: reduce source quantity, create/update destination item
+            new_source_qty = item_qty - remaining_to_transfer
+            await get_db().items.update_one(
+                {"item_name": item["item_name"]},
+                {"$set": {"quantity": new_source_qty}}
+            )
+            
+            # Check if destination already has this category
+            dest_item = await get_db().items.find_one({
+                "category": data.category,
+                "current_location": data.to_location,
+                "status": "active"
+            })
+            
+            if dest_item:
+                # Add to existing destination item
+                await get_db().items.update_one(
+                    {"item_name": dest_item["item_name"]},
+                    {"$inc": {"quantity": remaining_to_transfer}}
+                )
+            else:
+                # Create new item at destination
+                count = await get_db().items.count_documents({"category": data.category})
+                new_item_name = f"{data.category.upper().replace('_', '-')}-BULK-{count + 1}"
+                await get_db().items.insert_one({
+                    "item_name": new_item_name,
+                    "item_id": new_item_name,
+                    "category": data.category,
+                    "tracking_type": "quantity",
+                    "status": "active",
+                    "current_location": data.to_location,
+                    "quantity": remaining_to_transfer
+                })
+            
+            remaining_to_transfer = 0
+    
+    # Record the transfer event
+    event_doc = {
+        "id": f"evt-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "event_type": "transfer",
+        "user": user["id"],
+        "user_name": user["name"],
+        "item": f"{data.category} (x{data.quantity})",
+        "from_location": data.from_location,
+        "to_location": data.to_location,
+        "quantity": data.quantity,
+        "notes": data.notes,
+        "deployment_date": get_operational_date(),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    await get_db().events.insert_one(event_doc)
+    event_doc.pop("_id", None)
+    
+    return {
+        "status": "success",
+        "transferred": data.quantity,
+        "category": data.category,
+        "from": data.from_location,
+        "to": data.to_location,
+        "event": event_doc
+    }
 
 # ========================
 # SHIFTS (AUTO TIME TRACKING)

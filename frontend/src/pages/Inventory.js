@@ -22,31 +22,9 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, Package, Search, Plus, Edit, Trash2, 
   ChevronDown, ChevronRight, ArrowRightLeft, AlertTriangle,
-  Warehouse, Box, MapPin, History, Clock, Grid3X3, CheckCircle2, XCircle, AlertCircle, HardDrive
+  Warehouse, Box, MapPin, History, Clock, Grid3X3, CheckCircle2, XCircle, AlertCircle, HardDrive,
+  Tag, Layers, Settings
 } from 'lucide-react';
-
-// Standard item categories (user-specified list - NO vague categories)
-// NOTE: HDD is managed separately in HDD Dashboard, NOT in Inventory
-const ITEM_CATEGORIES = [
-  { value: 'glove_left', label: 'Glove Left' },
-  { value: 'glove_right', label: 'Glove Right' },
-  { value: 'usb_hub', label: 'USB Hub' },
-  { value: 'imu', label: 'IMUs' },
-  { value: 'head_camera', label: 'Head Camera' },
-  { value: 'l_shaped_wire', label: 'L-Shaped Wire' },
-  { value: 'wrist_camera', label: 'Wrist Camera' },
-  { value: 'laptop', label: 'Laptop' },
-  { value: 'laptop_charger', label: 'Laptop Charger' },
-  { value: 'power_bank', label: 'Power Bank' },
-  { value: 'ssd', label: 'SSD' },
-  { value: 'bluetooth_adapter', label: 'Bluetooth Adapter' },
-];
-
-// Categories with UNIQUE items (require Item Code / ID input)
-const UNIQUE_CATEGORIES = ['glove_left', 'glove_right', 'head_camera', 'wrist_camera', 'laptop', 'power_bank', 'ssd'];
-
-// Categories with NON-UNIQUE items (no item name needed, just category + location)
-const NON_UNIQUE_CATEGORIES = ['usb_hub', 'imu', 'l_shaped_wire', 'laptop_charger', 'bluetooth_adapter'];
 
 // Kit Standard Composition (reference for completeness check)
 const KIT_STANDARD = {
@@ -64,9 +42,6 @@ const KIT_STANDARD = {
   bluetooth_adapter: { required: 1, label: 'Bluetooth Adapter' },
 };
 
-// Alias for backward compatibility in display
-const CATEGORIES = ITEM_CATEGORIES;
-
 const LOCATION_TYPES = [
   { prefix: 'kit', label: 'Kit' },
   { prefix: 'bnb', label: 'BnB' },
@@ -75,6 +50,7 @@ const LOCATION_TYPES = [
 
 const TABS = [
   { id: 'distribution', label: 'Distribution', icon: Grid3X3 },
+  { id: 'categories', label: 'Categories', icon: Tag },
   { id: 'completeness', label: 'Kit Completeness', icon: CheckCircle2 },
   { id: 'movements', label: 'Movement Log', icon: History },
 ];
@@ -93,10 +69,21 @@ export default function Inventory() {
   const [activeTab, setActiveTab] = useState('distribution');
   const [expandedSections, setExpandedSections] = useState({});
   
+  // Categories from API
+  const [categories, setCategories] = useState([]);
+  const [uniqueCategories, setUniqueCategories] = useState([]);
+  const [nonUniqueCategories, setNonUniqueCategories] = useState([]);
+  const [categoryLabels, setCategoryLabels] = useState({});
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [categoryItems, setCategoryItems] = useState([]);
+  
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState('');
   const [editingItem, setEditingItem] = useState(null);
+  
+  // Category form data
+  const [categoryForm, setCategoryForm] = useState({ value: '', label: '', type: 'unique' });
   
   // Form data
   const [formData, setFormData] = useState({
@@ -124,12 +111,13 @@ export default function Inventory() {
 
   const fetchData = async () => {
     try {
-      const [itemsRes, kitsRes, bnbsRes, eventsRes, distRes] = await Promise.all([
+      const [itemsRes, kitsRes, bnbsRes, eventsRes, distRes, catRes] = await Promise.all([
         api.get('/items'),
         api.get('/kits'),
         api.get('/bnbs'),
         api.get('/events?event_type=transfer'),
-        api.get('/items/distribution')
+        api.get('/items/distribution'),
+        api.get('/categories')
       ]);
       setItems(itemsRes.data);
       setKits(kitsRes.data);
@@ -137,15 +125,34 @@ export default function Inventory() {
       setEvents(eventsRes.data.slice(0, 50)); // Last 50 movements
       setDistribution(distRes.data);
       
+      // Set categories from API
+      const cats = catRes.data.categories || [];
+      setCategories(cats);
+      setUniqueCategories(catRes.data.unique_categories || []);
+      setNonUniqueCategories(catRes.data.non_unique_categories || []);
+      setCategoryLabels(catRes.data.category_labels || {});
+      
       // Auto-expand first sections
       const sections = {};
-      CATEGORIES.forEach(c => { sections[`hub-${c.value}`] = true; });
+      cats.forEach(c => { sections[`hub-${c.value}`] = true; });
       kitsRes.data.forEach(k => { sections[`kit-${k.kit_id}`] = true; });
       setExpandedSections(sections);
     } catch (error) {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Fetch items for a specific category
+  const fetchCategoryItems = async (categoryValue) => {
+    try {
+      const res = await api.get(`/categories/${categoryValue}/items`);
+      setCategoryItems(res.data.items || []);
+      setSelectedCategory(res.data.category);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to load category items');
     }
   };
 
@@ -175,7 +182,7 @@ export default function Inventory() {
 
   // Group by category
   const groupByCategory = (itemList) => {
-    return CATEGORIES.reduce((acc, cat) => {
+    return categories.reduce((acc, cat) => {
       acc[cat.value] = itemList.filter(item => (item.category || 'general') === cat.value);
       return acc;
     }, {});
@@ -312,6 +319,32 @@ export default function Inventory() {
     e.preventDefault();
 
     try {
+      // Category CRUD
+      if (dialogType === 'add-category') {
+        if (!categoryForm.value || !categoryForm.label) {
+          toast.error('Please fill in all fields');
+          return;
+        }
+        await api.post('/categories', {
+          value: categoryForm.value.toLowerCase().trim().replace(/\s+/g, '_'),
+          label: categoryForm.label.trim(),
+          type: categoryForm.type
+        });
+        toast.success('Category created');
+        setDialogOpen(false);
+        fetchData();
+        return;
+      } else if (dialogType === 'edit-category') {
+        await api.put(`/categories/${categoryForm.value}`, {
+          label: categoryForm.label.trim(),
+          type: categoryForm.type
+        });
+        toast.success('Category updated');
+        setDialogOpen(false);
+        fetchData();
+        return;
+      }
+      
       if (dialogType === 'add') {
         const location = `${formData.location_type}:${formData.location_value}`;
         await api.post('/items', {
@@ -337,29 +370,45 @@ export default function Inventory() {
         const from_location = `${formData.from_type}:${formData.from_value}`;
         const to_location = `${formData.to_type}:${formData.to_value}`;
         
-        // For bulk transfer, item is selected from transfer_item; for transfer, it's the editingItem
-        const itemName = dialogType === 'bulk-transfer' ? formData.transfer_item : editingItem.item_name;
-        const transferQty = dialogType === 'bulk-transfer' ? formData.transfer_quantity : 1;
-        
-        if (!itemName) {
-          toast.error('Please select an item');
-          return;
-        }
-        
         if (!formData.from_value || !formData.to_value) {
           toast.error('Please select From and To locations');
           return;
         }
         
-        await api.post('/events', {
-          event_type: 'transfer',
-          item: itemName,
-          from_location,
-          to_location,
-          quantity: transferQty,
-          notes: formData.notes || null
-        });
-        toast.success('Transfer recorded');
+        // For NON-UNIQUE bulk transfers, use category-based transfer
+        const isNonUniqueTransfer = dialogType === 'bulk-transfer' && 
+          nonUniqueCategories.includes(formData.transfer_category);
+        
+        if (isNonUniqueTransfer) {
+          // Quantity-based transfer (no specific item selection)
+          await api.post('/events/transfer-quantity', {
+            category: formData.transfer_category,
+            from_location,
+            to_location,
+            quantity: formData.transfer_quantity,
+            notes: formData.notes || null
+          });
+          toast.success(`Transferred ${formData.transfer_quantity} ${categoryLabels[formData.transfer_category] || 'items'}`);
+        } else {
+          // Individual item transfer (UNIQUE categories or single item transfer)
+          const itemName = dialogType === 'bulk-transfer' ? formData.transfer_item : editingItem.item_name;
+          const transferQty = dialogType === 'bulk-transfer' ? formData.transfer_quantity : 1;
+          
+          if (!itemName) {
+            toast.error('Please select an item');
+            return;
+          }
+          
+          await api.post('/events', {
+            event_type: 'transfer',
+            item: itemName,
+            from_location,
+            to_location,
+            quantity: transferQty,
+            notes: formData.notes || null
+          });
+          toast.success('Transfer recorded');
+        }
       } else if (dialogType === 'damage') {
         // Single item damage report (from item row)
         await api.post('/events', {
@@ -374,7 +423,7 @@ export default function Inventory() {
         toast.success('Item marked as damaged');
       } else if (dialogType === 'report-damage' || dialogType === 'report-lost') {
         // Bulk damage/lost report with UNIQUE vs NON-UNIQUE logic
-        const isUnique = UNIQUE_CATEGORIES.includes(formData.report_category);
+        const isUnique = uniqueCategories.includes(formData.report_category);
         const newStatus = dialogType === 'report-damage' ? 'damaged' : 'lost';
         
         if (!formData.report_category) {
@@ -484,9 +533,9 @@ export default function Inventory() {
   const renderCategorySection = (items, prefix) => {
     const grouped = groupByCategory(items);
     
-    return CATEGORIES.map(cat => {
-      const categoryItems = grouped[cat.value] || [];
-      if (categoryItems.length === 0) return null;
+    return categories.map(cat => {
+      const catItems = grouped[cat.value] || [];
+      if (catItems.length === 0) return null;
       
       const sectionKey = `${prefix}-${cat.value}`;
       const isExpanded = expandedSections[sectionKey];
@@ -500,12 +549,12 @@ export default function Inventory() {
             <div className="flex items-center gap-2">
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               <span className="font-medium text-slate-700">{cat.label}</span>
-              <span className="text-xs bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">{categoryItems.length}</span>
+              <span className="text-xs bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">{catItems.length}</span>
             </div>
           </button>
           {isExpanded && (
             <div className="bg-white divide-y border-t">
-              {categoryItems.map(item => renderItemRow(item))}
+              {catItems.map(item => renderItemRow(item))}
             </div>
           )}
         </div>
@@ -649,8 +698,8 @@ export default function Inventory() {
                           {distribution.categories.map(cat => {
                             const catData = distribution.distribution[cat] || {};
                             const total = Object.values(catData).reduce((sum, val) => sum + val, 0);
-                            // Use backend category_labels if available, otherwise fallback to frontend CATEGORIES
-                            const catLabel = distribution.category_labels?.[cat] || CATEGORIES.find(c => c.value === cat)?.label || cat;
+                            // Use backend category_labels if available, otherwise fallback to categories state
+                            const catLabel = distribution.category_labels?.[cat] || categoryLabels[cat] || cat;
                             
                             return (
                               <tr key={cat} className="border-b hover:bg-slate-50" data-testid={`dist-row-${cat}`}>
@@ -698,6 +747,178 @@ export default function Inventory() {
                 <p className="text-xs text-slate-500 text-center">
                   This view is auto-calculated from item locations. Use transfers to move items between locations.
                 </p>
+              </div>
+            )}
+
+            {/* CATEGORIES TAB */}
+            {activeTab === 'categories' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-700">
+                    <Tag className="w-5 h-5" />
+                    <h2 className="font-semibold">Category Management</h2>
+                    <span className="text-sm text-slate-500">({categories.length} categories)</span>
+                  </div>
+                  {isAdmin && (
+                    <Button 
+                      size="sm" 
+                      onClick={() => {
+                        setDialogType('add-category');
+                        setCategoryForm({ value: '', label: '', type: 'unique' });
+                        setDialogOpen(true);
+                      }}
+                      data-testid="add-category-btn"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Category
+                    </Button>
+                  )}
+                </div>
+                
+                {categories.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No categories defined
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {categories.map(cat => {
+                      const isExpanded = expandedSections[`cat-${cat.value}`];
+                      const isUnique = cat.type === 'unique';
+                      
+                      return (
+                        <div key={cat.value} className="bg-white rounded-xl border overflow-hidden" data-testid={`category-${cat.value}`}>
+                          <div 
+                            className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-50"
+                            onClick={() => {
+                              toggleSection(`cat-${cat.value}`);
+                              if (!isExpanded) {
+                                fetchCategoryItems(cat.value);
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-slate-900">{cat.label}</span>
+                                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                    isUnique ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                                  }`}>
+                                    {isUnique ? 'Unique' : 'Quantity-based'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-slate-500">ID: {cat.value}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold text-slate-700">{cat.item_count || 0} items</span>
+                              {isAdmin && (
+                                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8"
+                                    onClick={() => {
+                                      setDialogType('edit-category');
+                                      setCategoryForm({ value: cat.value, label: cat.label, type: cat.type });
+                                      setDialogOpen(true);
+                                    }}
+                                  >
+                                    <Edit className="w-4 h-4 text-slate-500" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8"
+                                    onClick={async () => {
+                                      if (!confirm(`Delete category "${cat.label}"?`)) return;
+                                      try {
+                                        await api.delete(`/categories/${cat.value}`);
+                                        toast.success('Category deleted');
+                                        fetchData();
+                                      } catch (err) {
+                                        toast.error(err.response?.data?.detail || 'Failed to delete');
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {isExpanded && selectedCategory?.value === cat.value && (
+                            <div className="border-t bg-slate-50 p-4">
+                              {categoryItems.length === 0 ? (
+                                <p className="text-sm text-slate-500 text-center py-4">No items in this category</p>
+                              ) : (
+                                <div className="space-y-2">
+                                  <div className="flex gap-4 text-xs text-slate-600 mb-2">
+                                    <span className="flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                      Active: {categoryItems.filter(i => i.status === 'active').length}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <AlertTriangle className="w-3 h-3 text-amber-500" />
+                                      Damaged: {categoryItems.filter(i => i.status === 'damaged').length}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <XCircle className="w-3 h-3 text-red-500" />
+                                      Lost: {categoryItems.filter(i => i.status === 'lost').length}
+                                    </span>
+                                  </div>
+                                  
+                                  <div className="bg-white rounded-lg border divide-y max-h-64 overflow-y-auto">
+                                    {categoryItems.map(item => (
+                                      <div key={item.item_name} className="px-3 py-2 flex items-center justify-between text-sm">
+                                        <div>
+                                          <span className="font-medium">{item.item_name}</span>
+                                          {!isUnique && <span className="text-slate-500 ml-2">×{item.quantity || 1}</span>}
+                                          <span className="text-xs text-slate-500 ml-2">{formatLocation(item.current_location)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(item.status)}`}>
+                                            {item.status}
+                                          </span>
+                                          {isAdmin && (
+                                            <Select
+                                              value={item.status}
+                                              onValueChange={async (newStatus) => {
+                                                try {
+                                                  await api.put(`/items/${item.item_name}`, { status: newStatus });
+                                                  toast.success(`Status updated to ${newStatus}`);
+                                                  fetchCategoryItems(cat.value);
+                                                  fetchData();
+                                                } catch (err) {
+                                                  toast.error('Failed to update status');
+                                                }
+                                              }}
+                                            >
+                                              <SelectTrigger className="h-7 w-24 text-xs">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="active">Active</SelectItem>
+                                                <SelectItem value="damaged">Damaged</SelectItem>
+                                                <SelectItem value="lost">Lost</SelectItem>
+                                                <SelectItem value="repair">Repair</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -909,11 +1130,62 @@ export default function Inventory() {
                dialogType === 'bulk-transfer' ? 'Transfer Item' :
                dialogType === 'report-damage' ? 'Report Damaged Item' :
                dialogType === 'report-lost' ? 'Report Lost Item' :
+               dialogType === 'add-category' ? 'Add New Category' :
+               dialogType === 'edit-category' ? 'Edit Category' :
                `Report Damage: ${editingItem?.item_name}`}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            
+            {/* CATEGORY ADD/EDIT DIALOG */}
+            {(dialogType === 'add-category' || dialogType === 'edit-category') && (
+              <>
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Category ID *</Label>
+                  <Input
+                    value={categoryForm.value}
+                    onChange={(e) => setCategoryForm({ ...categoryForm, value: e.target.value })}
+                    placeholder="e.g., laptop, usb_hub"
+                    className="mt-1 h-9"
+                    disabled={dialogType === 'edit-category'}
+                    required
+                    data-testid="category-value-input"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Unique identifier (lowercase, no spaces)</p>
+                </div>
+                
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Display Name *</Label>
+                  <Input
+                    value={categoryForm.label}
+                    onChange={(e) => setCategoryForm({ ...categoryForm, label: e.target.value })}
+                    placeholder="e.g., Laptop, USB Hub"
+                    className="mt-1 h-9"
+                    required
+                    data-testid="category-label-input"
+                  />
+                </div>
+                
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Category Type *</Label>
+                  <Select value={categoryForm.type} onValueChange={(v) => setCategoryForm({ ...categoryForm, type: v })}>
+                    <SelectTrigger className="mt-1 h-9" data-testid="category-type-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unique">Unique (Individual items with IDs)</SelectItem>
+                      <SelectItem value="non_unique">Quantity-based (Tracked by count)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {categoryForm.type === 'unique' 
+                      ? 'Each item has a unique ID (e.g., Laptop-01, SSD-001)'
+                      : 'Items are tracked by quantity (e.g., 5 USB Hubs)'}
+                  </p>
+                </div>
+              </>
+            )}
             
             {/* REPORT DAMAGE / LOST DIALOG - with UNIQUE vs NON-UNIQUE logic */}
             {(dialogType === 'report-damage' || dialogType === 'report-lost') && (
@@ -937,7 +1209,7 @@ export default function Inventory() {
                       <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {ITEM_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      {categories.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -945,7 +1217,7 @@ export default function Inventory() {
                 {/* Step 2: Based on UNIQUE vs NON-UNIQUE */}
                 {formData.report_category && (
                   <div className="bg-slate-50 p-3 rounded-lg border">
-                    {UNIQUE_CATEGORIES.includes(formData.report_category) ? (
+                    {uniqueCategories.includes(formData.report_category) ? (
                       // UNIQUE: Select specific item
                       <div>
                         <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item *</Label>
@@ -1012,7 +1284,7 @@ export default function Inventory() {
                   <Label className="text-xs font-semibold text-slate-700">Step 1: Select Category *</Label>
                   <Select value={formData.category} onValueChange={(v) => {
                     // Auto-set tracking type based on category
-                    const isUnique = UNIQUE_CATEGORIES.includes(v);
+                    const isUnique = uniqueCategories.includes(v);
                     setFormData({ 
                       ...formData, 
                       category: v, 
@@ -1022,13 +1294,13 @@ export default function Inventory() {
                   }}>
                     <SelectTrigger className="mt-1 h-9" data-testid="category-select"><SelectValue placeholder="Select category" /></SelectTrigger>
                     <SelectContent>
-                      {ITEM_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      {categories.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 
                 {/* STEP 2: Show Item Code ONLY for UNIQUE categories */}
-                {formData.category && UNIQUE_CATEGORIES.includes(formData.category) && (
+                {formData.category && uniqueCategories.includes(formData.category) && (
                   <div className="bg-slate-50 p-3 rounded-lg border">
                     <Label className="text-xs font-semibold text-slate-700">Step 2: Item Code / ID *</Label>
                     <Input
@@ -1045,7 +1317,7 @@ export default function Inventory() {
                 )}
                 
                 {/* For NON-UNIQUE categories, show quantity */}
-                {formData.category && NON_UNIQUE_CATEGORIES.includes(formData.category) && (
+                {formData.category && nonUniqueCategories.includes(formData.category) && (
                   <div className="bg-slate-50 p-3 rounded-lg border">
                     <Label className="text-xs font-semibold text-slate-700">Step 2: Quantity</Label>
                     <Input
@@ -1056,7 +1328,7 @@ export default function Inventory() {
                       className="mt-1 h-9"
                       data-testid="item-quantity-input"
                     />
-                    <p className="text-xs text-slate-500 mt-1">How many {ITEM_CATEGORIES.find(c => c.value === formData.category)?.label || 'items'} to add</p>
+                    <p className="text-xs text-slate-500 mt-1">How many {categoryLabels[formData.category] || 'items'} to add</p>
                   </div>
                 )}
                 
@@ -1170,17 +1442,17 @@ export default function Inventory() {
                       <SelectValue placeholder="Select item category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {ITEM_CATEGORIES.map(c => (
+                      {categories.map(c => (
                         <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 
-                {/* Step 2: Select Item (UNIQUE) or Quantity (NON-UNIQUE) */}
+                {/* Step 2: Select Item (UNIQUE) or Quantity + Source (NON-UNIQUE) */}
                 {formData.transfer_category && (
                   <div className="bg-slate-50 p-3 rounded-lg border">
-                    {UNIQUE_CATEGORIES.includes(formData.transfer_category) ? (
+                    {uniqueCategories.includes(formData.transfer_category) ? (
                       // UNIQUE category: Show dropdown of item IDs
                       <div>
                         <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item ID *</Label>
@@ -1207,41 +1479,22 @@ export default function Inventory() {
                         )}
                       </div>
                     ) : (
-                      // NON-UNIQUE category: Show quantity input
-                      <div className="space-y-3">
-                        <div>
-                          <Label className="text-xs font-semibold text-slate-700">Step 2: Select Item *</Label>
-                          <Select 
-                            value={formData.transfer_item} 
-                            onValueChange={(v) => setFormData({ ...formData, transfer_item: v })}
-                          >
-                            <SelectTrigger className="mt-1 h-9" data-testid="transfer-item-select">
-                              <SelectValue placeholder="Select item" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {items
-                                .filter(item => item.category === formData.transfer_category && item.status === 'active')
-                                .map((item, idx) => (
-                                  <SelectItem key={`${item.item_name}-${idx}`} value={item.item_name}>
-                                    {item.item_name} - Qty: {item.quantity || 1} ({formatLocation(item.current_location)})
-                                  </SelectItem>
-                                ))
-                              }
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label className="text-xs font-semibold text-slate-700">Quantity to Transfer</Label>
-                          <Input
-                            type="number"
-                            min="1"
-                            value={formData.transfer_quantity}
-                            onChange={(e) => setFormData({ ...formData, transfer_quantity: parseInt(e.target.value) || 1 })}
-                            className="mt-1 h-9"
-                            data-testid="transfer-quantity-input"
-                          />
-                        </div>
+                      // NON-UNIQUE category: Only quantity (source location selected below)
+                      <div>
+                        <Label className="text-xs font-semibold text-slate-700">Step 2: Quantity to Transfer *</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={formData.transfer_quantity}
+                          onChange={(e) => setFormData({ ...formData, transfer_quantity: parseInt(e.target.value) || 1 })}
+                          className="mt-1 h-9"
+                          data-testid="transfer-quantity-input"
+                        />
+                        <p className="text-xs text-slate-500 mt-1">
+                          Available at source location will be shown after selecting "From" location
+                        </p>
                       </div>
+                    )}
                     )}
                   </div>
                 )}
@@ -1321,7 +1574,8 @@ export default function Inventory() {
                 Cancel
               </Button>
               <Button type="submit" className="flex-1" data-testid="submit-btn">
-                {dialogType === 'add' ? 'Create' : dialogType === 'edit' ? 'Update' : 'Submit'}
+                {dialogType === 'add' || dialogType === 'add-category' ? 'Create' : 
+                 dialogType === 'edit' || dialogType === 'edit-category' ? 'Update' : 'Submit'}
               </Button>
             </div>
           </form>
