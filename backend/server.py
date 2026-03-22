@@ -587,8 +587,8 @@ async def get_categories():
 
 @app.post("/api/items")
 async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_dep())):
-    if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+    # Allow all authenticated users to add items (not just admins)
+    # Admins retain edit/delete permissions
     
     # Validate category against master list
     normalized_category = normalize_category(data.category)

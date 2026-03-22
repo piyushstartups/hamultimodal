@@ -329,12 +329,36 @@ Deployments → Date → BnB → Handover buttons
 - Backend still accepts "evening" for backward compatibility but normalizes to "night"
 - All new data will be stored with "night" not "evening"
 
-**Files Updated:**
-- Backend: server.py (models, endpoints, validation, migration)
-- Frontend: Deployments.js (all shift references, UI labels, state)
-- Frontend: HardwareDashboard.js (groupChecksByShift function)
+2026-03-22 - Shift Permissions Fix (SYMMETRIC ACCESS):
+**Made shift permissions symmetric between Morning and Night managers**
+- Morning managers: FULL access to Morning shift, VIEW-ONLY access to Night shift
+- Night managers: FULL access to Night shift, VIEW-ONLY access to Morning shift
+- Admins: FULL access to both shifts
+- View-only mode: Can see kits/data/status, but cannot Start/Pause/Resume/Stop
+- Added view-only banner notification when in view-only mode
+- Updated UI to hide action buttons for view-only users
 
-**ZERO MISMATCH GUARANTEED:** Frontend and backend now use consistent "morning"/"night" naming.
+2026-03-22 - Inventory & Data Offload Improvements:
+**Inventory Access:**
+- Removed admin-only restriction for adding items - all users can now add items
+- Admin retains edit/delete permissions
+
+**Data Offload SSD Selection Bug Fix:**
+- Fixed: All SSDs are now selectable (removed condition that only allowed pending data SSDs)
+- Fixed: Checkboxes now visible on ALL SSDs, not just ones with pending data
+- Improved: Click anywhere on SSD card to toggle selection
+
+**New Feature: SSD Tracker Tab**
+- Added new "SSD Tracker" tab to Data Offload page
+- Shows: SSD ID, Current Location, Status, Last Offloaded, Pending Data, BnBs Used
+- View-only tracking derived from existing collection_records
+
+**Files Updated:**
+- Backend: server.py (removed admin-only for POST /api/items)
+- Frontend: Deployments.js (symmetric shift permissions, view-only logic)
+- Frontend: OffloadManagement.js (SSD selection fix, SSD Tracker tab)
+
+**ZERO BREAKING CHANGES:** All existing flows preserved.
 
 **ISOLATION CONFIRMED:** Only fixed shift naming. No changes to collection start/stop/pause flows.
 

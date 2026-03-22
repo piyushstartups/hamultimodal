@@ -20,6 +20,7 @@ import {
 
 const TABS = [
   { id: 'offload', label: 'Offload SSDs', icon: ArrowRight },
+  { id: 'tracker', label: 'SSD Tracker', icon: Database },
   { id: 'hdds', label: 'HDD Dashboard', icon: HardDrive },
   { id: 'history', label: 'History', icon: Clock },
 ];
@@ -278,18 +279,17 @@ export default function OffloadManagement() {
                             ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
                             : ssd.has_pending_data
                               ? 'border-amber-300 bg-amber-50 hover:border-amber-400'
-                              : 'border-slate-200 bg-slate-50 opacity-60'
+                              : 'border-slate-200 bg-slate-50 hover:border-slate-300'
                         }`}
-                        onClick={() => ssd.has_pending_data && handleSsdToggle(ssd.item_id)}
+                        onClick={() => handleSsdToggle(ssd.item_id)}
                       >
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium text-sm">{ssd.item_id}</span>
-                          {ssd.has_pending_data && (
-                            <Checkbox 
-                              checked={selectedSsds.includes(ssd.item_id)}
-                              onCheckedChange={() => handleSsdToggle(ssd.item_id)}
-                            />
-                          )}
+                          <Checkbox 
+                            checked={selectedSsds.includes(ssd.item_id)}
+                            onCheckedChange={() => handleSsdToggle(ssd.item_id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
                         </div>
                         {ssd.has_pending_data ? (
                           <div className="text-xs">
@@ -633,6 +633,100 @@ export default function OffloadManagement() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* SSD TRACKER TAB - View Only */}
+        {activeTab === 'tracker' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-slate-800">SSD Tracker</h2>
+              <span className="text-sm text-slate-500">{ssds.length} SSDs tracked</span>
+            </div>
+            
+            <div className="bg-white rounded-xl border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600">SSD ID</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600">Current Location</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600">Status</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600">Last Offloaded</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600">Pending Data</th>
+                    <th className="px-4 py-3 text-left font-medium text-slate-600">BnBs Used</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {ssds.map(ssd => {
+                    // Find the most recent offload for this SSD
+                    const lastOffload = offloads.find(o => o.ssd_ids?.includes(ssd.item_id));
+                    
+                    return (
+                      <tr key={ssd.item_id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-medium">{ssd.item_id}</td>
+                        <td className="px-4 py-3">
+                          {ssd.current_location ? (
+                            <span className="inline-flex items-center gap-1">
+                              {ssd.current_location.includes('kit:') ? (
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                                  {ssd.current_location.replace('kit:', 'Kit ')}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">
+                                  {ssd.current_location.replace('station:', '')}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Hub</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ssd.has_pending_data ? (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium">
+                              Needs Offload
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">
+                              Available
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {lastOffload ? (
+                            new Date(lastOffload.created_at).toLocaleDateString()
+                          ) : (
+                            <span className="text-slate-400">Never</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ssd.has_pending_data ? (
+                            <span className="text-amber-700 font-medium">
+                              {ssd.pending_record_count} records • {formatDuration(ssd.pending_hours)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 max-w-xs truncate">
+                          {ssd.pending_bnbs?.length > 0 ? (
+                            ssd.pending_bnbs.join(', ')
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              
+              {ssds.length === 0 && (
+                <div className="p-8 text-center text-slate-500">
+                  No SSDs found in inventory. Add SSDs from the Inventory page.
+                </div>
+              )}
+            </div>
           </div>
         )}
 

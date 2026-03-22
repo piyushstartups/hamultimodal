@@ -351,7 +351,11 @@ export default function Deployments() {
     }
   };
 
-  // NEW: Check if user belongs to a specific shift
+  // NEW: Get shift access for a user (with view-only support)
+  // SYMMETRIC ACCESS:
+  // - Morning managers: FULL access to Morning, VIEW-ONLY to Night
+  // - Night managers: FULL access to Night, VIEW-ONLY to Morning
+  // - Admins: FULL access to both
   const getUserShiftAccess = (deployment) => {
     const userId = user?.id;
     const userRole = user?.role;
@@ -368,13 +372,19 @@ export default function Deployments() {
     
     if (!userId || !deployment) {
       console.log('[ACCESS_CHECK] No user or deployment - DENYING');
-      return { canMorning: false, canNight: false };
+      return { 
+        canMorning: false, canNight: false,
+        morningViewOnly: false, nightViewOnly: false
+      };
     }
     
-    // Admins can access both shifts
+    // Admins can access both shifts with FULL access
     if (isAdmin) {
-      console.log('[ACCESS_CHECK] User is ADMIN - GRANTING both shifts');
-      return { canMorning: true, canNight: true };
+      console.log('[ACCESS_CHECK] User is ADMIN - GRANTING FULL access to both shifts');
+      return { 
+        canMorning: true, canNight: true,
+        morningViewOnly: false, nightViewOnly: false
+      };
     }
     
     const isMorningManager = deployment.morning_managers?.includes(userId);
@@ -382,9 +392,18 @@ export default function Deployments() {
     // Legacy support
     const isLegacyManager = deployment.deployment_managers?.includes(userId);
     
+    // SYMMETRIC ACCESS LOGIC:
+    // - If you're a morning manager: FULL morning, VIEW-ONLY night
+    // - If you're a night manager: FULL night, VIEW-ONLY morning
+    // - If you're both: FULL access to both
+    // - Legacy managers get FULL access to both for backward compat
     const access = {
-      canMorning: isMorningManager || isLegacyManager,
-      canNight: isNightManager || isLegacyManager
+      // Can VIEW the shift tab
+      canMorning: isMorningManager || isNightManager || isLegacyManager,
+      canNight: isMorningManager || isNightManager || isLegacyManager,
+      // VIEW-ONLY flags (cannot perform actions)
+      morningViewOnly: !isMorningManager && !isLegacyManager && isNightManager,
+      nightViewOnly: !isNightManager && !isLegacyManager && isMorningManager
     };
     
     console.log('[ACCESS_CHECK] Non-admin access result', { 
@@ -395,6 +414,16 @@ export default function Deployments() {
     });
     
     return access;
+  };
+
+  // NEW: Check if user can perform actions on a shift (not view-only)
+  const canPerformActionsOnShift = (deployment, shiftTab) => {
+    const access = getUserShiftAccess(deployment);
+    if (shiftTab === 'morning') {
+      return access.canMorning && !access.morningViewOnly;
+    } else {
+      return access.canNight && !access.nightViewOnly;
+    }
   };
 
   // NEW: Get current tab for a deployment (default based on user access)
@@ -1319,19 +1348,34 @@ export default function Deployments() {
                         </button>
                       </div>
                       
-                      {/* Access Status Banner - only show if user doesn't have access */}
+                      {/* Access Status Banner - show for no access OR view-only */}
                       {(() => {
                         const currentTab = getActiveTab(dep);
                         const access = getUserShiftAccess(dep);
+                        const isViewOnly = currentTab === 'morning' ? access.morningViewOnly : access.nightViewOnly;
+                        const noAccess = (currentTab === 'morning' && !access.canMorning) || (currentTab === 'night' && !access.canNight);
                         
-                        // Access warning only
-                        if ((currentTab === 'morning' && !access.canMorning) || (currentTab === 'night' && !access.canNight)) {
+                        // No access at all
+                        if (noAccess) {
                           return (
                             <div className="bg-slate-100 border border-slate-200 rounded-lg p-3 flex items-center gap-2 text-slate-600">
                               <AlertCircle className="w-5 h-5 flex-shrink-0" />
                               <div>
+                                <p className="font-medium text-sm">No Access</p>
+                                <p className="text-xs">You are not assigned to this deployment.</p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        // View-only access
+                        if (isViewOnly) {
+                          return (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center gap-2 text-blue-700">
+                              <Eye className="w-5 h-5 flex-shrink-0" />
+                              <div>
                                 <p className="font-medium text-sm">View Only</p>
-                                <p className="text-xs">You are not assigned to this shift. Actions are disabled.</p>
+                                <p className="text-xs">You can view this shift's data but cannot perform actions (Start/Pause/Stop).</p>
                               </div>
                             </div>
                           );
@@ -1346,8 +1390,10 @@ export default function Deployments() {
                         const access = getUserShiftAccess(dep);
                         const status = handoverStatus[dep.id];
                         const hasAccess = currentTab === 'morning' ? access.canMorning : access.canNight;
+                        const isViewOnly = currentTab === 'morning' ? access.morningViewOnly : access.nightViewOnly;
                         
-                        if (!hasAccess) return null;
+                        // Don't show actions if no access or view-only
+                        if (!hasAccess || isViewOnly) return null;
                         
                         const shiftCompleted = currentTab === 'morning' 
                           ? status?.morning_outgoing_complete 
@@ -1429,23 +1475,28 @@ export default function Deployments() {
                               const completedRecords = getCompletedRecords(kit);
                               const totalHours = getTotalKitHours(kit);
                               
-                              // Access control
+                              // Access control - with view-only support
                               const access = getUserShiftAccess(dep);
                               const hasAccess = currentTab === 'morning' ? access.canMorning : access.canNight;
+                              const isViewOnly = currentTab === 'morning' ? access.morningViewOnly : access.nightViewOnly;
                               
-                              // EMERGENCY FIX: Remove ALL blocking conditions
-                              // Allow ANY user to start collection - just log for debugging
+                              // Can perform actions: must have access AND not be view-only
+                              const canPerformActions = hasAccess && !isViewOnly;
+                              
+                              // Start button check
                               const canStart = (() => {
-                                console.log('[CAN_START_CHECK] EMERGENCY MODE', { 
+                                console.log('[CAN_START_CHECK]', { 
                                   kit, 
                                   currentTab, 
-                                  hasAccess, 
+                                  hasAccess,
+                                  isViewOnly,
+                                  canPerformActions,
                                   access,
                                   status,
                                   deploymentId: dep.id 
                                 });
-                                // TEMPORARY: Always allow - remove blocking
-                                return { allowed: true, reason: null };
+                                // Allow start if user can perform actions
+                                return { allowed: canPerformActions, reason: isViewOnly ? 'View only - cannot perform actions' : null };
                               })();
                               
                               return (
@@ -1496,13 +1547,17 @@ export default function Deployments() {
                                     </div>
                                   )}
                                   
-                                  {/* Control Buttons - EMERGENCY: ALWAYS SHOW START BUTTON */}
+                                  {/* Control Buttons - Respect view-only access */}
                                   <div className="px-4 py-3 bg-white border-t border-slate-100">
-                                    {/* EMERGENCY FIX: Show Start button regardless of status */}
-                                    {(status === 'not_started' || status === 'completed') && (
+                                    {/* Start button - only for users with full access */}
+                                    {(status === 'not_started' || status === 'completed') && canPerformActions && (
                                       <div>
                                         <Button 
-                                          className="w-full h-12 text-base bg-green-500 hover:bg-green-600"
+                                          className={`w-full h-12 text-lg font-semibold ${
+                                            currentTab === 'morning' 
+                                              ? 'bg-amber-500 hover:bg-amber-600' 
+                                              : 'bg-indigo-500 hover:bg-indigo-600'
+                                          }`}
                                           onClick={() => {
                                             console.log('[BUTTON_CLICK] Start Collection clicked', { 
                                               kit, 
@@ -1510,10 +1565,9 @@ export default function Deployments() {
                                               currentTab,
                                               deploymentId: dep?.id,
                                               status,
-                                              hasAccess,
+                                              canPerformActions,
                                               timestamp: new Date().toISOString()
                                             });
-                                            // EMERGENCY: Always call openStartShift, no conditions
                                             openStartShift(dep, kit);
                                           }}
                                           data-testid={`start-${kit}`}
@@ -1523,7 +1577,13 @@ export default function Deployments() {
                                         </Button>
                                       </div>
                                     )}
-                                    {status === 'active' && hasAccess && (
+                                    {(status === 'not_started' || status === 'completed') && !canPerformActions && hasAccess && (
+                                      <p className="text-xs text-blue-600 text-center py-3 bg-blue-50 rounded-lg">
+                                        <Eye className="w-4 h-4 inline mr-1" />
+                                        View only - you cannot start collections on this shift
+                                      </p>
+                                    )}
+                                    {status === 'active' && canPerformActions && (
                                       <div className="flex gap-2">
                                         <Button 
                                           className="flex-1 bg-amber-500 hover:bg-amber-600 h-12"
@@ -1543,10 +1603,12 @@ export default function Deployments() {
                                         </Button>
                                       </div>
                                     )}
-                                    {status === 'active' && !hasAccess && (
-                                      <p className="text-xs text-slate-500 text-center py-2">Active collection by another shift</p>
+                                    {status === 'active' && !canPerformActions && (
+                                      <p className="text-xs text-slate-500 text-center py-2">
+                                        {isViewOnly ? 'View only - cannot control this collection' : 'Active collection by another shift'}
+                                      </p>
                                     )}
-                                    {status === 'paused' && hasAccess && (
+                                    {status === 'paused' && canPerformActions && (
                                       <div className="flex gap-2">
                                         <Button 
                                           className="flex-1 bg-green-500 hover:bg-green-600 h-12"
@@ -1566,8 +1628,10 @@ export default function Deployments() {
                                         </Button>
                                       </div>
                                     )}
-                                    {status === 'paused' && !hasAccess && (
-                                      <p className="text-xs text-slate-500 text-center py-2">Paused collection by another shift</p>
+                                    {status === 'paused' && !canPerformActions && (
+                                      <p className="text-xs text-slate-500 text-center py-2">
+                                        {isViewOnly ? 'View only - cannot control this collection' : 'Paused collection by another shift'}
+                                      </p>
                                     )}
                                   </div>
                                   
