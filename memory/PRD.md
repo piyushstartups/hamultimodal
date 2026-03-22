@@ -1,5 +1,46 @@
 # HA Multimodal Management - Product Requirements Document
 
+## Last Updated
+2026-03-22 - **MAJOR: Inventory System Overhaul Complete (Phases 1-5)**
+
+### Phase 1: Category Management Backend ✅
+- Categories now stored in MongoDB `categories` collection (dynamic, not hardcoded)
+- CRUD API endpoints: GET/POST/PUT/DELETE /api/categories
+- Each category has `type`: "unique" or "non_unique"
+- Delete protection: blocks deletion if items exist in category
+- Auto-seeding from defaults on first run
+
+### Phase 2: Category Management Frontend ✅
+- New "Categories" tab in Inventory page
+- Shows categories with type badges (Unique/Quantity-based)
+- Item counts displayed per category
+- Admin controls: Add/Edit/Delete category buttons
+- Expandable categories showing items with status controls
+
+### Phase 3: Transfer Flow Fix ✅
+- NON-UNIQUE categories: Only Category + Quantity + From/To (no item selection)
+- UNIQUE categories: Category → Select specific item ID
+- New backend endpoint: POST /api/events/transfer-quantity
+
+### Phase 4: Damage/Lost Flow Fix ✅
+- UNIQUE items: Auto-detect location from item record
+- NON-UNIQUE items: User selects source location + quantity
+- New backend endpoint: POST /api/events/damage-lost-quantity
+- Correct deduction from the right source (Kit/Hub/BnB)
+
+### Phase 5: SSD Return Flow Enhancement ✅
+- "Reason for Transfer" dropdown when transferring SSD:
+  - SSD Full (marks as "Ready for Offload")
+  - Routine Return
+  - Issue/Damage
+  - Other
+- Data Offload page highlights "Ready for Offload" SSDs prominently
+
+### Phase 6: Data Consistency Verification ✅
+- All 16 backend tests passed (100%)
+- All frontend UI flows verified
+- Distribution excludes damaged/lost/ready_for_offload items
+
 ## Overview
 Clean, minimal, web-based internal operations system for managing daily deployments, collection records, inventory, and handovers with **automatic time tracking**.
 
