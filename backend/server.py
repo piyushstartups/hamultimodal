@@ -3164,7 +3164,25 @@ async def health_root():
 
 @app.get("/api/health")
 async def health():
+    """Health check endpoint - returns basic status without requiring DB"""
     return {"status": "ok", "version": "2.0"}
+
+@app.get("/api/health/detailed")
+async def health_detailed():
+    """Detailed health check including database connectivity"""
+    result = {
+        "status": "ok",
+        "version": "2.0",
+        "database": "unknown"
+    }
+    try:
+        # Try to ping the database
+        await get_db().command("ping")
+        result["database"] = "connected"
+    except Exception as e:
+        result["database"] = f"error: {str(e)}"
+        result["status"] = "degraded"
+    return result
 
 # ========================
 # ONE-TIME SETUP (create admin if not exists)
