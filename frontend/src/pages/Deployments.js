@@ -1055,11 +1055,22 @@ export default function Deployments() {
   // Helper to check if a record belongs to a specific shift type
   const recordMatchesShift = (record, shiftType) => {
     const recordShift = record?.shift || record?.shift_type;
+    
+    // STRICT: If record has no shift field, it does NOT match any shift
+    if (!recordShift) {
+      console.log('[SHIFT_FILTER] Record has NO shift field - excluding:', record?.id, record?.activity_type);
+      return false;
+    }
+    
     if (shiftType === 'morning') {
-      return recordShift === 'morning';
+      const matches = recordShift === 'morning';
+      console.log('[SHIFT_FILTER] Morning check:', recordShift, '===', 'morning', '?', matches);
+      return matches;
     } else if (shiftType === 'night') {
       // Support legacy 'evening' data
-      return recordShift === 'night' || recordShift === 'evening';
+      const matches = recordShift === 'night' || recordShift === 'evening';
+      console.log('[SHIFT_FILTER] Night check:', recordShift, '=== night/evening ?', matches);
+      return matches;
     }
     return false;
   };
@@ -1103,8 +1114,12 @@ export default function Deployments() {
     const kitData = kitShifts[kit];
     if (!kitData) return [];
     let records = kitData.records?.filter(r => r.status === 'completed') || [];
+    
+    // STRICT filtering by shift
     if (shiftType) {
+      const beforeCount = records.length;
       records = records.filter(r => recordMatchesShift(r, shiftType));
+      console.log(`[GET_COMPLETED] Kit: ${kit}, ShiftType: ${shiftType}, Before: ${beforeCount}, After: ${records.length}`);
     }
     return records;
   };
@@ -1700,7 +1715,7 @@ export default function Deployments() {
                                   {completedRecords.length > 0 && (
                                     <div className="border-t border-slate-200">
                                       <div className="px-4 py-2 bg-slate-50">
-                                        <p className="text-xs font-medium text-slate-500 uppercase">Collection Records ({completedRecords.length})</p>
+                                        <p className="text-xs font-medium text-slate-500 uppercase">Collection Records ({completedRecords.length}) - {shiftType.toUpperCase()} shift only</p>
                                       </div>
                                       <div className="divide-y divide-slate-100 max-h-40 overflow-y-auto">
                                         {completedRecords.map((record, idx) => (
@@ -1709,8 +1724,13 @@ export default function Deployments() {
                                               <p className="font-medium text-slate-700">
                                                 {formatDuration(record.total_duration_hours)}
                                                 <span className="text-slate-400 ml-2 text-xs">{record.activity_type}</span>
-                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${record.shift === 'morning' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                                                  {record.shift === 'morning' ? 'AM' : 'PM'}
+                                                {/* Show actual shift value from record for debugging */}
+                                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
+                                                  (record.shift === 'morning' || record.shift_type === 'morning') 
+                                                    ? 'bg-amber-100 text-amber-700' 
+                                                    : 'bg-indigo-100 text-indigo-700'
+                                                }`}>
+                                                  {record.shift || record.shift_type || 'NO-SHIFT'}
                                                 </span>
                                               </p>
                                               <p className="text-xs text-slate-400">{record.ssd_used}</p>

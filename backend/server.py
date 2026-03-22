@@ -291,6 +291,12 @@ class QuantityDamageLostCreate(BaseModel):
     status: str  # "damaged" or "lost"
     notes: Optional[str] = None
 
+# Full Kit Transfer model
+class FullKitTransferCreate(BaseModel):
+    kit_id: str  # Kit to transfer (e.g., "KIT-01")
+    to_location: str  # Destination location (e.g., "bnb:BNB-2", "station:Hub")
+    notes: Optional[str] = None
+
 # Task Categories (Activity Types for Collections)
 class TaskCategoryCreate(BaseModel):
     value: str  # Unique identifier (e.g., "cooking", "cleaning")
@@ -1521,6 +1527,70 @@ async def damage_lost_quantity(data: QuantityDamageLostCreate, user: dict = Depe
         "category": data.category,
         "location": data.from_location,
         "affected_items": affected_items,
+        "event": event_doc
+    }
+
+@app.post("/api/events/transfer-kit")
+async def transfer_full_kit(data: FullKitTransferCreate, user: dict = Depends(get_current_user_dep())):
+    """
+    Transfer ALL items in a kit to a new location.
+    This moves every item (unique and non-unique) that currently has location = kit:KIT_ID
+    to the new destination.
+    
+    Note: Damaged and lost items are NOT moved (they stay as-is).
+    """
+    kit_location = f"kit:{data.kit_id}"
+    
+    # Find all items currently in this kit (excluding damaged/lost)
+    kit_items = await get_db().items.find({
+        "current_location": kit_location,
+        "status": {"$nin": ["damaged", "lost"]}  # Only move active items
+    }).to_list(500)
+    
+    if not kit_items:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No active items found in {data.kit_id}"
+        )
+    
+    # Move all items to the new location
+    moved_items = []
+    for item in kit_items:
+        await get_db().items.update_one(
+            {"item_name": item["item_name"]},
+            {"$set": {"current_location": data.to_location}}
+        )
+        moved_items.append({
+            "item_name": item["item_name"],
+            "category": item.get("category"),
+            "quantity": item.get("quantity", 1)
+        })
+    
+    # Record the transfer event
+    event_doc = {
+        "id": f"evt-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')[:18]}",
+        "event_type": "kit_transfer",
+        "user": user["id"],
+        "user_name": user["name"],
+        "item": f"Full Kit: {data.kit_id}",
+        "from_location": kit_location,
+        "to_location": data.to_location,
+        "quantity": len(moved_items),
+        "notes": data.notes,
+        "items_moved": [item["item_name"] for item in moved_items],
+        "deployment_date": get_operational_date(),
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    await get_db().events.insert_one(event_doc)
+    event_doc.pop("_id", None)
+    
+    return {
+        "status": "success",
+        "kit_id": data.kit_id,
+        "from_location": kit_location,
+        "to_location": data.to_location,
+        "items_moved": len(moved_items),
+        "items": moved_items,
         "event": event_doc
     }
 
@@ -3118,19 +3188,97 @@ async def migrate_evening_to_night(user: dict = Depends(get_current_user_dep()))
     for dep in deployments_with_evening:
         if dep.get("evening_managers"):
             await get_db().deployments.update_one(
-                {"id": dep["id"]},
+                {"_id": dep["_id"]},
                 {
-                    "$set": {"night_managers": dep["evening_managers"]},
+                    "$set": {"night_managers": dep.get("evening_managers", [])},
                     "$unset": {"evening_managers": ""}
                 }
             )
             results["deployments_updated"] += 1
     
     return {
-        "message": "Migration complete - 'evening' converted to 'night'",
+        "status": "success",
+        "message": "Migration complete",
         "results": results
     }
 
+@app.post("/api/admin/fix-missing-shifts")
+async def fix_missing_shifts(user: dict = Depends(get_current_user_dep())):
+    """
+    Data migration: Fix records that are missing the 'shift' field.
+    These are legacy records created before shift tracking was added.
+    Admin only.
+    
+    Logic:
+    - Records before 12:00 UTC are assigned 'morning'
+    - Records at/after 12:00 UTC are assigned 'night'
+    """
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    results = {
+        "shifts_fixed": 0,
+        "shifts_details": []
+    }
+    
+    # Find all shifts records missing the 'shift' field
+    missing_shift_records = await get_db().shifts.find({
+        "$and": [
+            {"$or": [{"shift": {"$exists": False}}, {"shift": None}, {"shift": ""}]},
+            {"$or": [{"shift_type": {"$exists": False}}, {"shift_type": None}, {"shift_type": ""}]}
+        ]
+    }).to_list(1000)
+    
+    for record in missing_shift_records:
+        # Try to infer shift from timestamp
+        assigned_shift = "morning"  # Default to morning
+        
+        # Check created_at or timestamp field
+        timestamp_str = record.get("created_at") or record.get("timestamp") or record.get("start_time")
+        if timestamp_str:
+            try:
+                # Parse the timestamp
+                if isinstance(timestamp_str, str):
+                    # Try different formats
+                    for fmt in ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"]:
+                        try:
+                            dt = datetime.strptime(timestamp_str.replace("+00:00", ""), fmt.replace("%z", ""))
+                            break
+                        except:
+                            continue
+                    else:
+                        dt = None
+                    
+                    if dt:
+                        # Morning shift: before 12:00 UTC (6:00 AM IST to 6:00 PM IST)
+                        # Night shift: 12:00 UTC onwards (6:00 PM IST to 6:00 AM IST)
+                        hour = dt.hour
+                        if hour >= 12:  # 12:00 UTC = 5:30 PM IST
+                            assigned_shift = "night"
+                        else:
+                            assigned_shift = "morning"
+            except Exception as e:
+                logger.warning(f"Could not parse timestamp for record {record.get('id')}: {e}")
+        
+        # Update the record
+        await get_db().shifts.update_one(
+            {"_id": record["_id"]},
+            {"$set": {"shift": assigned_shift, "shift_type": assigned_shift}}
+        )
+        
+        results["shifts_fixed"] += 1
+        results["shifts_details"].append({
+            "id": record.get("id", str(record["_id"])),
+            "kit": record.get("kit"),
+            "assigned_shift": assigned_shift,
+            "based_on": timestamp_str or "default"
+        })
+    
+    return {
+        "status": "success",
+        "message": f"Fixed {results['shifts_fixed']} records with missing shift field",
+        "details": results
+    }
 
 
 @app.post("/api/admin/rollback-night-to-evening")

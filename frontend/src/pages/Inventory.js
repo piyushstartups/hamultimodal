@@ -375,6 +375,28 @@ export default function Inventory() {
           return;
         }
         
+        // FULL KIT TRANSFER
+        if (dialogType === 'bulk-transfer' && formData.transfer_type === 'kit') {
+          if (!formData.transfer_kit) {
+            toast.error('Please select a kit');
+            return;
+          }
+          if (!formData.to_value) {
+            toast.error('Please select a destination');
+            return;
+          }
+          
+          await api.post('/events/transfer-kit', {
+            kit_id: formData.transfer_kit,
+            to_location: to_location,
+            notes: formData.notes || null
+          });
+          toast.success(`Full kit ${formData.transfer_kit} transferred to ${to_location}`);
+          setDialogOpen(false);
+          fetchData();
+          return;
+        }
+        
         // For NON-UNIQUE bulk transfers, use category-based transfer
         const isNonUniqueTransfer = dialogType === 'bulk-transfer' && 
           nonUniqueCategories.includes(formData.transfer_category);
@@ -1520,6 +1542,89 @@ export default function Inventory() {
             {/* BULK TRANSFER DIALOG - Two-step: Category -> Item (ID or Quantity) */}
             {dialogType === 'bulk-transfer' && (
               <>
+                {/* Step 0: Select Transfer Type */}
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Transfer Type *</Label>
+                  <Select 
+                    value={formData.transfer_type || 'item'} 
+                    onValueChange={(v) => setFormData({ 
+                      ...formData, 
+                      transfer_type: v, 
+                      transfer_category: '', 
+                      transfer_item: '',
+                      transfer_kit: ''
+                    })}
+                  >
+                    <SelectTrigger className="mt-1 h-9" data-testid="transfer-type-select">
+                      <SelectValue placeholder="Select transfer type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="item">Item Transfer (individual items/quantities)</SelectItem>
+                      <SelectItem value="kit">Full Kit Transfer (move entire kit)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {/* FULL KIT TRANSFER */}
+                {formData.transfer_type === 'kit' && (
+                  <>
+                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                      <Label className="text-xs font-semibold text-blue-700">Select Kit to Transfer *</Label>
+                      <Select 
+                        value={formData.transfer_kit || ''} 
+                        onValueChange={(v) => setFormData({ ...formData, transfer_kit: v })}
+                      >
+                        <SelectTrigger className="mt-1 h-9" data-testid="transfer-kit-select">
+                          <SelectValue placeholder="Select kit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {kits.map(k => (
+                            <SelectItem key={k.kit_id} value={k.kit_id}>{k.kit_id}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-blue-600 mt-2">
+                        All active items in this kit will be moved to the destination.
+                        Damaged/lost items will remain unchanged.
+                      </p>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">To Type *</Label>
+                        <Select value={formData.to_type} onValueChange={(v) => setFormData({ ...formData, to_type: v, to_value: '' })}>
+                          <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {LOCATION_TYPES.map(t => <SelectItem key={t.prefix} value={t.prefix}>{t.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">To *</Label>
+                        <Select value={formData.to_value} onValueChange={(v) => setFormData({ ...formData, to_value: v })}>
+                          <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Select" /></SelectTrigger>
+                          <SelectContent>
+                            {getLocationOptions(formData.to_type).map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label className="text-xs">Notes (optional)</Label>
+                      <Textarea
+                        value={formData.notes}
+                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                        placeholder="Add transfer notes"
+                        className="mt-1 h-16 resize-none text-sm"
+                      />
+                    </div>
+                  </>
+                )}
+                
+                {/* ITEM TRANSFER (existing flow) */}
+                {(formData.transfer_type === 'item' || !formData.transfer_type) && (
+                  <>
                 {/* Step 1: Select Category */}
                 <div>
                   <Label className="text-xs font-semibold text-slate-700">Step 1: Select Category *</Label>
@@ -1666,6 +1771,8 @@ export default function Inventory() {
                     data-testid="bulk-transfer-notes"
                   />
                 </div>
+                  </>
+                )}
               </>
             )}
             
