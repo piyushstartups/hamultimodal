@@ -462,6 +462,58 @@ async def get_current_operational_date():
         "note": "Use this date for all 'today' references. Do NOT use browser date."
     }
 
+@app.post("/api/admin/reset-default-users")
+async def reset_default_users():
+    """
+    Reset/create default users with known passwords.
+    Call this endpoint on production if you can't login.
+    
+    Default credentials after running this:
+    - Admin / admin123
+    - Manager / test1234
+    """
+    results = {"created": [], "reset": []}
+    
+    # Admin user
+    admin_exists = await get_db().users.find_one({"name": "Admin"})
+    if not admin_exists:
+        await get_db().users.insert_one({
+            "id": "admin-001",
+            "name": "Admin",
+            "role": "admin",
+            "password_hash": pwd_context.hash("admin123")
+        })
+        results["created"].append("Admin")
+    else:
+        await get_db().users.update_one(
+            {"name": "Admin"},
+            {"$set": {"password_hash": pwd_context.hash("admin123")}}
+        )
+        results["reset"].append("Admin")
+    
+    # Manager user
+    manager_exists = await get_db().users.find_one({"name": "Manager"})
+    if not manager_exists:
+        await get_db().users.insert_one({
+            "id": "manager-001",
+            "name": "Manager",
+            "role": "deployment_manager",
+            "password_hash": pwd_context.hash("test1234")
+        })
+        results["created"].append("Manager")
+    else:
+        await get_db().users.update_one(
+            {"name": "Manager"},
+            {"$set": {"password_hash": pwd_context.hash("test1234")}}
+        )
+        results["reset"].append("Manager")
+    
+    return {
+        "status": "success",
+        "message": "Default users ready. Login with: Admin/admin123 or Manager/test1234",
+        "details": results
+    }
+
 @app.post("/api/auth/login")
 async def login(data: UserLogin):
     # Auto-create Admin user if it doesn't exist
