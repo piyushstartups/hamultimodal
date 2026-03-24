@@ -3247,7 +3247,124 @@ async def setup_admin():
         logger.error(f"Setup error: {e}")
         return {"error": str(e)}
 
+# ========================
+# STANDARD KIT COMPOSITION
+# ========================
 
+# Default kit composition - will be overwritten by database values
+DEFAULT_KIT_COMPOSITION = [
+    {"category": "glove_left", "label": "Glove Left", "required": 1},
+    {"category": "glove_right", "label": "Glove Right", "required": 1},
+    {"category": "usb_hub", "label": "USB Hub", "required": 1},
+    {"category": "imu", "label": "IMUs", "required": 5},
+    {"category": "head_camera", "label": "Head Camera", "required": 1},
+    {"category": "l_shaped_wire", "label": "L-Shaped Wire", "required": 1},
+    {"category": "wrist_camera", "label": "Wrist Camera", "required": 2},
+    {"category": "laptop", "label": "Laptop", "required": 1},
+    {"category": "laptop_charger", "label": "Laptop Charger", "required": 1},
+    {"category": "power_bank", "label": "Power Bank", "required": 2},
+    {"category": "ssd", "label": "SSD", "required": 2},
+    {"category": "bluetooth_adapter", "label": "Bluetooth Adapter", "required": 1},
+]
+
+@app.get("/api/kit-composition")
+async def get_kit_composition(user: dict = Depends(get_current_user_dep())):
+    """Get the standard kit composition configuration"""
+    try:
+        composition = await get_db().kit_composition.find({}, {"_id": 0}).to_list(100)
+        if not composition:
+            # Seed with defaults if empty
+            for item in DEFAULT_KIT_COMPOSITION:
+                await get_db().kit_composition.insert_one({
+                    "category": item["category"],
+                    "label": item["label"],
+                    "required": item["required"],
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+            composition = await get_db().kit_composition.find({}, {"_id": 0}).to_list(100)
+        return composition
+    except Exception as e:
+        logger.error(f"Error fetching kit composition: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/kit-composition")
+async def add_kit_composition_item(data: dict, user: dict = Depends(get_current_user_dep())):
+    """Add a new item to the standard kit composition (Admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    try:
+        category = data.get("category", "").lower().replace(" ", "_")
+        label = data.get("label", "")
+        required = data.get("required", 1)
+        
+        if not category or not label:
+            raise HTTPException(status_code=400, detail="Category and label are required")
+        
+        # Check if already exists
+        existing = await get_db().kit_composition.find_one({"category": category})
+        if existing:
+            raise HTTPException(status_code=400, detail="Category already exists in kit composition")
+        
+        await get_db().kit_composition.insert_one({
+            "category": category,
+            "label": label,
+            "required": int(required),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        return {"message": "Item added to kit composition", "category": category}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding kit composition item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/kit-composition/{category}")
+async def update_kit_composition_item(category: str, data: dict, user: dict = Depends(get_current_user_dep())):
+    """Update a kit composition item (Admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    try:
+        existing = await get_db().kit_composition.find_one({"category": category})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        update_data = {}
+        if "label" in data:
+            update_data["label"] = data["label"]
+        if "required" in data:
+            update_data["required"] = int(data["required"])
+        
+        if update_data:
+            update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await get_db().kit_composition.update_one(
+                {"category": category},
+                {"$set": update_data}
+            )
+        return {"message": "Item updated", "category": category}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating kit composition item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/kit-composition/{category}")
+async def delete_kit_composition_item(category: str, user: dict = Depends(get_current_user_dep())):
+    """Delete a kit composition item (Admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    try:
+        result = await get_db().kit_composition.delete_one({"category": category})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Item not found")
+        return {"message": "Item deleted", "category": category}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting kit composition item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/admin/migrate-evening-to-night")
 async def migrate_evening_to_night(user: dict = Depends(get_current_user_dep())):

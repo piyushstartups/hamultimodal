@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Trash2, Users, MapPin, Box, Edit, Tag } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Users, MapPin, Box, Edit, Tag, Package } from 'lucide-react';
 
 export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState('users');
@@ -30,6 +30,7 @@ export default function AdminPanel() {
   const [bnbs, setBnbs] = useState([]);
   const [kits, setKits] = useState([]);
   const [taskCategories, setTaskCategories] = useState([]);
+  const [kitComposition, setKitComposition] = useState([]);
   
   // Form data
   const [formData, setFormData] = useState({});
@@ -40,16 +41,18 @@ export default function AdminPanel() {
 
   const fetchAll = async () => {
     try {
-      const [usersRes, bnbsRes, kitsRes, taskCatsRes] = await Promise.all([
+      const [usersRes, bnbsRes, kitsRes, taskCatsRes, kitCompRes] = await Promise.all([
         api.get('/users'),
         api.get('/bnbs'),
         api.get('/kits'),
-        api.get('/task-categories')
+        api.get('/task-categories'),
+        api.get('/kit-composition')
       ]);
       setUsers(usersRes.data);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
       setTaskCategories(taskCatsRes.data || []);
+      setKitComposition(kitCompRes.data || []);
     } catch (error) {
       console.error(error);
     }
@@ -58,10 +61,14 @@ export default function AdminPanel() {
   const openAddDialog = (type) => {
     setDialogType(type);
     setEditingItem(null);
-    setFormData({
-      status: 'active',
-      role: 'deployment_manager'
-    });
+    if (type === 'kit-composition') {
+      setFormData({ category: '', label: '', required: 1 });
+    } else {
+      setFormData({
+        status: 'active',
+        role: 'deployment_manager'
+      });
+    }
     setDialogOpen(true);
   };
 
@@ -100,6 +107,12 @@ export default function AdminPanel() {
         } else if (dialogType === 'task-category') {
           await api.put(`/task-categories/${editingItem.value}`, { label: formData.label });
           toast.success('Task category updated');
+        } else if (dialogType === 'kit-composition') {
+          await api.put(`/kit-composition/${editingItem.category}`, {
+            label: formData.label,
+            required: parseInt(formData.required) || 1
+          });
+          toast.success('Kit composition item updated');
         }
       } else {
         // Create new
@@ -117,6 +130,13 @@ export default function AdminPanel() {
             await api.post('/task-categories', {
               value: formData.value,
               label: formData.label
+            });
+            break;
+          case 'kit-composition':
+            await api.post('/kit-composition', {
+              category: formData.category,
+              label: formData.label,
+              required: parseInt(formData.required) || 1
             });
             break;
           default:
@@ -147,6 +167,7 @@ export default function AdminPanel() {
     { id: 'bnbs', label: 'BnBs', icon: MapPin },
     { id: 'kits', label: 'Kits', icon: Box },
     { id: 'task-categories', label: 'Task Categories', icon: Tag },
+    { id: 'kit-composition', label: 'Kit Composition', icon: Package },
   ];
 
   const renderForm = () => {
@@ -279,6 +300,50 @@ export default function AdminPanel() {
       );
     }
     
+    if (dialogType === 'kit-composition') {
+      return (
+        <>
+          <div>
+            <Label>Category ID *</Label>
+            <Input 
+              value={formData.category || ''} 
+              onChange={(e) => setFormData({ ...formData, category: e.target.value.toLowerCase().replace(/\s+/g, '_') })} 
+              className="mt-1" 
+              placeholder="power_bank" 
+              required 
+              disabled={!!editingItem}
+              data-testid="kit-comp-category-input"
+            />
+            <p className="text-xs text-slate-500 mt-1">Lowercase, underscores (e.g., power_bank, usb_hub)</p>
+          </div>
+          <div>
+            <Label>Display Name *</Label>
+            <Input 
+              value={formData.label || ''} 
+              onChange={(e) => setFormData({ ...formData, label: e.target.value })} 
+              className="mt-1" 
+              placeholder="Power Bank" 
+              required 
+              data-testid="kit-comp-label-input"
+            />
+          </div>
+          <div>
+            <Label>Required Quantity *</Label>
+            <Input 
+              type="number"
+              min="1"
+              value={formData.required || 1} 
+              onChange={(e) => setFormData({ ...formData, required: e.target.value })} 
+              className="mt-1" 
+              required 
+              data-testid="kit-comp-required-input"
+            />
+            <p className="text-xs text-slate-500 mt-1">Number of items required per kit</p>
+          </div>
+        </>
+      );
+    }
+    
     return null;
   };
 
@@ -320,8 +385,12 @@ export default function AdminPanel() {
         <div className="bg-white rounded-xl border">
           {/* Header */}
           <div className="px-4 py-3 border-b flex items-center justify-between">
-            <h2 className="font-semibold capitalize">{activeTab}</h2>
-            <Button size="sm" onClick={() => openAddDialog(activeTab === 'task-categories' ? 'task-category' : activeTab.slice(0, -1))} data-testid={`add-${activeTab === 'task-categories' ? 'task-category' : activeTab.slice(0, -1)}-btn`}>
+            <h2 className="font-semibold capitalize">{activeTab.replace('-', ' ')}</h2>
+            <Button size="sm" onClick={() => openAddDialog(
+              activeTab === 'task-categories' ? 'task-category' : 
+              activeTab === 'kit-composition' ? 'kit-composition' :
+              activeTab.slice(0, -1)
+            )} data-testid={`add-${activeTab === 'task-categories' ? 'task-category' : activeTab === 'kit-composition' ? 'kit-composition' : activeTab.slice(0, -1)}-btn`}>
               <Plus className="w-4 h-4 mr-1" />
               Add
             </Button>
@@ -411,10 +480,54 @@ export default function AdminPanel() {
               </div>
             ))}
 
+            {activeTab === 'kit-composition' && kitComposition.map((item) => (
+              <div key={item.category} className="px-4 py-3 flex items-center justify-between" data-testid={`kit-comp-${item.category}`}>
+                <div>
+                  <p className="font-medium">{item.label}</p>
+                  <p className="text-xs text-slate-500">
+                    Category: {item.category} • Required: <span className="font-semibold text-blue-600">{item.required}</span> per kit
+                  </p>
+                </div>
+                <div className="flex gap-1">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => {
+                      setDialogType('kit-composition');
+                      setEditingItem(item);
+                      setFormData({ category: item.category, label: item.label, required: item.required });
+                      setDialogOpen(true);
+                    }}
+                    data-testid={`edit-kit-comp-${item.category}`}
+                  >
+                    <Edit className="w-4 h-4 text-slate-500" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={async () => {
+                      if (!confirm(`Delete "${item.label}" from kit composition?`)) return;
+                      try {
+                        await api.delete(`/kit-composition/${item.category}`);
+                        toast.success('Item removed from kit composition');
+                        fetchAll();
+                      } catch (error) {
+                        toast.error(error.response?.data?.detail || 'Failed to delete');
+                      }
+                    }} 
+                    data-testid={`delete-kit-comp-${item.category}`}
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+
             {activeTab === 'users' && users.length === 0 && <p className="p-4 text-center text-slate-500">No users</p>}
             {activeTab === 'bnbs' && bnbs.length === 0 && <p className="p-4 text-center text-slate-500">No BnBs</p>}
             {activeTab === 'kits' && kits.length === 0 && <p className="p-4 text-center text-slate-500">No kits</p>}
             {activeTab === 'task-categories' && taskCategories.length === 0 && <p className="p-4 text-center text-slate-500">No task categories</p>}
+            {activeTab === 'kit-composition' && kitComposition.length === 0 && <p className="p-4 text-center text-slate-500">No kit composition items</p>}
           </div>
         </div>
       </main>

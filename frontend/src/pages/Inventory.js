@@ -26,21 +26,8 @@ import {
   Tag, Layers, Settings
 } from 'lucide-react';
 
-// Kit Standard Composition (reference for completeness check)
-const KIT_STANDARD = {
-  glove_left: { required: 1, label: 'Glove Left' },
-  glove_right: { required: 1, label: 'Glove Right' },
-  usb_hub: { required: 1, label: 'USB Hub' },
-  imu: { required: 5, label: 'IMUs' },
-  head_camera: { required: 1, label: 'Head Camera' },
-  l_shaped_wire: { required: 1, label: 'L-Shaped Wire' },
-  wrist_camera: { required: 2, label: 'Wrist Camera' },
-  laptop: { required: 1, label: 'Laptop' },
-  laptop_charger: { required: 1, label: 'Laptop Charger' },
-  power_bank: { required: 1, label: 'Power Bank' },
-  ssd: { required: 1, label: 'SSD' },
-  bluetooth_adapter: { required: 1, label: 'Bluetooth Adapter' },
-};
+// Kit Standard Composition is now loaded from API (kitComposition state)
+// This provides a single source of truth managed via Admin Panel
 
 const LOCATION_TYPES = [
   { prefix: 'kit', label: 'Kit' },
@@ -77,6 +64,9 @@ export default function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [categoryItems, setCategoryItems] = useState([]);
   
+  // Kit Composition from API (for completeness calculation)
+  const [kitComposition, setKitComposition] = useState([]);
+  
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState('');
@@ -111,19 +101,21 @@ export default function Inventory() {
 
   const fetchData = async () => {
     try {
-      const [itemsRes, kitsRes, bnbsRes, eventsRes, distRes, catRes] = await Promise.all([
+      const [itemsRes, kitsRes, bnbsRes, eventsRes, distRes, catRes, kitCompRes] = await Promise.all([
         api.get('/items'),
         api.get('/kits'),
         api.get('/bnbs'),
         api.get('/events?event_type=transfer'),
         api.get('/items/distribution'),
-        api.get('/categories')
+        api.get('/categories'),
+        api.get('/kit-composition')
       ]);
       setItems(itemsRes.data);
       setKits(kitsRes.data);
       setBnbs(bnbsRes.data);
       setEvents(eventsRes.data.slice(0, 50)); // Last 50 movements
       setDistribution(distRes.data);
+      setKitComposition(kitCompRes.data || []);
       
       // Set categories from API
       const cats = catRes.data.categories || [];
@@ -637,88 +629,98 @@ export default function Inventory() {
 
   return (
     <div className="min-h-screen bg-slate-100">
-      {/* Header */}
+      {/* Header - Mobile optimized */}
       <header className="bg-white border-b">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <a href="/dashboard">
-              <Button variant="ghost" size="icon" data-testid="back-btn">
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-            </a>
-            <div>
-              <h1 className="text-lg font-bold text-slate-900">Inventory</h1>
-              <p className="text-sm text-slate-600">{items.length} items tracked</p>
+        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-3 sm:py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <a href="/dashboard">
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" data-testid="back-btn">
+                  <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                </Button>
+              </a>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-slate-900">Inventory</h1>
+                <p className="text-xs sm:text-sm text-slate-600">{items.length} items tracked</p>
+              </div>
             </div>
-          </div>
-          {isAdmin && (
-            <div className="flex gap-2">
-              <a href="/offload">
+            {isAdmin && (
+              <a href="/offload" className="hidden sm:block">
                 <Button size="sm" variant="outline" data-testid="offload-btn">
                   <HardDrive className="w-4 h-4 mr-1" />
                   Data Offload
                 </Button>
               </a>
-            </div>
-          )}
-          {/* Action buttons for ALL users */}
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => { 
+            )}
+          </div>
+          
+          {/* Action buttons - scrollable on mobile */}
+          <div className="flex gap-2 mt-3 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0">
+            <Button size="sm" variant="outline" className="flex-shrink-0 text-xs sm:text-sm h-8 sm:h-9" onClick={() => { 
               setDialogType('bulk-transfer'); 
               setFormData(prev => ({ ...prev, transfer_category: '', transfer_item: '', transfer_quantity: 1, from_type: 'station', from_value: '', to_type: 'kit', to_value: '', notes: '' }));
               setDialogOpen(true); 
             }} data-testid="transfer-item-btn">
-              <ArrowRightLeft className="w-4 h-4 mr-1" />
-              Transfer Item
+              <ArrowRightLeft className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+              Transfer
             </Button>
-            <Button size="sm" variant="outline" onClick={() => {
+            <Button size="sm" variant="outline" className="flex-shrink-0 text-xs sm:text-sm h-8 sm:h-9" onClick={() => {
               setDialogType('report-damage');
               setFormData(prev => ({ ...prev, report_category: '', report_item: '', report_quantity: 1, notes: '' }));
               setDialogOpen(true);
             }} data-testid="report-damage-btn">
-              <AlertTriangle className="w-4 h-4 mr-1" />
-              Report Damage
+              <AlertTriangle className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+              Damage
             </Button>
-            <Button size="sm" variant="outline" onClick={() => {
+            <Button size="sm" variant="outline" className="flex-shrink-0 text-xs sm:text-sm h-8 sm:h-9" onClick={() => {
               setDialogType('report-lost');
               setFormData(prev => ({ ...prev, report_category: '', report_item: '', report_quantity: 1, notes: '' }));
               setDialogOpen(true);
             }} data-testid="report-lost-btn">
-              <XCircle className="w-4 h-4 mr-1" />
-              Report Lost
+              <XCircle className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+              Lost
             </Button>
-            <Button size="sm" onClick={openAddDialog} data-testid="add-item-btn">
-              <Plus className="w-4 h-4 mr-1" />
+            <Button size="sm" className="flex-shrink-0 text-xs sm:text-sm h-8 sm:h-9" onClick={openAddDialog} data-testid="add-item-btn">
+              <Plus className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
               Add Item
             </Button>
+            {isAdmin && (
+              <a href="/offload" className="sm:hidden flex-shrink-0">
+                <Button size="sm" variant="outline" className="text-xs h-8" data-testid="offload-btn-mobile">
+                  <HardDrive className="w-3 h-3 mr-1" />
+                  Offload
+                </Button>
+              </a>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Tabs */}
+      {/* Tabs - Mobile optimized with smaller text */}
       <div className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4">
+        <div className="max-w-5xl mx-auto px-3 sm:px-4">
           <div className="flex gap-1 overflow-x-auto">
             {TABS.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 data-testid={`tab-${tab.id}`}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeTab === tab.id 
                     ? 'border-blue-500 text-blue-600' 
                     : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <tab.icon className="w-4 h-4" />
-                {tab.label}
+                <tab.icon className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">{tab.label}</span>
+                <span className="sm:hidden">{tab.label.split(' ')[0]}</span>
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-4">
+      <main className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4">
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1003,13 +1005,14 @@ export default function Inventory() {
                   <h2 className="font-semibold">Kit Completeness Check</h2>
                 </div>
                 
-                {/* Standard Reference */}
+                {/* Standard Reference - Dynamic from API */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm text-blue-800 font-medium mb-2">Standard Kit Composition:</p>
+                  <p className="text-sm text-blue-800 font-medium mb-2">Standard Kit Composition (configurable in Admin Panel):</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-blue-700">
-                    {Object.entries(KIT_STANDARD).map(([key, val]) => (
-                      <span key={key}>{val.label}: {val.required}</span>
+                    {kitComposition.map((item) => (
+                      <span key={item.category}>{item.label}: {item.required}</span>
                     ))}
+                    {kitComposition.length === 0 && <span className="text-slate-500">No composition configured</span>}
                   </div>
                 </div>
                 
@@ -1017,16 +1020,20 @@ export default function Inventory() {
                   <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
                     No kits configured
                   </div>
+                ) : kitComposition.length === 0 ? (
+                  <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                    No kit composition configured. Add items in Admin Panel → Kit Composition.
+                  </div>
                 ) : (
                   <div className="grid gap-4">
                     {kits.map(kit => {
                       const kitItems = getKitItems(kit.kit_id).filter(i => i.status === 'active');
                       
-                      // Calculate completeness for each category
-                      const completeness = Object.entries(KIT_STANDARD).map(([category, standard]) => {
+                      // Calculate completeness using API-driven kit composition
+                      const completeness = kitComposition.map(standard => {
                         const currentCount = kitItems.filter(item => 
-                          item.category === category || 
-                          item.category?.toLowerCase().replace(/[^a-z]/g, '_') === category
+                          item.category === standard.category || 
+                          item.category?.toLowerCase().replace(/[^a-z]/g, '_') === standard.category
                         ).length;
                         
                         const status = currentCount >= standard.required 
@@ -1036,7 +1043,7 @@ export default function Inventory() {
                             : 'missing';
                         
                         return {
-                          category,
+                          category: standard.category,
                           label: standard.label,
                           required: standard.required,
                           current: currentCount,

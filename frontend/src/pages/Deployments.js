@@ -1359,7 +1359,20 @@ export default function Deployments() {
                           </div>
                         </div>
                       </div>
-                      {/* Kits count and View History */}
+                      {/* Assigned Kits as chips */}
+                      {dep.assigned_kits && dep.assigned_kits.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-200">
+                          {dep.assigned_kits.map(kitId => (
+                            <span 
+                              key={kitId}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200"
+                            >
+                              {kitId}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {/* View History button */}
                       <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
                         <span className="text-xs text-slate-500">{dep.assigned_kits?.length || 0} kits assigned</span>
                         <Button
