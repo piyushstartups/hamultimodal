@@ -1,7 +1,41 @@
 # HA Multimodal Management - Product Requirements Document
 
 ## Last Updated
-2026-03-24 - **Mobile Optimization + Kit Composition Config + Deployment Kit Chips**
+2026-03-24 - **CRITICAL BUG FIX: Kit Completeness Quantity Calculation**
+
+### Bug Fix: Kit Completeness for Non-Unique Items ✅
+
+**Problem:** Kit completeness was counting records (`.length`) instead of summing quantities.
+- Example: 5 IMUs added with quantity=5 showed "1/5" instead of "5/5"
+- Affected all non-unique items: IMUs, USB Hubs, L-Shaped Wires, Laptop Chargers, Bluetooth Adapters
+
+**Root Cause:** Line 1034-1037 in Inventory.js used `.length` to count records instead of summing the `quantity` field.
+
+**Fix Applied:**
+```javascript
+// BEFORE (wrong):
+const currentCount = matchingItems.length;
+
+// AFTER (correct):
+const currentQuantity = matchingItems.reduce((sum, item) => {
+  return sum + (parseInt(item.quantity) || 1);
+}, 0);
+```
+
+**Verified Scenarios:**
+- ✅ Non-unique items with quantity > 1 display correctly (5/5 not 1/5)
+- ✅ Over-complete shows correctly (6/5 with excess indicator)
+- ✅ Transfer updates both source and destination kits
+- ✅ Damaged items excluded from count
+- ✅ Distribution tab already correct (backend sums quantities)
+
+### Testing (iteration_25) ✅
+- **Backend:** 100% pass
+- **Frontend:** 100% pass - All UI flows verified
+
+---
+
+## 2026-03-24 - Mobile Optimization + Kit Composition Config + Deployment Kit Chips
 
 ### New Features Implemented:
 
