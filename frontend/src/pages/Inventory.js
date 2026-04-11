@@ -1030,15 +1030,23 @@ export default function Inventory() {
                       const kitItems = getKitItems(kit.kit_id).filter(i => i.status === 'active');
                       
                       // Calculate completeness using API-driven kit composition
+                      // IMPORTANT: Sum quantities, not record counts (critical for non-unique items like IMUs)
                       const completeness = kitComposition.map(standard => {
-                        const currentCount = kitItems.filter(item => 
+                        const matchingItems = kitItems.filter(item => 
                           item.category === standard.category || 
-                          item.category?.toLowerCase().replace(/[^a-z]/g, '_') === standard.category
-                        ).length;
+                          item.category?.toLowerCase().replace(/[^a-z_]/g, '_') === standard.category
+                        );
                         
-                        const status = currentCount >= standard.required 
+                        // Sum the quantities of all matching items (handles both unique and non-unique)
+                        // For unique items, quantity defaults to 1
+                        // For non-unique items (IMUs, USB hubs, etc.), quantity can be > 1
+                        const currentQuantity = matchingItems.reduce((sum, item) => {
+                          return sum + (parseInt(item.quantity) || 1);
+                        }, 0);
+                        
+                        const status = currentQuantity >= standard.required 
                           ? 'complete' 
-                          : currentCount > 0 
+                          : currentQuantity > 0 
                             ? 'partial' 
                             : 'missing';
                         
@@ -1046,9 +1054,9 @@ export default function Inventory() {
                           category: standard.category,
                           label: standard.label,
                           required: standard.required,
-                          current: currentCount,
+                          current: currentQuantity,
                           status,
-                          excess: currentCount > standard.required ? currentCount - standard.required : 0
+                          excess: currentQuantity > standard.required ? currentQuantity - standard.required : 0
                         };
                       });
                       
