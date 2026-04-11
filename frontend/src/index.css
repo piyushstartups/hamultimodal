@@ -110,3 +110,22 @@ h1, h2, h3, h4, h5, h6 {
 .font-data {
     font-family: 'DM Mono', monospace;
 }
+
+/* Hide Emergent platform badge (injected by infrastructure) */
+#emergent-badge,
+a#emergent-badge,
+a[id="emergent-badge"],
+[id="emergent-badge"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    left: -9999px !important;
+    top: -9999px !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    z-index: -9999 !important;
+}
