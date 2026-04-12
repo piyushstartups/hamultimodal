@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -19,6 +19,47 @@ import OffloadManagement from "./pages/OffloadManagement";
 
 import "./App.css";
 
+// Hide Emergent badge (injected by platform infrastructure)
+function useHideEmergentBadge() {
+  useEffect(() => {
+    const hideBadge = () => {
+      const badge = document.getElementById('emergent-badge');
+      if (badge) {
+        badge.style.display = 'none';
+        badge.style.visibility = 'hidden';
+        badge.style.opacity = '0';
+        badge.remove(); // Remove from DOM entirely
+      }
+    };
+    
+    // Run immediately
+    hideBadge();
+    
+    // Also run after a delay (badge might be injected after initial load)
+    const timeouts = [100, 500, 1000, 2000, 5000].map(delay => 
+      setTimeout(hideBadge, delay)
+    );
+    
+    // Also use MutationObserver to catch dynamically injected badge
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.id === 'emergent-badge' || (node.querySelector && node.querySelector('#emergent-badge'))) {
+            hideBadge();
+          }
+        }
+      }
+    });
+    
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    return () => {
+      timeouts.forEach(clearTimeout);
+      observer.disconnect();
+    };
+  }, []);
+}
+
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth();
   
@@ -30,6 +71,9 @@ function ProtectedRoute({ children, adminOnly = false }) {
 }
 
 function App() {
+  // Hide Emergent badge on all pages
+  useHideEmergentBadge();
+  
   return (
     <AuthProvider>
       <BrowserRouter>
