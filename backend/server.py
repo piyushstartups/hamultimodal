@@ -998,13 +998,6 @@ async def create_item(data: ItemCreate, user: dict = Depends(get_current_user_de
         "quantity": doc["quantity"]
     }
 
-@app.delete("/api/items/{item_name}")
-async def delete_item(item_name: str, user: dict = Depends(get_current_user_dep())):
-    if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-    await get_db().items.delete_one({"item_name": item_name})
-    return {"status": "deleted"}
-
 @app.put("/api/items/{item_name}")
 async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get_current_user_dep())):
     if user["role"] != "admin":
