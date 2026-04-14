@@ -275,6 +275,7 @@ class ItemUpdate(BaseModel):
     status: str = "active"  # active / damaged / lost / repair / ready_for_offload
     current_location: Optional[str] = None
     quantity: Optional[int] = None
+    new_item_name: Optional[str] = None  # For renaming items (display name)
 
 # Collection record models - CONTEXT-AWARE (tied to deployment/kit)
 class CollectionStart(BaseModel):
@@ -1009,10 +1010,15 @@ async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     
-    # Check item exists
-    existing = await get_db().items.find_one({"item_name": item_name})
+    # Check item exists - try by item_id first, then by item_name
+    existing = await get_db().items.find_one({"item_id": item_name})
+    if not existing:
+        existing = await get_db().items.find_one({"item_name": item_name})
     if not existing:
         raise HTTPException(status_code=404, detail="Item not found")
+    
+    # Get the internal item_id for consistent tracking
+    item_id = existing.get("item_id") or existing.get("item_name")
     
     update_data = {
         "tracking_type": data.tracking_type,
@@ -1024,10 +1030,54 @@ async def update_item(item_name: str, data: ItemUpdate, user: dict = Depends(get
     if data.quantity is not None:
         update_data["quantity"] = data.quantity
     
-    await get_db().items.update_one({"item_name": item_name}, {"$set": update_data})
+    # Handle item rename - update item_name but keep item_id for tracking
+    if data.new_item_name and data.new_item_name != existing.get("item_name"):
+        # Check if new name already exists
+        name_exists = await get_db().items.find_one({"item_name": data.new_item_name})
+        if name_exists:
+            raise HTTPException(status_code=400, detail=f"Item name '{data.new_item_name}' already exists")
+        update_data["item_name"] = data.new_item_name
     
-    updated = await get_db().items.find_one({"item_name": item_name}, {"_id": 0})
+    await get_db().items.update_one({"item_id": item_id}, {"$set": update_data})
+    
+    updated = await get_db().items.find_one({"item_id": item_id}, {"_id": 0})
     return updated
+
+@app.delete("/api/items/{item_identifier}")
+async def delete_item(item_identifier: str, user: dict = Depends(get_current_user_dep())):
+    """Delete an item by item_id or item_name (Admin only)"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Find item by item_id first, then by item_name
+    existing = await get_db().items.find_one({"item_id": item_identifier})
+    if not existing:
+        existing = await get_db().items.find_one({"item_name": item_identifier})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    item_id = existing.get("item_id") or existing.get("item_name")
+    item_name = existing.get("item_name")
+    current_location = existing.get("current_location")
+    
+    # Warning data for frontend
+    warning_info = {
+        "item_name": item_name,
+        "item_id": item_id,
+        "current_location": current_location,
+        "has_location": bool(current_location and current_location not in ["None", "station:Storage", "storage"])
+    }
+    
+    # Delete the item
+    result = await get_db().items.delete_one({"item_id": item_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=500, detail="Failed to delete item")
+    
+    return {
+        "message": f"Item '{item_name}' deleted successfully",
+        "deleted_item": warning_info
+    }
 
 # ========================
 # DEPLOYMENTS

@@ -337,6 +337,29 @@ export default function Inventory() {
         return;
       }
       
+      // Edit unique item (rename, status change)
+      if (dialogType === 'edit-item') {
+        if (!formData.edit_item_name?.trim()) {
+          toast.error('Item name is required');
+          return;
+        }
+        
+        await api.put(`/items/${encodeURIComponent(formData.edit_item_id)}`, {
+          tracking_type: formData.edit_item_tracking_type || 'individual',
+          status: formData.edit_item_status,
+          current_location: formData.edit_item_location,
+          new_item_name: formData.edit_item_name.trim()
+        });
+        toast.success('Item updated');
+        setDialogOpen(false);
+        fetchData();
+        // Refresh category items if we have one selected
+        if (selectedCategory) {
+          fetchCategoryItems(selectedCategory);
+        }
+        return;
+      }
+      
       if (dialogType === 'add') {
         const location = `${formData.location_type}:${formData.location_value}`;
         await api.post('/items', {
@@ -946,40 +969,114 @@ export default function Inventory() {
                                   
                                   <div className="bg-white rounded-lg border divide-y max-h-64 overflow-y-auto">
                                     {categoryItems.map(item => (
-                                      <div key={item.item_name} className="px-3 py-2 flex items-center justify-between text-sm">
-                                        <div>
-                                          <span className="font-medium">{item.item_name}</span>
-                                          {!isUnique && <span className="text-slate-500 ml-2">×{item.quantity || 1}</span>}
-                                          <span className="text-xs text-slate-500 ml-2">{formatLocation(item.current_location)}</span>
+                                      <div key={item.item_id || item.item_name} className="px-3 py-2 flex items-center justify-between text-sm" data-testid={`item-${item.item_id || item.item_name}`}>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-medium truncate">{item.item_name}</span>
+                                            {item.item_id && item.item_id !== item.item_name && (
+                                              <span className="text-xs text-slate-400">({item.item_id})</span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                                            {!isUnique && <span>×{item.quantity || 1}</span>}
+                                            <span className="flex items-center gap-1">
+                                              <MapPin className="w-3 h-3" />
+                                              {formatLocation(item.current_location) || 'No location'}
+                                            </span>
+                                          </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-shrink-0">
                                           <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(item.status)}`}>
                                             {item.status}
                                           </span>
                                           {isAdmin && (
-                                            <Select
-                                              value={item.status}
-                                              onValueChange={async (newStatus) => {
-                                                try {
-                                                  await api.put(`/items/${item.item_name}`, { status: newStatus });
-                                                  toast.success(`Status updated to ${newStatus}`);
-                                                  fetchCategoryItems(cat.value);
-                                                  fetchData();
-                                                } catch (err) {
-                                                  toast.error('Failed to update status');
-                                                }
-                                              }}
-                                            >
-                                              <SelectTrigger className="h-7 w-24 text-xs">
-                                                <SelectValue />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="active">Active</SelectItem>
-                                                <SelectItem value="damaged">Damaged</SelectItem>
-                                                <SelectItem value="lost">Lost</SelectItem>
-                                                <SelectItem value="repair">Repair</SelectItem>
-                                              </SelectContent>
-                                            </Select>
+                                            <div className="flex items-center gap-1">
+                                              {/* Status dropdown */}
+                                              <Select
+                                                value={item.status}
+                                                onValueChange={async (newStatus) => {
+                                                  try {
+                                                    await api.put(`/items/${encodeURIComponent(item.item_id || item.item_name)}`, { 
+                                                      status: newStatus,
+                                                      tracking_type: item.tracking_type || 'individual'
+                                                    });
+                                                    toast.success(`Status updated to ${newStatus}`);
+                                                    fetchCategoryItems(cat.value);
+                                                    fetchData();
+                                                  } catch (err) {
+                                                    toast.error('Failed to update status');
+                                                  }
+                                                }}
+                                              >
+                                                <SelectTrigger className="h-7 w-24 text-xs">
+                                                  <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  <SelectItem value="active">Active</SelectItem>
+                                                  <SelectItem value="damaged">Damaged</SelectItem>
+                                                  <SelectItem value="lost">Lost</SelectItem>
+                                                  <SelectItem value="repair">Repair</SelectItem>
+                                                </SelectContent>
+                                              </Select>
+                                              
+                                              {/* Edit button - ONLY for unique items */}
+                                              {isUnique && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-7 w-7"
+                                                  onClick={() => {
+                                                    setDialogType('edit-item');
+                                                    setEditingItem(item);
+                                                    setFormData({
+                                                      ...formData,
+                                                      edit_item_id: item.item_id || item.item_name,
+                                                      edit_item_name: item.item_name,
+                                                      edit_item_category: item.category,
+                                                      edit_item_status: item.status,
+                                                      edit_item_location: item.current_location,
+                                                      edit_item_tracking_type: item.tracking_type || 'individual'
+                                                    });
+                                                    setDialogOpen(true);
+                                                  }}
+                                                  data-testid={`edit-item-${item.item_id || item.item_name}`}
+                                                >
+                                                  <Edit className="w-3.5 h-3.5 text-slate-500" />
+                                                </Button>
+                                              )}
+                                              
+                                              {/* Delete button - ONLY for unique items */}
+                                              {isUnique && (
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-7 w-7"
+                                                  onClick={async () => {
+                                                    const hasLocation = item.current_location && 
+                                                      item.current_location !== 'None' && 
+                                                      !item.current_location.includes('Storage');
+                                                    
+                                                    const confirmMsg = hasLocation 
+                                                      ? `⚠️ WARNING: "${item.item_name}" is currently at ${formatLocation(item.current_location)}.\n\nDeleting this item will remove it from inventory tracking.\n\nAre you sure you want to delete?`
+                                                      : `Delete "${item.item_name}"?`;
+                                                    
+                                                    if (!confirm(confirmMsg)) return;
+                                                    
+                                                    try {
+                                                      await api.delete(`/items/${encodeURIComponent(item.item_id || item.item_name)}`);
+                                                      toast.success(`Item "${item.item_name}" deleted`);
+                                                      fetchCategoryItems(cat.value);
+                                                      fetchData();
+                                                    } catch (err) {
+                                                      toast.error(err.response?.data?.detail || 'Failed to delete item');
+                                                    }
+                                                  }}
+                                                  data-testid={`delete-item-${item.item_id || item.item_name}`}
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                                </Button>
+                                              )}
+                                            </div>
                                           )}
                                         </div>
                                       </div>
@@ -1214,6 +1311,7 @@ export default function Inventory() {
             <DialogTitle className="text-base">
               {dialogType === 'add' ? 'Add Item' : 
                dialogType === 'edit' ? 'Edit Item' : 
+               dialogType === 'edit-item' ? `Edit: ${editingItem?.item_name}` :
                dialogType === 'transfer' ? `Transfer: ${editingItem?.item_name}` : 
                dialogType === 'bulk-transfer' ? 'Transfer Item' :
                dialogType === 'report-damage' ? 'Report Damaged Item' :
@@ -1803,6 +1901,58 @@ export default function Inventory() {
                 />
               </div>
             )}
+            
+            {/* EDIT ITEM DIALOG - For unique items only */}
+            {dialogType === 'edit-item' && editingItem && (
+              <>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+                  <p className="font-medium">Editing Unique Item</p>
+                  <p className="text-xs mt-1">Internal ID: <span className="font-mono">{formData.edit_item_id}</span> (used for tracking - won't change)</p>
+                </div>
+                
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Item Name *</Label>
+                  <Input
+                    value={formData.edit_item_name || ''}
+                    onChange={(e) => setFormData({ ...formData, edit_item_name: e.target.value })}
+                    placeholder="e.g., SSD-21"
+                    className="mt-1"
+                    required
+                    data-testid="edit-item-name-input"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Display name can be changed without affecting history</p>
+                </div>
+                
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Current Location</Label>
+                  <div className="mt-1 px-3 py-2 bg-slate-100 rounded-lg text-sm">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-slate-400" />
+                      <span>{formatLocation(formData.edit_item_location) || 'No location assigned'}</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Use Transfer to change location</p>
+                </div>
+                
+                <div>
+                  <Label className="text-xs font-semibold text-slate-700">Status</Label>
+                  <Select 
+                    value={formData.edit_item_status || 'active'} 
+                    onValueChange={(v) => setFormData({ ...formData, edit_item_status: v })}
+                  >
+                    <SelectTrigger className="mt-1" data-testid="edit-item-status-select">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="damaged">Damaged</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                      <SelectItem value="repair">Repair</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
             </div>
             
             <div className="flex gap-3 px-4 py-3 border-t bg-slate-50 flex-shrink-0">
@@ -1811,7 +1961,7 @@ export default function Inventory() {
               </Button>
               <Button type="submit" className="flex-1" data-testid="submit-btn">
                 {dialogType === 'add' || dialogType === 'add-category' ? 'Create' : 
-                 dialogType === 'edit' || dialogType === 'edit-category' ? 'Update' : 'Submit'}
+                 dialogType === 'edit' || dialogType === 'edit-category' || dialogType === 'edit-item' ? 'Update' : 'Submit'}
               </Button>
             </div>
           </form>
