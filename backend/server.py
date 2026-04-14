@@ -3344,7 +3344,12 @@ async def add_kit_composition_item(data: dict, user: dict = Depends(get_current_
         if not category or not label:
             raise HTTPException(status_code=400, detail="Category and label are required")
         
-        # Check if already exists
+        # Validate category exists in inventory categories
+        inventory_category = await get_db().categories.find_one({"value": category})
+        if not inventory_category:
+            raise HTTPException(status_code=400, detail=f"Category '{category}' does not exist in Inventory. Create it in Inventory → Categories first.")
+        
+        # Check if already exists in kit composition
         existing = await get_db().kit_composition.find_one({"category": category})
         if existing:
             raise HTTPException(status_code=400, detail="Category already exists in kit composition")

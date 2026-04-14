@@ -31,6 +31,7 @@ export default function AdminPanel() {
   const [kits, setKits] = useState([]);
   const [taskCategories, setTaskCategories] = useState([]);
   const [kitComposition, setKitComposition] = useState([]);
+  const [inventoryCategories, setInventoryCategories] = useState([]); // Categories from Inventory
   
   // Form data
   const [formData, setFormData] = useState({});
@@ -41,18 +42,20 @@ export default function AdminPanel() {
 
   const fetchAll = async () => {
     try {
-      const [usersRes, bnbsRes, kitsRes, taskCatsRes, kitCompRes] = await Promise.all([
+      const [usersRes, bnbsRes, kitsRes, taskCatsRes, kitCompRes, categoriesRes] = await Promise.all([
         api.get('/users'),
         api.get('/bnbs'),
         api.get('/kits'),
         api.get('/task-categories'),
-        api.get('/kit-composition')
+        api.get('/kit-composition'),
+        api.get('/categories')
       ]);
       setUsers(usersRes.data);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
       setTaskCategories(taskCatsRes.data || []);
       setKitComposition(kitCompRes.data || []);
+      setInventoryCategories(categoriesRes.data?.categories || []);
     } catch (error) {
       console.error(error);
     }
@@ -301,21 +304,63 @@ export default function AdminPanel() {
     }
     
     if (dialogType === 'kit-composition') {
+      // Filter out categories already in kit composition (when adding new)
+      const availableCategories = editingItem 
+        ? inventoryCategories 
+        : inventoryCategories.filter(cat => 
+            !kitComposition.some(kc => kc.category === cat.value)
+          );
+      
       return (
         <>
-          <div>
-            <Label>Category ID *</Label>
-            <Input 
-              value={formData.category || ''} 
-              onChange={(e) => setFormData({ ...formData, category: e.target.value.toLowerCase().replace(/\s+/g, '_') })} 
-              className="mt-1" 
-              placeholder="power_bank" 
-              required 
-              disabled={!!editingItem}
-              data-testid="kit-comp-category-input"
-            />
-            <p className="text-xs text-slate-500 mt-1">Lowercase, underscores (e.g., power_bank, usb_hub)</p>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700 mb-2">
+            <p className="font-medium">Kit Composition</p>
+            <p className="text-xs mt-1">Select a category from Inventory and define the required quantity per kit.</p>
           </div>
+          
+          <div>
+            <Label>Category *</Label>
+            {editingItem ? (
+              // When editing, show read-only category
+              <div className="mt-1 px-3 py-2 bg-slate-100 rounded-lg text-sm font-medium">
+                {editingItem.label} ({editingItem.category})
+              </div>
+            ) : (
+              // When adding, show dropdown of available categories
+              <Select 
+                value={formData.category || ''} 
+                onValueChange={(value) => {
+                  const selectedCat = inventoryCategories.find(c => c.value === value);
+                  setFormData({ 
+                    ...formData, 
+                    category: value,
+                    label: selectedCat?.label || value
+                  });
+                }}
+              >
+                <SelectTrigger className="mt-1" data-testid="kit-comp-category-select">
+                  <SelectValue placeholder="Select a category..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCategories.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-slate-500">
+                      All categories already added to kit composition
+                    </div>
+                  ) : (
+                    availableCategories.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>
+                        {cat.label} ({cat.type})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              Categories are managed in Inventory → Categories
+            </p>
+          </div>
+          
           <div>
             <Label>Display Name *</Label>
             <Input 
@@ -327,8 +372,9 @@ export default function AdminPanel() {
               data-testid="kit-comp-label-input"
             />
           </div>
+          
           <div>
-            <Label>Required Quantity *</Label>
+            <Label>Required Quantity per Kit *</Label>
             <Input 
               type="number"
               min="1"
@@ -338,7 +384,7 @@ export default function AdminPanel() {
               required 
               data-testid="kit-comp-required-input"
             />
-            <p className="text-xs text-slate-500 mt-1">Number of items required per kit</p>
+            <p className="text-xs text-slate-500 mt-1">Number of items required per standard kit</p>
           </div>
         </>
       );

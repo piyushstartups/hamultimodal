@@ -172,6 +172,21 @@ export default function Inventory() {
     );
   };
 
+  // Normalize category for matching (handles case, spaces, special chars)
+  const normalizeCategory = (cat) => {
+    if (!cat) return '';
+    return cat.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  };
+  
+  // Check if two categories match (flexible matching)
+  const categoriesMatch = (cat1, cat2) => {
+    if (!cat1 || !cat2) return false;
+    // Exact match
+    if (cat1 === cat2) return true;
+    // Normalized match
+    return normalizeCategory(cat1) === normalizeCategory(cat2);
+  };
+
   // Group by category
   const groupByCategory = (itemList) => {
     return categories.reduce((acc, cat) => {
@@ -1124,19 +1139,21 @@ export default function Inventory() {
                 ) : (
                   <div className="grid gap-4">
                     {kits.map(kit => {
+                      // Get all items in this kit (active only for completeness)
                       const kitItems = getKitItems(kit.kit_id).filter(i => i.status === 'active');
                       
                       // Calculate completeness using API-driven kit composition
-                      // IMPORTANT: Sum quantities, not record counts (critical for non-unique items like IMUs)
+                      // SINGLE SOURCE OF TRUTH: Same item data as Distribution
+                      // Uses flexible category matching to handle variations
                       const completeness = kitComposition.map(standard => {
+                        // Find matching items using flexible category matching
                         const matchingItems = kitItems.filter(item => 
-                          item.category === standard.category || 
-                          item.category?.toLowerCase().replace(/[^a-z_]/g, '_') === standard.category
+                          categoriesMatch(item.category, standard.category)
                         );
                         
-                        // Sum the quantities of all matching items (handles both unique and non-unique)
-                        // For unique items, quantity defaults to 1
-                        // For non-unique items (IMUs, USB hubs, etc.), quantity can be > 1
+                        // Sum the quantities of all matching items
+                        // For unique items: quantity defaults to 1
+                        // For non-unique items: quantity can be > 1
                         const currentQuantity = matchingItems.reduce((sum, item) => {
                           return sum + (parseInt(item.quantity) || 1);
                         }, 0);
@@ -1153,7 +1170,9 @@ export default function Inventory() {
                           required: standard.required,
                           current: currentQuantity,
                           status,
-                          excess: currentQuantity > standard.required ? currentQuantity - standard.required : 0
+                          excess: currentQuantity > standard.required ? currentQuantity - standard.required : 0,
+                          // Include matching items for debugging
+                          matchingItemCount: matchingItems.length
                         };
                       });
                       
