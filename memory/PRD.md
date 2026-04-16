@@ -1,7 +1,18 @@
 # HA Multimodal Management - Product Requirements Document
 
 ## Last Updated
-2026-03-24 - **CRITICAL BUG FIX: Kit Completeness Quantity Calculation**
+2026-04-16 - **Admin as Deployment Manager: Admins now assignable to shifts**
+
+### Admin Role Enhancement: Shift Assignment ✅
+- **Change:** Admins now appear in Morning/Night Team dropdowns alongside deployment managers
+- **File:** `Deployments.js` line 306 — filter includes both `admin` and `deployment_manager` roles
+- **UI:** Admin users labeled with `(Admin)` suffix for clarity
+- **No backend changes needed** — admins already had full shift access and no deployment filtering
+- **No new role created** — admin = superuser who can also act as site manager
+
+---
+
+## 2026-03-24 - **CRITICAL BUG FIX: Kit Completeness Quantity Calculation**
 
 ### Bug Fix: Kit Completeness for Non-Unique Items ✅
 

@@ -303,7 +303,7 @@ export default function Deployments() {
       ]);
       setBnbs(bnbsRes.data);
       setKits(kitsRes.data);
-      setManagers(usersRes.data.filter(u => u.role === 'deployment_manager'));
+      setManagers(usersRes.data.filter(u => u.role === 'deployment_manager' || u.role === 'admin'));
       setItems(itemsRes.data);
       // Set task categories from API (fallback to defaults if empty)
       if (taskCatsRes.data && taskCatsRes.data.length > 0) {
@@ -1987,10 +1987,11 @@ export default function Deployments() {
                 <div className="flex flex-wrap gap-1.5 mt-1 max-h-20 overflow-y-auto p-1 bg-slate-50 rounded">
                   {managers.map(m => (
                     <button key={`morning-${m.id}`} type="button" onClick={() => toggleMorningManager(m.id)}
+                      data-testid={`morning-manager-${m.id}`}
                       className={`px-2 py-1 text-xs rounded border transition-all ${
                         formData.morning_managers?.includes(m.id) ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-700 border-slate-200'
                       }`}
-                    >{m.name}</button>
+                    >{m.name}{m.role === 'admin' ? ' (Admin)' : ''}</button>
                   ))}
                 </div>
               </div>
@@ -2004,10 +2005,11 @@ export default function Deployments() {
                 <div className="flex flex-wrap gap-1.5 mt-1 max-h-20 overflow-y-auto p-1 bg-slate-50 rounded">
                   {managers.map(m => (
                     <button key={`night-${m.id}`} type="button" onClick={() => toggleNightManager(m.id)}
+                      data-testid={`night-manager-${m.id}`}
                       className={`px-2 py-1 text-xs rounded border transition-all ${
                         formData.night_managers?.includes(m.id) ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-700 border-slate-200'
                       }`}
-                    >{m.name}</button>
+                    >{m.name}{m.role === 'admin' ? ' (Admin)' : ''}</button>
                   ))}
                 </div>
               </div>
